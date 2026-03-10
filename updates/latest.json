@@ -1,11 +1,10 @@
 {
   "version": "1.0.2",
-  "notes": "v1.0.2 — Watchlist & history fixes, intro animation, fullscreen launch",
-  "pub_date": "2026-03-10T00:00:00Z",
+  "notes": "v1.0.2 — Auto-release",
+  "pub_date": "2026-03-10T19:55:43Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream/releases/download/v1.0.2/nova-stream_1.0.2_x64-setup.nsis.zip",
-      "signature": "PLACEHOLDER_SIGNATURE"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream/releases/download/v1.0.2/NOVA-STREAM-1.0.2-portable.exe"
     }
   }
 }
