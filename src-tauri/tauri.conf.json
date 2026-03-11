@@ -19,12 +19,14 @@
         "resizable": true,
         "maximized": true,
         "fullscreen": false,
-        "decorations": true
+        "decorations": true,
+        "additionalBrowserArgs": "--disable-web-security --allow-running-insecure-content --disable-features=IsolateOrigins,site-per-process"
       }
     ],
     "security": {
       "csp": null,
-      "dangerousDisableAssetCspModification": true
+      "dangerousDisableAssetCspModification": true,
+      "freezePrototype": false
     }
   },
   "bundle": {
