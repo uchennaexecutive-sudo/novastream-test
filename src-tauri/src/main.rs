@@ -4,6 +4,7 @@ use std::env;
 use std::fs;
 use std::process::Command;
 use tauri::Manager;
+use tauri::Emitter;
 
 #[tauri::command]
 fn minimize_window(window: tauri::Window) {
