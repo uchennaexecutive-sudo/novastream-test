@@ -4,8 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Maximize, Minimize, X } from 'lucide-react'
 import { ANIME_SERVER_LABELS, getAnimeEmbeds, getMovieEmbeds, getSeriesEmbeds } from '../../lib/embeds'
 import { addToHistory } from '../../lib/supabase'
+import { saveProgress } from '../../lib/progress'
+import { imgOriginal, imgW500 } from '../../lib/tmdb'
 
-// Human-readable server labels
 const DEFAULT_SERVER_LABELS = [
   'VidSrc XYZ',
   'VidSrc Net',
@@ -15,7 +16,118 @@ const DEFAULT_SERVER_LABELS = [
   'NontonFilm',
 ]
 
-export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title, posterPath, season, episode, isAnime = false }) {
+const toNumber = (value) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+const readNumber = (source, keys) => {
+  if (!source || typeof source !== 'object') return null
+
+  for (const key of keys) {
+    const value = toNumber(source[key])
+    if (value !== null) return value
+  }
+
+  return null
+}
+
+const parseMessagePayload = (payload) => {
+  let parsed = payload
+
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return null
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const candidates = [
+    parsed,
+    parsed.data,
+    parsed.payload,
+    parsed.message,
+    parsed.player,
+    parsed.detail,
+    parsed.progress,
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const progressSeconds = readNumber(candidate, [
+      'progressSeconds',
+      'currentTime',
+      'current_time',
+      'playedSeconds',
+      'time',
+      'seconds',
+      'position',
+    ])
+    const durationSeconds = readNumber(candidate, [
+      'durationSeconds',
+      'duration',
+      'totalDuration',
+      'total_duration',
+      'length',
+    ])
+
+    if (progressSeconds !== null || durationSeconds !== null) {
+      return {
+        progressSeconds: Math.max(0, Math.floor(progressSeconds || 0)),
+        durationSeconds: Math.max(0, Math.floor(durationSeconds || 0)),
+      }
+    }
+  }
+
+  return null
+}
+
+const withResumeParams = (url, seconds) => {
+  const startSeconds = Math.max(0, Math.floor(Number(seconds) || 0))
+  if (!startSeconds) return url
+
+  try {
+    const nextUrl = new URL(url)
+    nextUrl.searchParams.set('start', String(startSeconds))
+    nextUrl.searchParams.set('t', String(startSeconds))
+    nextUrl.hash = `t=${startSeconds}`
+    return nextUrl.toString()
+  } catch {
+    return url
+  }
+}
+
+const buildResumeMessages = (seconds) => {
+  const time = Math.max(0, Math.floor(Number(seconds) || 0))
+  if (!time) return []
+
+  return [
+    { type: 'nova:seek', seconds: time },
+    { type: 'seek', seconds: time },
+    { type: 'seek', time },
+    { action: 'seek', seconds: time },
+    { action: 'seek', time },
+    { command: 'seek', seconds: time },
+    { command: 'seek', time },
+    { event: 'seek', seconds: time },
+  ]
+}
+
+export default function PlayerModal({
+  isOpen,
+  onClose,
+  tmdbId,
+  mediaType,
+  title,
+  posterPath,
+  backdropPath,
+  season,
+  episode,
+  resumeAt = 0,
+  isAnime = false,
+}) {
   const [sourceIndex, setSourceIndex] = useState(0)
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -25,6 +137,14 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
   const timeoutRef = useRef(null)
   const chromeTimerRef = useRef(null)
   const playerContainerRef = useRef(null)
+  const iframeRef = useRef(null)
+  const wasOpenRef = useRef(false)
+  const playbackLoadedAtRef = useRef(0)
+  const lastProgressRef = useRef({
+    progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
+    durationSeconds: 0,
+  })
+  const resumeTimersRef = useRef([])
 
   const embeds = mediaType === 'movie'
     ? getMovieEmbeds(tmdbId)
@@ -32,13 +152,118 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
       ? getAnimeEmbeds(tmdbId, season, episode)
       : getSeriesEmbeds(tmdbId, season, episode)
 
-  const currentUrl = embeds[sourceIndex]
+  const resumeSeconds = Math.max(
+    0,
+    Math.floor(lastProgressRef.current.progressSeconds || 0),
+    Math.floor(Number(resumeAt) || 0)
+  )
+  const currentUrl = withResumeParams(embeds[sourceIndex], resumeSeconds)
   const serverLabels = isAnime ? ANIME_SERVER_LABELS : DEFAULT_SERVER_LABELS
   const serverLabel = serverLabels[sourceIndex] || `Server ${sourceIndex + 1}`
+  const contentType = isAnime ? 'anime' : mediaType
+  const normalizedSeason = mediaType === 'movie' ? null : (Number(season) || null)
+  const normalizedEpisode = mediaType === 'movie' ? null : (Number(episode) || null)
+  const poster = posterPath?.startsWith?.('http') ? posterPath : imgW500(posterPath)
+  const backdrop = backdropPath?.startsWith?.('http') ? backdropPath : imgOriginal(backdropPath)
 
-  // ─── Ad blocking: re-focus window when iframe steals focus (ad popup) ───
+  const clearResumeTimers = useCallback(() => {
+    resumeTimersRef.current.forEach(timer => window.clearTimeout(timer))
+    resumeTimersRef.current = []
+  }, [])
+
+  const persistProgress = useCallback((overrides = {}) => {
+    const progressSeconds = Math.max(
+      0,
+      Math.floor(
+        overrides.progressSeconds
+        ?? lastProgressRef.current.progressSeconds
+        ?? 0
+      )
+    )
+
+    if (!tmdbId || progressSeconds <= 0) return Promise.resolve(null)
+
+    const durationSeconds = Math.max(
+      0,
+      Math.floor(
+        overrides.durationSeconds
+        ?? lastProgressRef.current.durationSeconds
+        ?? 0
+      )
+    )
+
+    lastProgressRef.current = { progressSeconds, durationSeconds }
+
+    return saveProgress({
+      contentId: String(tmdbId),
+      contentType,
+      title,
+      poster,
+      backdrop,
+      season: normalizedSeason,
+      episode: normalizedEpisode,
+      progressSeconds,
+      durationSeconds,
+    })
+  }, [backdrop, contentType, normalizedEpisode, normalizedSeason, poster, title, tmdbId])
+
+  const persistBestGuessProgress = useCallback(() => {
+    const elapsedSeconds = playbackLoadedAtRef.current
+      ? Math.max(0, Math.floor((Date.now() - playbackLoadedAtRef.current) / 1000))
+      : 0
+
+    const guessedProgress = Math.max(
+      lastProgressRef.current.progressSeconds || 0,
+      Math.max(0, Math.floor(Number(resumeAt) || 0)) + elapsedSeconds
+    )
+
+    return persistProgress({
+      progressSeconds: guessedProgress,
+      durationSeconds: lastProgressRef.current.durationSeconds || 0,
+    })
+  }, [persistProgress, resumeAt])
+
+  const sendResumeMessages = useCallback(() => {
+    const targetWindow = iframeRef.current?.contentWindow
+    if (!targetWindow || resumeSeconds <= 0) return
+
+    clearResumeTimers()
+
+    const messages = buildResumeMessages(resumeSeconds)
+    const delays = [300, 1000, 2500]
+
+    delays.forEach((delay) => {
+      const timer = window.setTimeout(() => {
+        messages.forEach(message => targetWindow.postMessage(message, '*'))
+      }, delay)
+
+      resumeTimersRef.current.push(timer)
+    })
+  }, [clearResumeTimers, resumeSeconds])
+
+  const startTimeout = useCallback(() => {
+    window.clearTimeout(timeoutRef.current)
+    setLoading(true)
+    timeoutRef.current = window.setTimeout(() => {
+      setLoading(false)
+      if (sourceIndex < embeds.length - 1) {
+        setSourceIndex(index => index + 1)
+      } else {
+        setError(true)
+      }
+    }, 8000)
+  }, [embeds.length, sourceIndex])
+
+  const handleIframeLoad = useCallback(() => {
+    window.clearTimeout(timeoutRef.current)
+    if (!playbackLoadedAtRef.current) playbackLoadedAtRef.current = Date.now()
+    setLoading(false)
+    sendResumeMessages()
+  }, [sendResumeMessages])
+
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) return undefined
+
     const handleBlur = () => {
       setTimeout(() => {
         if (document.activeElement?.tagName === 'IFRAME') {
@@ -46,44 +271,36 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
         }
       }, 0)
     }
+
     window.addEventListener('blur', handleBlur)
     return () => window.removeEventListener('blur', handleBlur)
   }, [isOpen])
 
-  // ─── Block window.open popups at the page level ───
   useEffect(() => {
-    if (!isOpen) return
-    const origOpen = window.open
+    if (!isOpen) return undefined
+
+    const originalOpen = window.open
     window.open = () => null
-    return () => { window.open = origOpen }
+
+    return () => {
+      window.open = originalOpen
+    }
   }, [isOpen])
 
-  // ─── Auto-advance to next source after 8s timeout ───
-  const startTimeout = useCallback(() => {
-    clearTimeout(timeoutRef.current)
-    setLoading(true)
-    timeoutRef.current = setTimeout(() => {
-      setLoading(false)
-      if (sourceIndex < embeds.length - 1) {
-        setSourceIndex(i => i + 1)
-      } else {
-        setError(true)
-      }
-    }, 8000)
-  }, [sourceIndex, embeds.length])
-
-  const handleIframeLoad = useCallback(() => {
-    clearTimeout(timeoutRef.current)
-    setLoading(false)
-  }, [])
-
-  // ─── Init on open ───
   useEffect(() => {
     if (isOpen) {
+      wasOpenRef.current = true
+      lastProgressRef.current = {
+        progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
+        durationSeconds: 0,
+      }
+      playbackLoadedAtRef.current = 0
+      clearResumeTimers()
       setSourceIndex(0)
       setError(false)
       setLoading(true)
       setShowChrome(true)
+
       addToHistory({
         tmdb_id: tmdbId,
         media_type: mediaType,
@@ -92,67 +309,128 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
         season,
         episode,
       }).catch(() => {})
-    } else {
+    } else if (wasOpenRef.current) {
+      persistBestGuessProgress().catch(() => {})
+      clearResumeTimers()
+      wasOpenRef.current = false
+
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {})
       }
     }
-    return () => clearTimeout(timeoutRef.current)
-  }, [isOpen, tmdbId, season, episode])
 
-  // ─── Start timeout on source change ───
+    return () => window.clearTimeout(timeoutRef.current)
+  }, [
+    clearResumeTimers,
+    episode,
+    isOpen,
+    mediaType,
+    persistBestGuessProgress,
+    posterPath,
+    resumeAt,
+    season,
+    title,
+    tmdbId,
+  ])
+
   useEffect(() => {
     if (isOpen && !error) {
       startTimeout()
     }
-    return () => clearTimeout(timeoutRef.current)
-  }, [sourceIndex, isOpen, error])
 
-  // ─── Fullscreen change listener ───
+    return () => window.clearTimeout(timeoutRef.current)
+  }, [error, isOpen, sourceIndex, startTimeout])
+
   useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', handler)
-    return () => document.removeEventListener('fullscreenchange', handler)
+    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
 
-  // ─── Keyboard: F for fullscreen, Escape to close ───
   useEffect(() => {
-    if (!isOpen) return
-    const handler = (e) => {
-      if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault()
-        toggleFullscreen()
+    if (!isOpen) return undefined
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'f' || event.key === 'F') {
+        event.preventDefault()
+        if (!document.fullscreenElement) {
+          playerContainerRef.current?.requestFullscreen?.().catch(() => {})
+        } else {
+          document.exitFullscreen().catch(() => {})
+        }
       }
-      if (e.key === 'Escape') {
+
+      if (event.key === 'Escape') {
         if (document.fullscreenElement) {
           document.exitFullscreen().catch(() => {})
         } else {
+          persistBestGuessProgress().catch(() => {})
           onClose()
         }
       }
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [isOpen, onClose])
 
-  // ─── Chrome auto-hide (show on mouse move, fade after 3s) ───
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose, persistBestGuessProgress])
+
   const resetChromeTimer = useCallback(() => {
     setShowChrome(true)
-    clearTimeout(chromeTimerRef.current)
-    chromeTimerRef.current = setTimeout(() => setShowChrome(false), 3000)
+    window.clearTimeout(chromeTimerRef.current)
+    chromeTimerRef.current = window.setTimeout(() => setShowChrome(false), 3000)
   }, [])
 
   useEffect(() => {
     if (isOpen) {
       resetChromeTimer()
     }
-    return () => clearTimeout(chromeTimerRef.current)
-  }, [isOpen])
 
-  // ─── Actions ───
+    return () => window.clearTimeout(chromeTimerRef.current)
+  }, [isOpen, resetChromeTimer])
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+
+    const handleMessage = (event) => {
+      const iframeWindow = iframeRef.current?.contentWindow
+      if (!iframeWindow || event.source !== iframeWindow) return
+
+      const progressUpdate = parseMessagePayload(event.data)
+      if (!progressUpdate) return
+
+      if (!playbackLoadedAtRef.current) playbackLoadedAtRef.current = Date.now()
+
+      lastProgressRef.current = {
+        progressSeconds: progressUpdate.progressSeconds,
+        durationSeconds: progressUpdate.durationSeconds || lastProgressRef.current.durationSeconds || 0,
+      }
+
+      persistProgress(progressUpdate).catch(() => {})
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [isOpen, persistProgress])
+
+  useEffect(() => () => {
+    window.clearTimeout(timeoutRef.current)
+    window.clearTimeout(chromeTimerRef.current)
+    clearResumeTimers()
+
+    if (wasOpenRef.current) {
+      persistBestGuessProgress().catch(() => {})
+    }
+  }, [clearResumeTimers, persistBestGuessProgress])
+
+  const handleClose = () => {
+    persistBestGuessProgress().catch(() => {})
+    onClose()
+  }
+
   const toggleFullscreen = () => {
     const container = playerContainerRef.current
     if (!container) return
+
     if (!document.fullscreenElement) {
       container.requestFullscreen().catch(() => {})
     } else {
@@ -160,25 +438,23 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
     }
   }
 
-  const switchSource = (i) => {
-    setSourceIndex(i)
+  const switchSource = (nextIndex) => {
+    persistBestGuessProgress().catch(() => {})
+    clearResumeTimers()
+    playbackLoadedAtRef.current = 0
+    setSourceIndex(nextIndex)
     setError(false)
     setLoading(true)
   }
 
   if (!isOpen) return null
 
-  // ─── Render via Portal to document.body ───
   return createPortal(
     <AnimatePresence>
-      {/* Overlay — flexbox centered */}
       <motion.div
         style={{
           position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
+          inset: 0,
           width: '100vw',
           height: '100vh',
           zIndex: 9999,
@@ -192,9 +468,10 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) handleClose()
+        }}
       >
-        {/* Modal container */}
         <motion.div
           ref={playerContainerRef}
           style={{
@@ -213,7 +490,6 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
           transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
           onMouseMove={resetChromeTimer}
         >
-          {/* ─── Top Bar — Source Tabs + Fullscreen + Close ─── */}
           <AnimatePresence>
             {showChrome && (
               <motion.div
@@ -238,21 +514,21 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
                 transition={{ duration: 0.2 }}
               >
                 <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
-                  {embeds.map((_, i) => (
+                  {embeds.map((_, index) => (
                     <button
-                      key={i}
-                      onClick={() => switchSource(i)}
+                      key={index}
+                      onClick={() => switchSource(index)}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5"
                       style={{
-                        background: i === sourceIndex ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
-                        color: i === sourceIndex ? '#fff' : 'rgba(255,255,255,0.5)',
-                        boxShadow: i === sourceIndex ? '0 0 16px var(--accent-glow)' : 'none',
+                        background: index === sourceIndex ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
+                        color: index === sourceIndex ? '#fff' : 'rgba(255,255,255,0.5)',
+                        boxShadow: index === sourceIndex ? '0 0 16px var(--accent-glow)' : 'none',
                       }}
                     >
-                      {i === sourceIndex && loading && (
+                      {index === sourceIndex && loading && (
                         <span className="w-3 h-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                       )}
-                      {serverLabels[i] || `Server ${i + 1}`}
+                      {serverLabels[index] || `Server ${index + 1}`}
                     </button>
                   ))}
                 </div>
@@ -266,7 +542,7 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
                     {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
                   </button>
                   <button
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all"
                   >
                     <X size={14} />
@@ -276,10 +552,9 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
             )}
           </AnimatePresence>
 
-          {/* ─── Player Area (fills entire modal) ─── */}
           {error ? (
             <div className="w-full h-full flex flex-col items-center justify-center gap-4">
-              <span className="text-4xl opacity-40">⚠</span>
+              <span className="text-4xl opacity-40">!</span>
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 All servers exhausted. Try opening in a new tab.
               </p>
@@ -292,7 +567,7 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
                   Retry {serverLabels[0] || 'Server 1'}
                 </button>
                 <a
-                  href={embeds[0]}
+                  href={withResumeParams(embeds[0], resumeSeconds)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-5 py-2.5 rounded-xl text-sm font-medium inline-flex items-center gap-2"
@@ -305,7 +580,8 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
           ) : (
             <>
               <iframe
-                key={`${currentUrl}-${sourceIndex}`}
+                ref={iframeRef}
+                key={`${currentUrl}-${sourceIndex}-${resumeSeconds}`}
                 src={currentUrl}
                 allowFullScreen
                 allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
@@ -321,18 +597,27 @@ export default function PlayerModal({ isOpen, onClose, tmdbId, mediaType, title,
                 }}
                 onLoad={handleIframeLoad}
                 onError={() => {
-                  clearTimeout(timeoutRef.current)
+                  window.clearTimeout(timeoutRef.current)
                   if (sourceIndex < embeds.length - 1) {
-                    setSourceIndex(i => i + 1)
+                    setSourceIndex(index => index + 1)
                   } else {
                     setError(true)
                   }
                 }}
               />
 
-              {/* Loading overlay */}
               {loading && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', zIndex: 5 }}>
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0,0,0,0.6)',
+                    zIndex: 5,
+                  }}
+                >
                   <div className="flex flex-col items-center gap-3">
                     <span className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
                     <span className="text-xs text-white/50 font-mono">

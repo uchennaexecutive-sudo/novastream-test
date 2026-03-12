@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Hls from 'hls.js'
@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { ANIWATCH_BASE_URL, getAnimeEpisodes, getAnimeStream, searchAnime } from '../../lib/consumet'
+import { saveProgress } from '../../lib/progress'
 
 const STREAM_SERVER = { id: 'hd-2', label: 'HD-2' }
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2]
@@ -69,19 +70,32 @@ const parseVtt = (text) => text
   })
   .filter(Boolean)
 
-export default function AnimePlayer({ animeTitle, season, episode, backdrop, prefetchedAnime = null, onClose }) {
+export default function AnimePlayer({
+  animeTitle,
+  contentId,
+  season,
+  episode,
+  poster,
+  backdrop,
+  resumeAt = 0,
+  prefetchedAnime = null,
+  onClose,
+}) {
   const videoRef = useRef(null)
   const playerContainerRef = useRef(null)
   const progressRef = useRef(null)
   const hlsRef = useRef(null)
   const hideTimerRef = useRef(null)
   const retryTimerRef = useRef(null)
+  const resumeAppliedRef = useRef(false)
+  const resumeTargetRef = useRef({ episode: Number(episode) || 1, seconds: Number(resumeAt) || 0 })
   const retryScheduledRef = useRef(false)
   const streamAttemptRef = useRef(0)
   const [animeId, setAnimeId] = useState('')
   const [episodes, setEpisodes] = useState([])
   const [currentEpisode, setCurrentEpisode] = useState(Number(episode) || 1)
-  const [streamUrl, setStreamUrl] = useState('')
+  const [streamData, setStreamData] = useState({ rawUrl: '', proxiedUrl: '' })
+  const [streamMode, setStreamMode] = useState('proxy')
   const [streamSources, setStreamSources] = useState([])
   const [subtitleTracks, setSubtitleTracks] = useState([])
   const [subtitleCues, setSubtitleCues] = useState([])
@@ -116,6 +130,16 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     () => episodes.find(item => Number(item.number) === Number(currentEpisode)) || null,
     [episodes, currentEpisode]
   )
+  const activeStreamUrl = useMemo(() => {
+    if (streamMode === 'raw') return streamData.rawUrl || streamData.proxiedUrl || ''
+    return streamData.proxiedUrl || streamData.rawUrl || ''
+  }, [streamData, streamMode])
+  const canFallbackToRaw = Boolean(
+    streamData.rawUrl
+    && streamData.proxiedUrl
+    && streamData.rawUrl !== streamData.proxiedUrl
+    && streamMode !== 'raw'
+  )
   const hasPrevEpisode = episodes.some(item => Number(item.number) === Number(currentEpisode) - 1)
   const hasNextEpisode = episodes.some(item => Number(item.number) === Number(currentEpisode) + 1)
 
@@ -127,7 +151,8 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     window.clearTimeout(retryTimerRef.current)
   }
   const resetPlaybackState = () => {
-    setStreamUrl('')
+    setStreamData({ rawUrl: '', proxiedUrl: '' })
+    setStreamMode('proxy')
     setStreamSources([])
     setSubtitleTracks([])
     setSubtitleCues([])
@@ -138,6 +163,28 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     setDuration(0)
     setBufferedEnd(0)
   }
+  const persistProgress = useCallback(() => {
+    const video = videoRef.current
+    const effectiveContentId = contentId || animeId || animeTitle
+
+    if (!video || !effectiveContentId) return Promise.resolve(null)
+
+    const progressSeconds = Number(video.currentTime || 0)
+    const durationSeconds = Number(video.duration || 0)
+    if (!Number.isFinite(progressSeconds) || progressSeconds <= 0) return Promise.resolve(null)
+
+    return saveProgress({
+      contentId: String(effectiveContentId),
+      contentType: 'anime',
+      title: animeTitle,
+      poster,
+      backdrop,
+      season: season || 1,
+      episode: currentEpisode,
+      progressSeconds,
+      durationSeconds,
+    })
+  }, [animeId, animeTitle, backdrop, contentId, currentEpisode, poster, season])
   const scheduleControlsHide = () => {
     clearHideTimer()
     if (loading || error || !isPlaying) {
@@ -182,8 +229,11 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     const match = episodes.find(item => Number(item.number) === Number(nextEpisode))
     if (!match) return
 
+    persistProgress().catch(() => {})
     clearRetryTimer()
     streamAttemptRef.current = 0
+    resumeAppliedRef.current = false
+    resumeTargetRef.current = { episode: Number(nextEpisode), seconds: 0 }
     resetPlaybackState()
     setCurrentEpisode(Number(nextEpisode))
     setLoading(true)
@@ -230,6 +280,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
   const retryFreshStream = () => {
     clearRetryTimer()
     streamAttemptRef.current = 0
+    resumeAppliedRef.current = false
     resetPlaybackState()
     setLoading(true)
     setLoadingStage('Fetching stream...')
@@ -249,6 +300,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     setLoading(true)
     setLoadingStage('Fetching stream...')
     setError('')
+    resumeAppliedRef.current = false
     resetPlaybackState()
 
     if (hlsRef.current) {
@@ -265,8 +317,10 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
   useEffect(() => {
     clearRetryTimer()
     streamAttemptRef.current = 0
+    resumeAppliedRef.current = false
+    resumeTargetRef.current = { episode: Number(episode) || 1, seconds: Number(resumeAt) || 0 }
     setCurrentEpisode(Number(episode) || 1)
-  }, [episode])
+  }, [episode, resumeAt])
 
   useEffect(() => {
     clearRetryTimer()
@@ -333,10 +387,14 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
       try {
         const payload = await getAnimeStream(targetEpisode.episodeId, STREAM_SERVER.id, { fresh: true })
         if (cancelled) return
-        if (!payload?.url || !String(payload.url).includes('.m3u8')) throw new Error('Invalid stream')
+        if (!payload?.proxiedUrl && !payload?.rawUrl) throw new Error('Invalid stream')
 
         const captionTracks = (payload.tracks || []).filter(track => track.kind === 'captions')
-        setStreamUrl(payload.url)
+        setStreamData({
+          rawUrl: payload.rawUrl || '',
+          proxiedUrl: payload.proxiedUrl || '',
+        })
+        setStreamMode(payload.proxiedUrl ? 'proxy' : 'raw')
         setStreamSources(payload.sources || [])
         setSubtitleTracks(captionTracks)
         setSubtitleEnabled(captionTracks.length > 0)
@@ -354,14 +412,24 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
 
   useEffect(() => {
     const preferredTrack = subtitleTracks.find(track => String(track.lang || '').toLowerCase().includes('english')) || subtitleTracks[0]
-    if (!subtitleEnabled || !preferredTrack?.url) {
+    const proxiedTrackUrl = preferredTrack?.file || preferredTrack?.url || null
+    const rawTrackUrl = preferredTrack?.rawFile || null
+
+    if (!subtitleEnabled || !proxiedTrackUrl) {
       setSubtitleCues([])
       setSubtitleText('')
       return undefined
     }
     let cancelled = false
-    fetch(preferredTrack.url)
-      .then(response => response.text())
+    fetch(proxiedTrackUrl)
+      .then(response => {
+        if (!response.ok) throw new Error('Subtitle proxy failed')
+        return response.text()
+      })
+      .catch(() => {
+        if (!rawTrackUrl || rawTrackUrl === proxiedTrackUrl) throw new Error('Subtitle fetch failed')
+        return fetch(rawTrackUrl).then(response => response.text())
+      })
       .then(text => {
         if (!cancelled) setSubtitleCues(parseVtt(text))
       })
@@ -382,7 +450,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
 
   useEffect(() => {
     const video = videoRef.current
-    if (!streamUrl || !video) return undefined
+    if (!activeStreamUrl || !video) return undefined
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
@@ -395,6 +463,18 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     setLoading(true)
     setLoadingStage('Buffering...')
 
+    const handleStreamFailure = () => {
+      if (canFallbackToRaw) {
+        setLoading(true)
+        setLoadingStage('Retrying raw stream...')
+        setError('')
+        setStreamMode('raw')
+        return
+      }
+
+      scheduleFreshStreamRetry()
+    }
+
     if (Hls.isSupported()) {
       const hls = new Hls({
         maxBufferLength: 30,
@@ -405,7 +485,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
       })
       hlsRef.current = hls
       hls.attachMedia(video)
-      hls.loadSource(streamUrl)
+      hls.loadSource(activeStreamUrl)
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         const levels = hls.levels
           .map(level => level.height)
@@ -419,7 +499,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
       })
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data?.fatal) {
-          scheduleFreshStreamRetry()
+          handleStreamFailure()
         }
       })
       return () => {
@@ -429,7 +509,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     }
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamUrl
+      video.src = activeStreamUrl
       video.play().catch(() => {})
     }
 
@@ -438,11 +518,29 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
       video.removeAttribute('src')
       video.load()
     }
-  }, [streamUrl])
+  }, [activeStreamUrl, canFallbackToRaw, streamMode])
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return undefined
+    if (!video || !activeStreamUrl) return undefined
+    const applyPendingResume = () => {
+      const pendingResume = resumeTargetRef.current
+      if (resumeAppliedRef.current) return
+      if (!pendingResume?.seconds || pendingResume.episode !== Number(currentEpisode)) return
+
+      const safeResumeTime = video.duration
+        ? Math.min(pendingResume.seconds, Math.max(video.duration - 2, 0))
+        : pendingResume.seconds
+
+      if (!Number.isFinite(safeResumeTime) || safeResumeTime <= 0) {
+        resumeAppliedRef.current = true
+        return
+      }
+
+      video.currentTime = safeResumeTime
+      setCurrentTime(safeResumeTime)
+      resumeAppliedRef.current = true
+    }
     const syncState = () => {
       setCurrentTime(video.currentTime || 0)
       setDuration(video.duration || 0)
@@ -451,26 +549,44 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
     const handleCanPlay = () => {
+      applyPendingResume()
       setLoading(false)
       setLoadingStage('')
+    }
+    const handleLoadedMetadata = () => {
+      syncState()
+      applyPendingResume()
+    }
+    const handleVideoError = () => {
+      if (canFallbackToRaw) {
+        setLoading(true)
+        setLoadingStage('Retrying raw stream...')
+        setError('')
+        setStreamMode('raw')
+        return
+      }
+
+      scheduleFreshStreamRetry()
     }
     video.addEventListener('timeupdate', syncState)
     video.addEventListener('durationchange', syncState)
     video.addEventListener('progress', syncState)
-    video.addEventListener('loadedmetadata', syncState)
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('canplay', handleCanPlay)
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
+    video.addEventListener('error', handleVideoError)
     return () => {
       video.removeEventListener('timeupdate', syncState)
       video.removeEventListener('durationchange', syncState)
       video.removeEventListener('progress', syncState)
-      video.removeEventListener('loadedmetadata', syncState)
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('canplay', handleCanPlay)
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
+      video.removeEventListener('error', handleVideoError)
     }
-  }, [streamUrl])
+  }, [activeStreamUrl, canFallbackToRaw, currentEpisode])
 
   useEffect(() => {
     const video = videoRef.current
@@ -531,10 +647,28 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
     }
   }, [error, isPlaying, loading])
 
+  useEffect(() => {
+    if (!isPlaying) return undefined
+
+    const timer = window.setInterval(() => {
+      const video = videoRef.current
+      if (!video || video.paused) return
+      persistProgress().catch(() => {})
+    }, 10000)
+
+    return () => window.clearInterval(timer)
+  }, [isPlaying, persistProgress])
+
   useEffect(() => () => {
     clearHideTimer()
     clearRetryTimer()
-  }, [])
+    persistProgress().catch(() => {})
+  }, [persistProgress])
+
+  const handleClose = () => {
+    persistProgress().catch(() => {})
+    onClose()
+  }
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
   const bufferedPercent = duration > 0 ? (bufferedEnd / duration) * 100 : 0
@@ -547,7 +681,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+        onClick={(event) => { if (event.target === event.currentTarget) handleClose() }}
       >
         <motion.div
           ref={playerContainerRef}
@@ -579,7 +713,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
                   <button onClick={toggleFullscreen} className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all" title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
                     {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
                   </button>
-                  <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all" title="Close">
+                  <button onClick={handleClose} className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all" title="Close">
                     <X size={14} />
                   </button>
                 </div>
@@ -669,7 +803,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, pre
                   </div>
                   <div className="mt-3 flex items-center justify-between text-xs text-white/55">
                     <span>{animeTitle}</span>
-                    <span>Season {season} Episode {currentEpisodeMeta?.number || currentEpisode} | {STREAM_SERVER.label} | {streamSources.length > 0 ? 'HLS' : 'Direct'}</span>
+                    <span>Season {season} Episode {currentEpisodeMeta?.number || currentEpisode} | {STREAM_SERVER.label} | {streamMode === 'raw' ? 'Raw fallback' : 'Proxy'}</span>
                   </div>
                 </motion.div>
               )}

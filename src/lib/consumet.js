@@ -1,8 +1,14 @@
 export const ANIWATCH_BASE_URL = 'https://aniwatch-api-orcin-six.vercel.app'
+export const ANIWATCH_PROXY_URL = `${ANIWATCH_BASE_URL}/api/v2/proxy/m3u8`
 const animeIdCache = new Map()
 const animeEpisodesCache = new Map()
 
 const normalizeTitle = (title) => String(title || '').trim().toLowerCase()
+const toProxyUrl = (url) => (
+  url
+    ? `${ANIWATCH_PROXY_URL}?url=${encodeURIComponent(url)}`
+    : null
+)
 
 // Search anime by title
 export async function searchAnime(title, { fresh = false } = {}) {
@@ -67,11 +73,21 @@ export async function getAnimeStream(episodeId, server = 'hd-2', { fresh = false
   const tracks = (data.data?.tracks || []).map((track) => ({
     ...track,
     kind: track.kind || (String(track.lang).toLowerCase() === 'thumbnails' ? 'thumbnails' : 'captions'),
+    rawFile: track.file || track.url || null,
+    file: (track.kind || (String(track.lang).toLowerCase() === 'thumbnails' ? 'thumbnails' : 'captions')) === 'captions'
+      ? toProxyUrl(track.file || track.url || null)
+      : (track.file || track.url || null),
+    url: (track.kind || (String(track.lang).toLowerCase() === 'thumbnails' ? 'thumbnails' : 'captions')) === 'captions'
+      ? toProxyUrl(track.file || track.url || null)
+      : (track.file || track.url || null),
   }))
   const m3u8 = sources.find(source => source.type === 'hls') || sources[0]
+  const rawUrl = m3u8?.url || null
+  const proxiedUrl = toProxyUrl(rawUrl)
 
   return {
-    url: m3u8?.url || null,
+    rawUrl,
+    proxiedUrl,
     sources,
     tracks,
     headers: data.data?.headers || {},

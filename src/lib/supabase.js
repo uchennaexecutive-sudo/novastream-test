@@ -1,4 +1,23 @@
-// Local storage-backed watchlist & history (no external DB required)
+// Watch progress migration for Supabase:
+//
+// CREATE TABLE IF NOT EXISTS watch_progress (
+//   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+//   device_id text NOT NULL,
+//   content_id text NOT NULL,
+//   content_type text NOT NULL,
+//   title text,
+//   poster text,
+//   backdrop text,
+//   season integer,
+//   episode integer,
+//   progress_seconds integer DEFAULT 0,
+//   duration_seconds integer DEFAULT 0,
+//   updated_at timestamptz DEFAULT now()
+// );
+// CREATE UNIQUE INDEX IF NOT EXISTS watch_progress_device_content
+//   ON watch_progress(device_id, content_id, season, episode);
+//
+// Watchlist and history remain local storage-backed.
 
 const WATCHLIST_KEY = 'nova-watchlist'
 const HISTORY_KEY = 'nova-history'

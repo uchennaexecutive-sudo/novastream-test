@@ -1,36 +1,47 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  getTrending, getPopularMovies, getTopRatedMovies, getPopularSeries,
-  getNowPlaying, getOnAir, getSeriesByNetwork, getAnimeSeries, getAnimationMovies,
+  getTrending,
+  getPopularMovies,
+  getTopRatedMovies,
+  getPopularSeries,
+  getNowPlaying,
+  getOnAir,
+  getSeriesByNetwork,
+  getAnimeSeries,
+  getAnimationMovies,
+  getRecommendations,
 } from '../lib/tmdb'
-import { getTrendingAnime } from '../lib/anilist'
+import { getContinueWatching } from '../lib/progress'
 import HeroSlide from '../components/Cards/HeroSlide'
 import MediaCard from '../components/Cards/MediaCard'
+import ContinueCard from '../components/Cards/ContinueCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
 
-function ContentRow({ title, icon, items, loading, type }) {
+function ContentRow({ title, icon, items, loading, type, renderItem, skeletonCount = 8 }) {
   const scrollRef = useRef(null)
   const [isDragging, setIsDragging] = useState(false)
   const [startX, setStartX] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
 
-  const onMouseDown = (e) => {
+  const onMouseDown = (event) => {
     setIsDragging(true)
-    setStartX(e.pageX - scrollRef.current.offsetLeft)
+    setStartX(event.pageX - scrollRef.current.offsetLeft)
     setScrollLeft(scrollRef.current.scrollLeft)
   }
-  const onMouseMove = (e) => {
+
+  const onMouseMove = (event) => {
     if (!isDragging) return
-    e.preventDefault()
-    const x = e.pageX - scrollRef.current.offsetLeft
+    event.preventDefault()
+    const x = event.pageX - scrollRef.current.offsetLeft
     scrollRef.current.scrollLeft = scrollLeft - (x - startX) * 1.5
   }
+
   const onMouseUp = () => setIsDragging(false)
 
-  const scroll = useCallback((dir) => {
+  const scroll = useCallback((direction) => {
     if (!scrollRef.current) return
-    scrollRef.current.scrollBy({ left: dir * 600, behavior: 'smooth' })
+    scrollRef.current.scrollBy({ left: direction * 600, behavior: 'smooth' })
   }, [])
 
   return (
@@ -46,14 +57,14 @@ function ContentRow({ title, icon, items, loading, type }) {
             className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
           >
-            ‹
+            {'<'}
           </button>
           <button
             onClick={() => scroll(1)}
             className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
           >
-            ›
+            {'>'}
           </button>
         </div>
       </div>
@@ -67,8 +78,12 @@ function ContentRow({ title, icon, items, loading, type }) {
         onMouseLeave={onMouseUp}
       >
         {loading
-          ? Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)
-          : items?.map(item => <MediaCard key={item.id} item={item} type={type} />)
+          ? Array.from({ length: skeletonCount }).map((_, index) => <SkeletonCard key={index} />)
+          : items?.map((item) => (
+              renderItem
+                ? renderItem(item)
+                : <MediaCard key={item.id} item={item} type={type} />
+            ))
         }
       </div>
     </div>
@@ -86,28 +101,73 @@ export default function Home() {
   const [netflix, setNetflix] = useState([])
   const [anime, setAnime] = useState([])
   const [animation, setAnimation] = useState([])
+  const [continueWatching, setContinueWatching] = useState([])
+  const [recommendations, setRecommendations] = useState([])
+  const [recommendationTitle, setRecommendationTitle] = useState('')
   const [loading, setLoading] = useState(true)
+  const [watchRowsLoading, setWatchRowsLoading] = useState(true)
 
   useEffect(() => {
     Promise.all([
       getTrending().then(setTrending),
-      getPopularMovies().then(d => setPopularMovies(d.results)),
-      getTopRatedMovies().then(d => setTopRated(d.results)),
-      getPopularSeries().then(d => setPopularSeries(d.results)),
+      getPopularMovies().then(data => setPopularMovies(data.results)),
+      getTopRatedMovies().then(data => setTopRated(data.results)),
+      getPopularSeries().then(data => setPopularSeries(data.results)),
       getNowPlaying().then(setNowPlaying),
       getOnAir().then(setOnAir),
-      getSeriesByNetwork(213).then(d => setNetflix(d.results)),
-      getAnimeSeries().then(d => setAnime(d.results)),
-      getAnimationMovies().then(d => setAnimation(d.results)),
+      getSeriesByNetwork(213).then(data => setNetflix(data.results)),
+      getAnimeSeries().then(data => setAnime(data.results)),
+      getAnimationMovies().then(data => setAnimation(data.results)),
     ]).finally(() => setLoading(false))
   }, [])
 
-  // Auto-advance hero every 8 seconds
   useEffect(() => {
-    if (trending.length === 0) return
+    let cancelled = false
+
+    async function loadWatchRows() {
+      try {
+        const continueItems = await getContinueWatching()
+        if (cancelled) return
+
+        setContinueWatching(continueItems)
+
+        const seedItem = continueItems[0]
+        if (!seedItem?.content_id) {
+          setRecommendations([])
+          setRecommendationTitle('')
+          return
+        }
+
+        const recommendationType = seedItem.content_type === 'movie' ? 'movie' : 'tv'
+        const nextRecommendations = await getRecommendations(recommendationType, seedItem.content_id)
+        if (cancelled) return
+
+        setRecommendationTitle(seedItem.title || '')
+        setRecommendations(nextRecommendations.slice(0, 20))
+      } catch {
+        if (cancelled) return
+        setContinueWatching([])
+        setRecommendations([])
+        setRecommendationTitle('')
+      } finally {
+        if (!cancelled) setWatchRowsLoading(false)
+      }
+    }
+
+    loadWatchRows()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (trending.length === 0) return undefined
+
     const timer = setInterval(() => {
-      setHeroIndex(i => (i + 1) % Math.min(trending.length, 5))
+      setHeroIndex(index => (index + 1) % Math.min(trending.length, 5))
     }, 8000)
+
     return () => clearInterval(timer)
   }, [trending])
 
@@ -115,7 +175,6 @@ export default function Home() {
 
   return (
     <div>
-      {/* Hero Section */}
       <div className="relative -mt-14">
         <AnimatePresence mode="wait">
           {heroItems[heroIndex] && (
@@ -131,34 +190,53 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {/* Hero Dots */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2.5 z-20">
-          {heroItems.map((_, i) => (
+          {heroItems.map((_, index) => (
             <button
-              key={i}
-              onClick={() => setHeroIndex(i)}
+              key={index}
+              onClick={() => setHeroIndex(index)}
               className="relative h-2 rounded-full transition-all duration-300"
               style={{
-                width: i === heroIndex ? 28 : 8,
-                background: i === heroIndex ? 'var(--accent)' : 'rgba(255,255,255,0.25)',
-                boxShadow: i === heroIndex ? '0 0 12px var(--accent-glow-strong)' : 'none',
+                width: index === heroIndex ? 28 : 8,
+                background: index === heroIndex ? 'var(--accent)' : 'rgba(255,255,255,0.25)',
+                boxShadow: index === heroIndex ? '0 0 12px var(--accent-glow-strong)' : 'none',
               }}
             />
           ))}
         </div>
       </div>
 
-      {/* Content Rows */}
       <div className="py-8">
-        <ContentRow title="Trending This Week" icon="🔥" items={trending} loading={loading} />
-        <ContentRow title="Popular Movies" icon="🎬" items={popularMovies} loading={loading} type="movie" />
-        <ContentRow title="Top Rated" icon="⭐" items={topRated} loading={loading} type="movie" />
-        <ContentRow title="Popular Series" icon="📺" items={popularSeries} loading={loading} type="tv" />
-        <ContentRow title="Now Playing" icon="🆕" items={nowPlaying} loading={loading} type="movie" />
-        <ContentRow title="On Air" icon="📡" items={onAir} loading={loading} type="tv" />
-        <ContentRow title="Anime" icon="🌸" items={anime} loading={loading} type="tv" />
-        <ContentRow title="Animation" icon="🎨" items={animation} loading={loading} type="movie" />
-        <ContentRow title="Netflix Originals" icon="🔴" items={netflix} loading={loading} type="tv" />
+        {(watchRowsLoading || continueWatching.length > 0) && (
+          <ContentRow
+            title="Continue Watching"
+            icon="II"
+            items={continueWatching}
+            loading={watchRowsLoading}
+            renderItem={(item) => <ContinueCard key={`${item.content_id}-${item.season || 0}-${item.episode || 0}`} item={item} />}
+            skeletonCount={4}
+          />
+        )}
+
+        {recommendations.length > 0 && (
+          <ContentRow
+            title={`Because you watched ${recommendationTitle}`}
+            icon="*"
+            items={recommendations}
+            loading={false}
+            type={recommendations[0]?.title ? 'movie' : 'tv'}
+          />
+        )}
+
+        <ContentRow title="Trending This Week" icon="!" items={trending} loading={loading} />
+        <ContentRow title="Popular Movies" icon="M" items={popularMovies} loading={loading} type="movie" />
+        <ContentRow title="Top Rated" icon="+" items={topRated} loading={loading} type="movie" />
+        <ContentRow title="Popular Series" icon="TV" items={popularSeries} loading={loading} type="tv" />
+        <ContentRow title="Now Playing" icon="N" items={nowPlaying} loading={loading} type="movie" />
+        <ContentRow title="On Air" icon="A" items={onAir} loading={loading} type="tv" />
+        <ContentRow title="Anime" icon="AN" items={anime} loading={loading} type="tv" />
+        <ContentRow title="Animation" icon="AM" items={animation} loading={loading} type="movie" />
+        <ContentRow title="Netflix Originals" icon="N" items={netflix} loading={loading} type="tv" />
       </div>
     </div>
   )

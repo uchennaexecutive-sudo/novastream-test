@@ -52,6 +52,9 @@ export const getSeasonDetails = (seriesId, season) =>
 export const searchMulti = (query) =>
   tmdb.get('/search/multi', { params: { query } }).then(r => r.data.results)
 
+export const getRecommendations = (type, id) =>
+  tmdb.get(`/${type === 'movie' ? 'movie' : 'tv'}/${id}/recommendations`).then(r => r.data.results || [])
+
 // Dedicated anime lookup: searches /search/tv which is more reliable than /search/multi for anime titles
 export const searchAnimeOnTMDB = async (englishTitle, romajiTitle) => {
   const tryTitle = async (title) => {
