@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import ReactPlayer from 'react-player'
 import { getDetails, imgOriginal, imgW500 } from '../lib/tmdb'
+import { preloadAnimePlayback } from '../lib/consumet'
 import GlassButton from '../components/UI/GlassButton'
 import RatingBadge from '../components/UI/RatingBadge'
 import GlassBadge from '../components/UI/GlassBadge'
@@ -22,6 +23,8 @@ export default function Detail() {
   const [playSeason, setPlaySeason] = useState(1)
   const [playEpisode, setPlayEpisode] = useState(1)
   const [inWatchlist, setInWatchlist] = useState(false)
+  const animePrefetchRef = useRef(new Map())
+  const prefetchedAnimeIdRef = useRef(null)
 
   useEffect(() => {
     setLoading(true)
@@ -30,6 +33,36 @@ export default function Detail() {
       .finally(() => setLoading(false))
     isInWatchlist(Number(id)).then(setInWatchlist).catch(() => {})
   }, [type, id])
+
+  const title = data?.title || data?.name || ''
+  const backdrop = imgOriginal(data?.backdrop_path)
+  const poster = imgW500(data?.poster_path)
+  const trailer = data?.videos?.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube')
+  const cast = data?.credits?.cast?.slice(0, 16) || []
+  const similar = data?.similar?.results?.slice(0, 12) || []
+  const genres = data?.genres || []
+  const numSeasons = data?.number_of_seasons || 0
+  const year = (data?.release_date || data?.first_air_date || '').slice(0, 4)
+  const isAnime = Boolean(location.state?.isAnime)
+  const animeTitle = location.state?.animeTitle || location.state?.animeAltTitle || title
+
+  useEffect(() => {
+    if (!isAnime || !animeTitle) return undefined
+
+    let cancelled = false
+
+    preloadAnimePlayback(animeTitle)
+      .then((payload) => {
+        if (cancelled || !payload?.animeId) return
+        animePrefetchRef.current.set(payload.animeId, payload)
+        prefetchedAnimeIdRef.current = payload.animeId
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [animeTitle, isAnime])
 
   if (loading || !data) {
     return (
@@ -41,18 +74,6 @@ export default function Detail() {
       </div>
     )
   }
-
-  const title = data.title || data.name
-  const backdrop = imgOriginal(data.backdrop_path)
-  const poster = imgW500(data.poster_path)
-  const trailer = data.videos?.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube')
-  const cast = data.credits?.cast?.slice(0, 16) || []
-  const similar = data.similar?.results?.slice(0, 12) || []
-  const genres = data.genres || []
-  const numSeasons = data.number_of_seasons || 0
-  const year = (data.release_date || data.first_air_date || '').slice(0, 4)
-  const isAnime = Boolean(location.state?.isAnime)
-  const animeTitle = location.state?.animeTitle || location.state?.animeAltTitle || title
 
   const handleWatchlist = async () => {
     await addToWatchlist({
@@ -338,6 +359,7 @@ export default function Detail() {
           season={playSeason}
           episode={playEpisode}
           backdrop={backdrop}
+          prefetchedAnime={animePrefetchRef.current.get(prefetchedAnimeIdRef.current) || null}
           onClose={() => setAnimePlayerOpen(false)}
         />
       )}

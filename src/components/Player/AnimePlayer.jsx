@@ -16,11 +16,7 @@ import {
 } from 'lucide-react'
 import { ANIWATCH_BASE_URL, getAnimeEpisodes, getAnimeStream, searchAnime } from '../../lib/consumet'
 
-const SERVERS = [
-  { id: 'hd-2', label: 'HD-2' },
-  { id: 'hd-1', label: 'HD-1' },
-  { id: 'hd-3', label: 'HD-3' },
-]
+const STREAM_SERVER = { id: 'hd-2', label: 'HD-2' }
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2]
 const FALLBACK_RESOLUTIONS = [
   { value: 'auto', label: 'Auto' },
@@ -30,9 +26,8 @@ const FALLBACK_RESOLUTIONS = [
   { value: '360', label: '360p' },
 ]
 const CONTROLS_TIMEOUT_MS = 3000
-const SERVER_RETRY_DELAY_MS = 3000
-
-const delay = (ms) => new Promise(resolve => window.setTimeout(resolve, ms))
+const STREAM_RETRY_DELAY_MS = 2000
+const MAX_STREAM_ATTEMPTS = 3
 
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -74,17 +69,15 @@ const parseVtt = (text) => text
   })
   .filter(Boolean)
 
-const getServerOrder = (startIndex) => [
-  ...SERVERS.slice(startIndex),
-  ...SERVERS.slice(0, startIndex),
-]
-
-export default function AnimePlayer({ animeTitle, season, episode, backdrop, onClose }) {
+export default function AnimePlayer({ animeTitle, season, episode, backdrop, prefetchedAnime = null, onClose }) {
   const videoRef = useRef(null)
   const playerContainerRef = useRef(null)
   const progressRef = useRef(null)
   const hlsRef = useRef(null)
   const hideTimerRef = useRef(null)
+  const retryTimerRef = useRef(null)
+  const retryScheduledRef = useRef(false)
+  const streamAttemptRef = useRef(0)
   const [animeId, setAnimeId] = useState('')
   const [episodes, setEpisodes] = useState([])
   const [currentEpisode, setCurrentEpisode] = useState(Number(episode) || 1)
@@ -95,8 +88,8 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
   const [subtitleText, setSubtitleText] = useState('')
   const [subtitleEnabled, setSubtitleEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [loadingStage, setLoadingStage] = useState('Finding anime...')
   const [error, setError] = useState('')
-  const [serverIndex, setServerIndex] = useState(0)
   const [retryNonce, setRetryNonce] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -112,7 +105,6 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
   const [availableResolutions, setAvailableResolutions] = useState(FALLBACK_RESOLUTIONS)
   const [selectedResolution, setSelectedResolution] = useState('auto')
 
-  const currentServer = SERVERS[serverIndex] || SERVERS[0]
   const apiHost = useMemo(() => {
     try {
       return new URL(ANIWATCH_BASE_URL).host
@@ -127,7 +119,40 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
   const hasPrevEpisode = episodes.some(item => Number(item.number) === Number(currentEpisode) - 1)
   const hasNextEpisode = episodes.some(item => Number(item.number) === Number(currentEpisode) + 1)
 
-  const revealControls = () => setShowControls(true)
+  const clearHideTimer = () => {
+    window.clearTimeout(hideTimerRef.current)
+  }
+  const clearRetryTimer = () => {
+    retryScheduledRef.current = false
+    window.clearTimeout(retryTimerRef.current)
+  }
+  const resetPlaybackState = () => {
+    setStreamUrl('')
+    setStreamSources([])
+    setSubtitleTracks([])
+    setSubtitleCues([])
+    setSubtitleText('')
+    setSelectedResolution('auto')
+    setAvailableResolutions(FALLBACK_RESOLUTIONS)
+    setCurrentTime(0)
+    setDuration(0)
+    setBufferedEnd(0)
+  }
+  const scheduleControlsHide = () => {
+    clearHideTimer()
+    if (loading || error || !isPlaying) {
+      setShowControls(true)
+      return
+    }
+    hideTimerRef.current = window.setTimeout(() => {
+      setShowControls(false)
+      setSeekPreviewTime(null)
+    }, CONTROLS_TIMEOUT_MS)
+  }
+  const revealControls = () => {
+    setShowControls(true)
+    scheduleControlsHide()
+  }
   const togglePlayback = () => {
     const video = videoRef.current
     if (!video) return
@@ -151,11 +176,19 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
     if (!container) return
     if (!document.fullscreenElement) container.requestFullscreen().catch(() => {})
     else document.exitFullscreen().catch(() => {})
+    revealControls()
   }
   const goToEpisode = (nextEpisode) => {
     const match = episodes.find(item => Number(item.number) === Number(nextEpisode))
     if (!match) return
+
+    clearRetryTimer()
+    streamAttemptRef.current = 0
+    resetPlaybackState()
     setCurrentEpisode(Number(nextEpisode))
+    setLoading(true)
+    setLoadingStage('Fetching stream...')
+    setError('')
     setRetryNonce(value => value + 1)
     revealControls()
   }
@@ -194,25 +227,71 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
     const levelIndex = hls.levels.findIndex(level => String(level.height) === String(value))
     if (levelIndex >= 0) hls.currentLevel = levelIndex
   }
-  const tryNextServer = () => {
+  const retryFreshStream = () => {
+    clearRetryTimer()
+    streamAttemptRef.current = 0
+    resetPlaybackState()
     setLoading(true)
+    setLoadingStage('Fetching stream...')
     setError('')
-    setServerIndex(index => (index + 1) % SERVERS.length)
     setRetryNonce(value => value + 1)
+  }
+  const scheduleFreshStreamRetry = () => {
+    if (retryScheduledRef.current) return
+    if (streamAttemptRef.current >= MAX_STREAM_ATTEMPTS) {
+      setError('Could not load stream')
+      setLoading(false)
+      setLoadingStage('')
+      return
+    }
+
+    retryScheduledRef.current = true
+    setLoading(true)
+    setLoadingStage('Fetching stream...')
+    setError('')
+    resetPlaybackState()
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+
+    retryTimerRef.current = window.setTimeout(() => {
+      retryScheduledRef.current = false
+      setRetryNonce(value => value + 1)
+    }, STREAM_RETRY_DELAY_MS)
   }
 
   useEffect(() => {
+    clearRetryTimer()
+    streamAttemptRef.current = 0
     setCurrentEpisode(Number(episode) || 1)
   }, [episode])
 
   useEffect(() => {
+    clearRetryTimer()
+    streamAttemptRef.current = 0
+    resetPlaybackState()
+    setAnimeId(prefetchedAnime?.animeId || '')
+    setEpisodes(prefetchedAnime?.episodes || [])
+    setLoading(true)
+    setLoadingStage(prefetchedAnime?.animeId && prefetchedAnime?.episodes?.length ? 'Fetching stream...' : 'Finding anime...')
+    setError('')
+
     let cancelled = false
+
     async function loadAnime() {
-      setLoading(true)
-      setError('')
+      if (prefetchedAnime?.animeId && prefetchedAnime?.episodes?.length) {
+        setAnimeId(prefetchedAnime.animeId)
+        setEpisodes(prefetchedAnime.episodes)
+        return
+      }
+
       try {
         const anime = await searchAnime(animeTitle)
         if (!anime?.id) throw new Error('Anime not found')
+        if (cancelled) return
+        setLoadingStage('Loading episodes...')
         const nextEpisodes = await getAnimeEpisodes(anime.id)
         if (cancelled) return
         setAnimeId(anime.id)
@@ -221,56 +300,57 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
         if (!cancelled) {
           setError('Could not load stream')
           setLoading(false)
+          setLoadingStage('')
         }
       }
     }
+
     loadAnime()
     return () => { cancelled = true }
-  }, [animeTitle])
+  }, [animeTitle, prefetchedAnime])
 
   useEffect(() => {
     if (!animeId || episodes.length === 0) return undefined
+
+    clearRetryTimer()
     let cancelled = false
+
     async function resolveStream() {
       const targetEpisode = episodes.find(item => Number(item.number) === Number(currentEpisode))
       if (!targetEpisode?.episodeId) {
         setError('Could not load stream')
         setLoading(false)
+        setLoadingStage('')
         return
       }
+
+      streamAttemptRef.current += 1
       setLoading(true)
+      setLoadingStage('Fetching stream...')
       setError('')
-      setStreamUrl('')
-      setStreamSources([])
-      setSubtitleTracks([])
-      setSubtitleCues([])
-      setSubtitleText('')
-      const order = getServerOrder(serverIndex)
-      for (let index = 0; index < order.length; index += 1) {
-        if (index > 0) await delay(SERVER_RETRY_DELAY_MS)
-        const server = order[index]
-        try {
-          const payload = await getAnimeStream(targetEpisode.episodeId, server.id)
-          if (cancelled) return
-          if (!payload?.url || !String(payload.url).includes('.m3u8')) throw new Error('Invalid stream')
-          setServerIndex(SERVERS.findIndex(item => item.id === server.id))
-          setStreamUrl(payload.url)
-          setStreamSources(payload.sources || [])
-          const captionTracks = (payload.tracks || []).filter(track => track.kind === 'captions')
-          setSubtitleTracks(captionTracks)
-          setSubtitleEnabled(captionTracks.length > 0)
-          setLoading(false)
-          return
-        } catch {}
-      }
-      if (!cancelled) {
-        setError('Could not load stream')
-        setLoading(false)
+      resetPlaybackState()
+
+      try {
+        const payload = await getAnimeStream(targetEpisode.episodeId, STREAM_SERVER.id, { fresh: true })
+        if (cancelled) return
+        if (!payload?.url || !String(payload.url).includes('.m3u8')) throw new Error('Invalid stream')
+
+        const captionTracks = (payload.tracks || []).filter(track => track.kind === 'captions')
+        setStreamUrl(payload.url)
+        setStreamSources(payload.sources || [])
+        setSubtitleTracks(captionTracks)
+        setSubtitleEnabled(captionTracks.length > 0)
+        setLoadingStage('Buffering...')
+      } catch {
+        if (!cancelled) {
+          scheduleFreshStreamRetry()
+        }
       }
     }
+
     resolveStream()
     return () => { cancelled = true }
-  }, [animeId, currentEpisode, episodes, retryNonce, serverIndex])
+  }, [animeId, currentEpisode, episodes, retryNonce])
 
   useEffect(() => {
     const preferredTrack = subtitleTracks.find(track => String(track.lang || '').toLowerCase().includes('english')) || subtitleTracks[0]
@@ -312,11 +392,20 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
     video.load()
     setSelectedResolution('auto')
     setAvailableResolutions(FALLBACK_RESOLUTIONS)
+    setLoading(true)
+    setLoadingStage('Buffering...')
+
     if (Hls.isSupported()) {
-      const hls = new Hls()
+      const hls = new Hls({
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        lowLatencyMode: false,
+        progressive: true,
+        startLevel: -1,
+      })
       hlsRef.current = hls
-      hls.loadSource(streamUrl)
       hls.attachMedia(video)
+      hls.loadSource(streamUrl)
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         const levels = hls.levels
           .map(level => level.height)
@@ -330,8 +419,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
       })
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data?.fatal) {
-          setError('Could not load stream')
-          setLoading(false)
+          scheduleFreshStreamRetry()
         }
       })
       return () => {
@@ -339,10 +427,12 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
         hlsRef.current = null
       }
     }
+
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = streamUrl
       video.play().catch(() => {})
     }
+
     return () => {
       video.pause()
       video.removeAttribute('src')
@@ -360,10 +450,15 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
     }
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
+    const handleCanPlay = () => {
+      setLoading(false)
+      setLoadingStage('')
+    }
     video.addEventListener('timeupdate', syncState)
     video.addEventListener('durationchange', syncState)
     video.addEventListener('progress', syncState)
     video.addEventListener('loadedmetadata', syncState)
+    video.addEventListener('canplay', handleCanPlay)
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
     return () => {
@@ -371,6 +466,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
       video.removeEventListener('durationchange', syncState)
       video.removeEventListener('progress', syncState)
       video.removeEventListener('loadedmetadata', syncState)
+      video.removeEventListener('canplay', handleCanPlay)
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
     }
@@ -394,26 +490,51 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
     const handleKeyDown = (event) => {
       const activeTag = document.activeElement?.tagName
       if (activeTag === 'INPUT' || activeTag === 'SELECT') return
-      if (event.code === 'Space') { event.preventDefault(); togglePlayback() }
-      if (event.code === 'ArrowLeft') { event.preventDefault(); skipBy(-10) }
-      if (event.code === 'ArrowRight') { event.preventDefault(); skipBy(10) }
-      if (event.key?.toLowerCase() === 'm') toggleMute()
+      if (event.code === 'Space') { event.preventDefault(); revealControls(); togglePlayback() }
+      if (event.code === 'ArrowLeft') { event.preventDefault(); revealControls(); skipBy(-10) }
+      if (event.code === 'ArrowRight') { event.preventDefault(); revealControls(); skipBy(10) }
+      if (event.key?.toLowerCase() === 'm') { revealControls(); toggleMute() }
       if (event.key?.toLowerCase() === 'f') toggleFullscreen()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isMuted, isPlaying, isFullscreen])
+  }, [isMuted, loading, isPlaying, isFullscreen])
 
   useEffect(() => {
-    if (loading || !isPlaying) {
-      window.clearTimeout(hideTimerRef.current)
+    clearHideTimer()
+    if (loading || error || !isPlaying) {
       setShowControls(true)
       return undefined
     }
-    window.clearTimeout(hideTimerRef.current)
-    hideTimerRef.current = window.setTimeout(() => setShowControls(false), CONTROLS_TIMEOUT_MS)
-    return () => window.clearTimeout(hideTimerRef.current)
-  }, [currentTime, isPlaying, loading, showControls])
+    hideTimerRef.current = window.setTimeout(() => {
+      setShowControls(false)
+      setSeekPreviewTime(null)
+    }, CONTROLS_TIMEOUT_MS)
+    return () => clearHideTimer()
+  }, [error, isFullscreen, isPlaying, loading])
+
+  useEffect(() => {
+    const handleUserActivity = () => {
+      setShowControls(true)
+      scheduleControlsHide()
+    }
+
+    document.addEventListener('mousemove', handleUserActivity)
+    document.addEventListener('pointermove', handleUserActivity)
+    document.addEventListener('pointerdown', handleUserActivity)
+    document.addEventListener('click', handleUserActivity, true)
+    return () => {
+      document.removeEventListener('mousemove', handleUserActivity)
+      document.removeEventListener('pointermove', handleUserActivity)
+      document.removeEventListener('pointerdown', handleUserActivity)
+      document.removeEventListener('click', handleUserActivity, true)
+    }
+  }, [error, isPlaying, loading])
+
+  useEffect(() => () => {
+    clearHideTimer()
+    clearRetryTimer()
+  }, [])
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
   const bufferedPercent = duration > 0 ? (bufferedEnd / duration) * 100 : 0
@@ -435,7 +556,7 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
           onMouseMove={revealControls}
-          onMouseLeave={() => { if (isPlaying) setShowControls(false) }}
+          onClickCapture={revealControls}
         >
           {backdrop && <img src={backdrop} alt={animeTitle} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(24px)', opacity: 0.16, transform: 'scale(1.05)' }} />}
           <AnimatePresence>
@@ -447,16 +568,12 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
                 exit={{ opacity: 0 }}
               >
                 <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
-                  {SERVERS.map((server, index) => (
-                    <button
-                      key={server.id}
-                      onClick={() => { setLoading(true); setError(''); setServerIndex(index); setRetryNonce(value => value + 1) }}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
-                      style={{ background: index === serverIndex ? 'var(--accent)' : 'rgba(255,255,255,0.08)', color: '#fff', boxShadow: index === serverIndex ? '0 0 16px var(--accent-glow)' : 'none' }}
-                    >
-                      {server.label}
-                    </button>
-                  ))}
+                  <span
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+                    style={{ background: 'var(--accent)', color: '#fff', boxShadow: '0 0 16px var(--accent-glow)' }}
+                  >
+                    {STREAM_SERVER.label}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button onClick={toggleFullscreen} className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all" title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
@@ -473,18 +590,29 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
             {loading ? (
               <div className="flex flex-col items-center gap-3">
                 <span className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-                <span className="text-sm text-white/60 font-mono">Loading stream...</span>
-                <span className="text-xs text-white/40">{apiHost} / {currentServer.label}</span>
+                <span className="text-sm text-white/60 font-mono">{loadingStage}</span>
+                <span className="text-xs text-white/40">{apiHost} / {STREAM_SERVER.label}</span>
               </div>
             ) : error ? (
               <div className="flex flex-col items-center gap-4 text-center">
                 <p className="text-2xl font-display text-white">{error}</p>
-                <p className="text-sm text-white/50">HiAnime did not return a playable source after all server attempts.</p>
-                <button onClick={tryNextServer} className="px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ background: 'var(--accent)', color: '#fff', boxShadow: '0 0 20px var(--accent-glow)' }}>Try Next Server</button>
+                <p className="text-sm text-white/50">HD-2 did not return a playable source after 3 fresh attempts.</p>
+                <button onClick={retryFreshStream} className="px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ background: 'var(--accent)', color: '#fff', boxShadow: '0 0 20px var(--accent-glow)' }}>Retry HD-2</button>
               </div>
             ) : (
               <>
-                <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} playsInline controls={false} onClick={togglePlayback} />
+                <video
+                  ref={videoRef}
+                  style={isFullscreen
+                    ? { width: '100vw', height: '100vh', objectFit: 'contain', position: 'fixed', top: 0, left: 0, background: '#000' }
+                    : { width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
+                  playsInline
+                  controls={false}
+                  onClick={() => {
+                    revealControls()
+                    togglePlayback()
+                  }}
+                />
                 {subtitleEnabled && subtitleText && (
                   <div style={{ position: 'absolute', left: '50%', bottom: controlsVisible ? 132 : 88, transform: 'translateX(-50%)', zIndex: 26, maxWidth: '80%', padding: '8px 14px', borderRadius: 999, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 18, lineHeight: 1.4, textAlign: 'center', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}>
                     {subtitleText}
@@ -494,60 +622,58 @@ export default function AnimePlayer({ animeTitle, season, episode, backdrop, onC
             )}
           </div>
           {!loading && !error && (
-            <>
-              <AnimatePresence>
-                {controlsVisible && (
-                  <motion.div style={{ position: 'absolute', left: 0, right: 0, bottom: 108, zIndex: 28, display: 'flex', justifyContent: 'space-between', padding: '0 18px' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
-                    <button disabled={!hasPrevEpisode} onClick={() => goToEpisode(currentEpisode - 1)} className="px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-40" style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
-                      Previous Episode {hasPrevEpisode ? currentEpisode - 1 : ''}
-                    </button>
-                    <button disabled={!hasNextEpisode} onClick={() => goToEpisode(currentEpisode + 1)} className="px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-40" style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
-                      Next Episode {hasNextEpisode ? currentEpisode + 1 : ''}
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <AnimatePresence>
-                {controlsVisible && (
-                  <motion.div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 30, padding: '18px 18px 14px', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,0.78) 18%, rgba(0,0,0,0.92))', backdropFilter: 'blur(14px)' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
-                    <div ref={progressRef} onPointerDown={handleProgressPointerDown} onPointerMove={handleProgressHover} onPointerLeave={handleProgressLeave} style={{ position: 'relative', height: 16, marginBottom: 14, cursor: 'pointer' }}>
-                      <div style={{ position: 'absolute', left: 0, right: 0, top: 6, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.14)' }} />
-                      <div style={{ position: 'absolute', left: 0, top: 6, height: 4, width: `${bufferedPercent}%`, borderRadius: 999, background: 'rgba(255,255,255,0.28)' }} />
-                      <div style={{ position: 'absolute', left: 0, top: 6, height: 4, width: `${progressPercent}%`, borderRadius: 999, background: 'linear-gradient(90deg, #8b5cf6, #a855f7)' }} />
-                      <div style={{ position: 'absolute', left: `calc(${progressPercent}% - 7px)`, top: 1, width: 14, height: 14, borderRadius: '50%', background: '#fff', boxShadow: '0 0 14px rgba(168,85,247,0.8)' }} />
-                      {seekPreviewTime !== null && <div style={{ position: 'absolute', left: seekTooltipX, bottom: 18, transform: 'translateX(-50%)', padding: '4px 8px', borderRadius: 8, background: 'rgba(0,0,0,0.82)', color: '#fff', fontSize: 11, whiteSpace: 'nowrap' }}>{formatTime(seekPreviewTime)}</div>}
+            <AnimatePresence>
+              {controlsVisible && (
+                <motion.div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 30, padding: '18px 18px 14px', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,0.78) 18%, rgba(0,0,0,0.92))', backdropFilter: 'blur(14px)' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+                  <div ref={progressRef} onPointerDown={handleProgressPointerDown} onPointerMove={handleProgressHover} onPointerLeave={handleProgressLeave} style={{ position: 'relative', height: 16, marginBottom: 14, cursor: 'pointer' }}>
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 6, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.14)' }} />
+                    <div style={{ position: 'absolute', left: 0, top: 6, height: 4, width: `${bufferedPercent}%`, borderRadius: 999, background: 'rgba(255,255,255,0.28)' }} />
+                    <div style={{ position: 'absolute', left: 0, top: 6, height: 4, width: `${progressPercent}%`, borderRadius: 999, background: 'linear-gradient(90deg, #8b5cf6, #a855f7)' }} />
+                    <div style={{ position: 'absolute', left: `calc(${progressPercent}% - 7px)`, top: 1, width: 14, height: 14, borderRadius: '50%', background: '#fff', boxShadow: '0 0 14px rgba(168,85,247,0.8)' }} />
+                    {seekPreviewTime !== null && <div style={{ position: 'absolute', left: seekTooltipX, bottom: 18, transform: 'translateX(-50%)', padding: '4px 8px', borderRadius: 8, background: 'rgba(0,0,0,0.82)', color: '#fff', fontSize: 11, whiteSpace: 'nowrap' }}>{formatTime(seekPreviewTime)}</div>}
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+                    <div className="flex items-center gap-3 min-w-0 justify-self-start">
+                      <button onClick={togglePlayback} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.08)' }}>{isPlaying ? <Pause size={16} /> : <Play size={16} />}</button>
+                      <button onClick={() => skipBy(-10)} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}><SkipBack size={16} /></button>
+                      <button onClick={() => skipBy(10)} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}><SkipForward size={16} /></button>
+                      <button onClick={toggleMute} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}>{isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
+                      <input type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => { const nextVolume = Number(event.target.value); setVolume(nextVolume); setIsMuted(nextVolume === 0) }} style={{ width: 96, accentColor: '#8b5cf6' }} />
+                      <span className="text-xs text-white/70 font-mono">{formatTime(currentTime)} / {formatTime(duration)}</span>
                     </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button onClick={togglePlayback} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.08)' }}>{isPlaying ? <Pause size={16} /> : <Play size={16} />}</button>
-                        <button onClick={() => skipBy(-10)} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}><SkipBack size={16} /></button>
-                        <button onClick={() => skipBy(10)} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}><SkipForward size={16} /></button>
-                        <button onClick={toggleMute} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}>{isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
-                        <input type="range" min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={(event) => { const nextVolume = Number(event.target.value); setVolume(nextVolume); setIsMuted(nextVolume === 0) }} style={{ width: 96, accentColor: '#8b5cf6' }} />
-                        <span className="text-xs text-white/70 font-mono">{formatTime(currentTime)} / {formatTime(duration)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setSubtitleEnabled(value => !value)} className="px-3 h-10 rounded-xl flex items-center gap-2 text-xs font-semibold text-white" style={{ background: subtitleEnabled ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.08)', border: subtitleEnabled ? '1px solid rgba(139,92,246,0.55)' : '1px solid rgba(255,255,255,0.08)' }}>
-                          <Captions size={15} />
-                          {subtitleEnabled ? 'SUB ON' : 'SUB OFF'}
+                    <div className="flex items-center gap-2 justify-self-center">
+                      {hasPrevEpisode && (
+                        <button onClick={() => goToEpisode(currentEpisode - 1)} className="px-4 h-10 rounded-xl text-xs font-semibold text-white whitespace-nowrap" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                          &larr; Ep {currentEpisode - 1}
                         </button>
-                        <select value={selectedResolution} onChange={(event) => handleResolutionChange(event.target.value)} className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                          {(availableResolutions.length > 0 ? availableResolutions : FALLBACK_RESOLUTIONS).map(option => <option key={option.value} value={option.value} style={{ color: '#000' }}>{option.label}</option>)}
-                        </select>
-                        <select value={String(playbackRate)} onChange={(event) => setPlaybackRate(Number(event.target.value))} className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                          {PLAYBACK_SPEEDS.map(option => <option key={option} value={option} style={{ color: '#000' }}>{option}x</option>)}
-                        </select>
-                        <button onClick={toggleFullscreen} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}>{isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}</button>
-                      </div>
+                      )}
+                      {hasNextEpisode && (
+                        <button onClick={() => goToEpisode(currentEpisode + 1)} className="px-4 h-10 rounded-xl text-xs font-semibold text-white whitespace-nowrap" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                          Ep {currentEpisode + 1} &rarr;
+                        </button>
+                      )}
                     </div>
-                    <div className="mt-3 flex items-center justify-between text-xs text-white/55">
-                      <span>{animeTitle}</span>
-                      <span>Season {season} Episode {currentEpisodeMeta?.number || currentEpisode} • {currentServer.label} • {streamSources.length > 0 ? 'HLS' : 'Direct'}</span>
+                    <div className="flex items-center gap-2 justify-self-end">
+                      <button onClick={() => setSubtitleEnabled(value => !value)} className="px-3 h-10 rounded-xl flex items-center gap-2 text-xs font-semibold text-white" style={{ background: subtitleEnabled ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.08)', border: subtitleEnabled ? '1px solid rgba(139,92,246,0.55)' : '1px solid rgba(255,255,255,0.08)' }}>
+                        <Captions size={15} />
+                        {subtitleEnabled ? 'SUB ON' : 'SUB OFF'}
+                      </button>
+                      <select value={selectedResolution} onChange={(event) => handleResolutionChange(event.target.value)} className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        {(availableResolutions.length > 0 ? availableResolutions : FALLBACK_RESOLUTIONS).map(option => <option key={option.value} value={option.value} style={{ color: '#000' }}>{option.label}</option>)}
+                      </select>
+                      <select value={String(playbackRate)} onChange={(event) => setPlaybackRate(Number(event.target.value))} className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        {PLAYBACK_SPEEDS.map(option => <option key={option} value={option} style={{ color: '#000' }}>{option}x</option>)}
+                      </select>
+                      <button onClick={toggleFullscreen} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}>{isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}</button>
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-white/55">
+                    <span>{animeTitle}</span>
+                    <span>Season {season} Episode {currentEpisodeMeta?.number || currentEpisode} | {STREAM_SERVER.label} | {streamSources.length > 0 ? 'HLS' : 'Direct'}</span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           )}
         </motion.div>
       </motion.div>
