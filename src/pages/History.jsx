@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { getHistory } from '../lib/supabase'
+import { getAllProgressRows, getEpisodeProgressKey } from '../lib/progress'
 import ContinueCard from '../components/Cards/ContinueCard'
 
 export default function History() {
@@ -10,7 +11,35 @@ export default function History() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    getHistory().then(setItems).finally(() => setLoading(false))
+    Promise.all([getHistory(), getAllProgressRows()])
+      .then(([historyItems, progressRows]) => {
+        const progressMap = new Map(
+          progressRows.map(row => [
+            `${row.content_id}::${getEpisodeProgressKey(row.season, row.episode)}`,
+            row,
+          ])
+        )
+
+        setItems(historyItems.map((item) => {
+          const progress = progressMap.get(`${item.tmdb_id}::${getEpisodeProgressKey(item.season, item.episode)}`)
+
+          if (!progress) {
+            return {
+              ...item,
+              content_id: String(item.tmdb_id),
+              content_type: item.media_type,
+              duration_seconds: 0,
+            }
+          }
+
+          return {
+            ...item,
+            ...progress,
+            title: item.title || progress.title,
+          }
+        }))
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   return (

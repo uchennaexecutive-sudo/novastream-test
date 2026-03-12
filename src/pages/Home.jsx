@@ -210,7 +210,7 @@ export default function Home() {
         {(watchRowsLoading || continueWatching.length > 0) && (
           <ContentRow
             title="Continue Watching"
-            icon="II"
+            icon="▶"
             items={continueWatching}
             loading={watchRowsLoading}
             renderItem={(item) => <ContinueCard key={`${item.content_id}-${item.season || 0}-${item.episode || 0}`} item={item} />}
@@ -221,22 +221,22 @@ export default function Home() {
         {recommendations.length > 0 && (
           <ContentRow
             title={`Because you watched ${recommendationTitle}`}
-            icon="*"
+            icon="✨"
             items={recommendations}
             loading={false}
             type={recommendations[0]?.title ? 'movie' : 'tv'}
           />
         )}
 
-        <ContentRow title="Trending This Week" icon="!" items={trending} loading={loading} />
-        <ContentRow title="Popular Movies" icon="M" items={popularMovies} loading={loading} type="movie" />
-        <ContentRow title="Top Rated" icon="+" items={topRated} loading={loading} type="movie" />
-        <ContentRow title="Popular Series" icon="TV" items={popularSeries} loading={loading} type="tv" />
-        <ContentRow title="Now Playing" icon="N" items={nowPlaying} loading={loading} type="movie" />
-        <ContentRow title="On Air" icon="A" items={onAir} loading={loading} type="tv" />
-        <ContentRow title="Anime" icon="AN" items={anime} loading={loading} type="tv" />
-        <ContentRow title="Animation" icon="AM" items={animation} loading={loading} type="movie" />
-        <ContentRow title="Netflix Originals" icon="N" items={netflix} loading={loading} type="tv" />
+        <ContentRow title="Trending This Week" icon="🔥" items={trending} loading={loading} />
+        <ContentRow title="Popular Movies" icon="🎬" items={popularMovies} loading={loading} type="movie" />
+        <ContentRow title="Top Rated" icon="⭐" items={topRated} loading={loading} type="movie" />
+        <ContentRow title="Popular Series" icon="📺" items={popularSeries} loading={loading} type="tv" />
+        <ContentRow title="Now Playing" icon="🆕" items={nowPlaying} loading={loading} type="movie" />
+        <ContentRow title="On Air" icon="📡" items={onAir} loading={loading} type="tv" />
+        <ContentRow title="Anime" icon="🌸" items={anime} loading={loading} type="tv" />
+        <ContentRow title="Animation" icon="🎨" items={animation} loading={loading} type="movie" />
+        <ContentRow title="Netflix Originals" icon="🔴" items={netflix} loading={loading} type="tv" />
       </div>
     </div>
   )

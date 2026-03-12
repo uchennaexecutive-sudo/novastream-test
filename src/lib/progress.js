@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = 'https://owymezptcmwmrlkeuxcg.supabase.co'
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93eW1lenB0Y213bXJsa2V1eGNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMTM2NjEsImV4cCI6MjA4ODU4OTY2MX0.4OZvH_afMKK-CCEgSrW4ga7oC2y0Hqh3uz5ZeRVtvPQ'
 const DEVICE_ID_STORAGE_KEY = 'nova_device_id'
+const LOCAL_PROGRESS_STORAGE_KEY = 'nova_watch_progress'
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
@@ -27,6 +28,14 @@ const normalizeProgressNumber = (value) => {
 }
 
 const buildEpisodeKey = (season, episode) => `${season || 0}:${episode || 0}`
+const buildProgressKey = (contentId, season, episode) => `${String(contentId)}::${buildEpisodeKey(season, episode)}`
+
+const getUpdatedAtValue = (row) => {
+  const parsed = Date.parse(row?.updated_at || '')
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const sortByUpdatedAtDesc = (items) => [...items].sort((a, b) => getUpdatedAtValue(b) - getUpdatedAtValue(a))
 
 const normalizeRow = (row) => {
   if (!row) return null
@@ -38,7 +47,99 @@ const normalizeRow = (row) => {
     episode: row.episode ?? null,
     progress_seconds: normalizeProgressNumber(row.progress_seconds),
     duration_seconds: normalizeProgressNumber(row.duration_seconds),
+    updated_at: row.updated_at || new Date().toISOString(),
   }
+}
+
+const readLocalRows = () => {
+  if (!hasLocalStorage()) return []
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(LOCAL_PROGRESS_STORAGE_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed.map(normalizeRow).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+const writeLocalRows = (rows) => {
+  if (!hasLocalStorage()) return
+  window.localStorage.setItem(LOCAL_PROGRESS_STORAGE_KEY, JSON.stringify(rows))
+}
+
+const mergeRows = (...collections) => {
+  const map = new Map()
+
+  collections.flat().filter(Boolean).forEach((row) => {
+    const normalized = normalizeRow(row)
+    const key = buildProgressKey(normalized.content_id, normalized.season, normalized.episode)
+    const existing = map.get(key)
+
+    if (!existing || getUpdatedAtValue(normalized) >= getUpdatedAtValue(existing)) {
+      map.set(key, normalized)
+    }
+  })
+
+  return sortByUpdatedAtDesc(Array.from(map.values()))
+}
+
+const upsertLocalRow = (row) => {
+  const rows = readLocalRows()
+  const key = buildProgressKey(row.content_id, row.season, row.episode)
+  const nextRows = mergeRows([{ ...row, updated_at: row.updated_at || new Date().toISOString() }], rows)
+    .filter(item => item.device_id === getDeviceId())
+
+  writeLocalRows(nextRows)
+  return nextRows.find(item => buildProgressKey(item.content_id, item.season, item.episode) === key) || normalizeRow(row)
+}
+
+const filterExactRow = (rows, contentId, season, episode) => rows.find((row) => (
+  row.content_id === String(contentId)
+  && row.season === season
+  && row.episode === episode
+)) || null
+
+async function fetchRemoteRows({ contentId = null, season = undefined, episode = undefined } = {}) {
+  try {
+    let query = supabase
+      .from('watch_progress')
+      .select('*')
+      .eq('device_id', getDeviceId())
+
+    if (contentId !== null) {
+      query = query.eq('content_id', String(contentId))
+    }
+
+    if (season !== undefined) {
+      query = season === null ? query.is('season', null) : query.eq('season', season)
+    }
+
+    if (episode !== undefined) {
+      query = episode === null ? query.is('episode', null) : query.eq('episode', episode)
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+
+    return (data || []).map(normalizeRow).filter(Boolean)
+  } catch (error) {
+    console.error('[progress] remote fetch failed', error)
+    return []
+  }
+}
+
+async function findExistingRemoteRow(deviceId, contentId, season, episode) {
+  const rows = await fetchRemoteRows({ contentId, season, episode })
+  return rows.find(row => row.device_id === deviceId) || null
+}
+
+async function getMergedRowsForContent(contentId) {
+  const [remoteRows, localRows] = await Promise.all([
+    fetchRemoteRows({ contentId }),
+    Promise.resolve(readLocalRows().filter(row => row.content_id === String(contentId))),
+  ])
+
+  return mergeRows(remoteRows, localRows)
 }
 
 export function getDeviceId() {
@@ -59,14 +160,20 @@ export function getProgressPercent(item) {
 }
 
 export function isResumableProgress(item) {
-  const percent = getProgressPercent(item)
-  return percent > 0.05 && percent < 0.95
+  if (!item?.progress_seconds) return false
+
+  if (item.duration_seconds > 0) {
+    const percent = getProgressPercent(item)
+    return percent > 0 && percent < 0.98
+  }
+
+  return item.progress_seconds > 15
 }
 
 function buildPayload(item) {
   const season = toNullableInteger(item.season)
   const episode = toNullableInteger(item.episode)
-  const durationSeconds = normalizeProgressNumber(item.durationSeconds)
+  const durationSeconds = normalizeProgressNumber(item.durationSeconds || item.durationHintSeconds)
   const progressSeconds = durationSeconds > 0
     ? Math.min(normalizeProgressNumber(item.progressSeconds), durationSeconds)
     : normalizeProgressNumber(item.progressSeconds)
@@ -86,28 +193,14 @@ function buildPayload(item) {
   }
 }
 
-async function findExistingProgressRow(deviceId, contentId, season, episode) {
-  let query = supabase
-    .from('watch_progress')
-    .select('id')
-    .eq('device_id', deviceId)
-    .eq('content_id', contentId)
-
-  query = season === null ? query.is('season', null) : query.eq('season', season)
-  query = episode === null ? query.is('episode', null) : query.eq('episode', episode)
-
-  const { data, error } = await query.maybeSingle()
-  if (error) throw error
-  return data
-}
-
 export async function saveProgress(item) {
   if (!item?.contentId || !item?.contentType) return null
 
   const payload = buildPayload(item)
+  const localRow = upsertLocalRow(payload)
 
   try {
-    const existing = await findExistingProgressRow(
+    const existing = await findExistingRemoteRow(
       payload.device_id,
       payload.content_id,
       payload.season,
@@ -123,7 +216,7 @@ export async function saveProgress(item) {
         .maybeSingle()
 
       if (error) throw error
-      return normalizeRow(data)
+      return normalizeRow(data) || localRow
     }
 
     const { data, error } = await supabase
@@ -133,116 +226,71 @@ export async function saveProgress(item) {
       .maybeSingle()
 
     if (error) throw error
-    return normalizeRow(data)
+    return normalizeRow(data) || localRow
   } catch (error) {
     console.error('[progress] save failed', error)
-    return null
+    return localRow
   }
 }
 
 export async function getContinueWatching() {
-  try {
-    const deviceId = getDeviceId()
-    const { data, error } = await supabase
-      .from('watch_progress')
-      .select('*')
-      .eq('device_id', deviceId)
-      .gt('progress_seconds', 0)
-      .order('updated_at', { ascending: false })
-      .limit(20)
+  const [remoteRows, localRows] = await Promise.all([
+    fetchRemoteRows(),
+    Promise.resolve(readLocalRows()),
+  ])
 
-    if (error) throw error
+  const seen = new Set()
 
-    const seen = new Set()
-
-    return (data || [])
-      .map(normalizeRow)
-      .filter((item) => {
-        const key = buildEpisodeKey(item.season, item.episode)
-        const dedupeKey = `${item.content_id}:${key}`
-        if (seen.has(dedupeKey)) return false
-        seen.add(dedupeKey)
-        return true
-      })
-      .filter(isResumableProgress)
-  } catch (error) {
-    console.error('[progress] continue watching fetch failed', error)
-    return []
-  }
+  return mergeRows(remoteRows, localRows)
+    .filter(item => item.progress_seconds > 0)
+    .filter(isResumableProgress)
+    .filter((item) => {
+      const key = buildProgressKey(item.content_id, item.season, item.episode)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 20)
 }
 
 export async function getProgress(contentId, season, episode) {
   if (!contentId) return null
 
-  try {
-    const deviceId = getDeviceId()
-    const normalizedSeason = toNullableInteger(season)
-    const normalizedEpisode = toNullableInteger(episode)
+  const normalizedSeason = toNullableInteger(season)
+  const normalizedEpisode = toNullableInteger(episode)
+  const rows = await getMergedRowsForContent(contentId)
 
-    let query = supabase
-      .from('watch_progress')
-      .select('*')
-      .eq('device_id', deviceId)
-      .eq('content_id', String(contentId))
-
-    query = normalizedSeason === null ? query.is('season', null) : query.eq('season', normalizedSeason)
-    query = normalizedEpisode === null ? query.is('episode', null) : query.eq('episode', normalizedEpisode)
-
-    const { data, error } = await query.maybeSingle()
-    if (error) throw error
-    return normalizeRow(data)
-  } catch (error) {
-    console.error('[progress] item fetch failed', error)
-    return null
-  }
+  return filterExactRow(rows, contentId, normalizedSeason, normalizedEpisode)
 }
 
 export async function getLatestProgress(contentId) {
   if (!contentId) return null
 
-  try {
-    const deviceId = getDeviceId()
-    const { data, error } = await supabase
-      .from('watch_progress')
-      .select('*')
-      .eq('device_id', deviceId)
-      .eq('content_id', String(contentId))
-      .order('updated_at', { ascending: false })
-      .limit(1)
-
-    if (error) throw error
-    return normalizeRow(data?.[0] || null)
-  } catch (error) {
-    console.error('[progress] latest fetch failed', error)
-    return null
-  }
+  const rows = await getMergedRowsForContent(contentId)
+  return rows[0] || null
 }
 
 export async function getContentProgressMap(contentId) {
   if (!contentId) return {}
 
-  try {
-    const deviceId = getDeviceId()
-    const { data, error } = await supabase
-      .from('watch_progress')
-      .select('*')
-      .eq('device_id', deviceId)
-      .eq('content_id', String(contentId))
+  const rows = await getMergedRowsForContent(contentId)
 
-    if (error) throw error
+  return rows.reduce((accumulator, row) => {
+    accumulator[buildEpisodeKey(row.season, row.episode)] = {
+      ...row,
+      percent: getProgressPercent(row),
+    }
+    return accumulator
+  }, {})
+}
 
-    return (data || []).reduce((accumulator, row) => {
-      const normalized = normalizeRow(row)
-      accumulator[buildEpisodeKey(normalized.season, normalized.episode)] = {
-        ...normalized,
-        percent: getProgressPercent(normalized),
-      }
-      return accumulator
-    }, {})
-  } catch (error) {
-    console.error('[progress] progress map fetch failed', error)
-    return {}
-  }
+export async function getAllProgressRows() {
+  const [remoteRows, localRows] = await Promise.all([
+    fetchRemoteRows(),
+    Promise.resolve(readLocalRows()),
+  ])
+
+  return mergeRows(remoteRows, localRows)
 }
 
 export function getEpisodeProgressKey(season, episode) {

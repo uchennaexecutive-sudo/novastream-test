@@ -14,7 +14,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react'
-import { ANIWATCH_BASE_URL, getAnimeEpisodes, getAnimeStream, searchAnime } from '../../lib/consumet'
+import { ANIWATCH_BASE_URL, ANIWATCH_PROXY_URL, getAnimeEpisodes, getAnimeStream, searchAnime } from '../../lib/consumet'
 import { saveProgress } from '../../lib/progress'
 
 const STREAM_SERVER = { id: 'hd-2', label: 'HD-2' }
@@ -29,6 +29,7 @@ const FALLBACK_RESOLUTIONS = [
 const CONTROLS_TIMEOUT_MS = 3000
 const STREAM_RETRY_DELAY_MS = 2000
 const MAX_STREAM_ATTEMPTS = 3
+const STARTUP_TIMEOUT_MS = 12000
 
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -87,6 +88,7 @@ export default function AnimePlayer({
   const hlsRef = useRef(null)
   const hideTimerRef = useRef(null)
   const retryTimerRef = useRef(null)
+  const startupTimerRef = useRef(null)
   const resumeAppliedRef = useRef(false)
   const resumeTargetRef = useRef({ episode: Number(episode) || 1, seconds: Number(resumeAt) || 0 })
   const retryScheduledRef = useRef(false)
@@ -130,10 +132,10 @@ export default function AnimePlayer({
     () => episodes.find(item => Number(item.number) === Number(currentEpisode)) || null,
     [episodes, currentEpisode]
   )
-  const activeStreamUrl = useMemo(() => {
-    if (streamMode === 'raw') return streamData.rawUrl || streamData.proxiedUrl || ''
-    return streamData.proxiedUrl || streamData.rawUrl || ''
-  }, [streamData, streamMode])
+  const activeStreamUrl = useMemo(
+    () => streamData.rawUrl || streamData.proxiedUrl || '',
+    [streamData.rawUrl, streamData.proxiedUrl]
+  )
   const canFallbackToRaw = Boolean(
     streamData.rawUrl
     && streamData.proxiedUrl
@@ -150,7 +152,11 @@ export default function AnimePlayer({
     retryScheduledRef.current = false
     window.clearTimeout(retryTimerRef.current)
   }
+  const clearStartupTimer = () => {
+    window.clearTimeout(startupTimerRef.current)
+  }
   const resetPlaybackState = () => {
+    clearStartupTimer()
     setStreamData({ rawUrl: '', proxiedUrl: '' })
     setStreamMode('proxy')
     setStreamSources([])
@@ -279,6 +285,7 @@ export default function AnimePlayer({
   }
   const retryFreshStream = () => {
     clearRetryTimer()
+    clearStartupTimer()
     streamAttemptRef.current = 0
     resumeAppliedRef.current = false
     resetPlaybackState()
@@ -289,6 +296,7 @@ export default function AnimePlayer({
   }
   const scheduleFreshStreamRetry = () => {
     if (retryScheduledRef.current) return
+    clearStartupTimer()
     if (streamAttemptRef.current >= MAX_STREAM_ATTEMPTS) {
       setError('Could not load stream')
       setLoading(false)
@@ -464,6 +472,7 @@ export default function AnimePlayer({
     setLoadingStage('Buffering...')
 
     const handleStreamFailure = () => {
+      clearStartupTimer()
       if (canFallbackToRaw) {
         setLoading(true)
         setLoadingStage('Retrying raw stream...')
@@ -476,16 +485,36 @@ export default function AnimePlayer({
     }
 
     if (Hls.isSupported()) {
+      const ProxyingLoader = class extends Hls.DefaultConfig.loader {
+        load(context, config, callbacks) {
+          const proxiedContext = {
+            ...context,
+            url: `${ANIWATCH_PROXY_URL}?url=${encodeURIComponent(context.url)}`,
+          }
+
+          super.load(proxiedContext, config, {
+            ...callbacks,
+            onSuccess: (response, stats, _context, networkDetails) => callbacks.onSuccess(response, stats, context, networkDetails),
+            onError: (error, _context, networkDetails, stats) => callbacks.onError(error, context, networkDetails, stats),
+            onTimeout: (stats, _context, networkDetails) => callbacks.onTimeout(stats, context, networkDetails),
+          })
+        }
+      }
+
       const hls = new Hls({
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
         lowLatencyMode: false,
         progressive: true,
         startLevel: -1,
+        loader: streamMode === 'proxy' && streamData.rawUrl ? ProxyingLoader : Hls.DefaultConfig.loader,
       })
       hlsRef.current = hls
       hls.attachMedia(video)
       hls.loadSource(activeStreamUrl)
+      startupTimerRef.current = window.setTimeout(() => {
+        handleStreamFailure()
+      }, STARTUP_TIMEOUT_MS)
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         const levels = hls.levels
           .map(level => level.height)
@@ -503,6 +532,7 @@ export default function AnimePlayer({
         }
       })
       return () => {
+        clearStartupTimer()
         hls.destroy()
         hlsRef.current = null
       }
@@ -514,6 +544,7 @@ export default function AnimePlayer({
     }
 
     return () => {
+      clearStartupTimer()
       video.pause()
       video.removeAttribute('src')
       video.load()
@@ -549,6 +580,7 @@ export default function AnimePlayer({
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
     const handleCanPlay = () => {
+      clearStartupTimer()
       applyPendingResume()
       setLoading(false)
       setLoadingStage('')
@@ -662,6 +694,7 @@ export default function AnimePlayer({
   useEffect(() => () => {
     clearHideTimer()
     clearRetryTimer()
+    clearStartupTimer()
     persistProgress().catch(() => {})
   }, [persistProgress])
 

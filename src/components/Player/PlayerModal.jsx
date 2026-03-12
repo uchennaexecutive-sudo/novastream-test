@@ -126,6 +126,7 @@ export default function PlayerModal({
   season,
   episode,
   resumeAt = 0,
+  durationHintSeconds = 0,
   isAnime = false,
 }) {
   const [sourceIndex, setSourceIndex] = useState(0)
@@ -142,7 +143,7 @@ export default function PlayerModal({
   const playbackLoadedAtRef = useRef(0)
   const lastProgressRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
-    durationSeconds: 0,
+    durationSeconds: Math.max(0, Math.floor(Number(durationHintSeconds) || 0)),
   })
   const resumeTimersRef = useRef([])
 
@@ -188,6 +189,7 @@ export default function PlayerModal({
       Math.floor(
         overrides.durationSeconds
         ?? lastProgressRef.current.durationSeconds
+        ?? durationHintSeconds
         ?? 0
       )
     )
@@ -292,7 +294,7 @@ export default function PlayerModal({
       wasOpenRef.current = true
       lastProgressRef.current = {
         progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
-        durationSeconds: 0,
+        durationSeconds: Math.max(0, Math.floor(Number(durationHintSeconds) || 0)),
       }
       playbackLoadedAtRef.current = 0
       clearResumeTimers()
@@ -328,6 +330,7 @@ export default function PlayerModal({
     persistBestGuessProgress,
     posterPath,
     resumeAt,
+    durationHintSeconds,
     season,
     title,
     tmdbId,
@@ -402,7 +405,7 @@ export default function PlayerModal({
 
       lastProgressRef.current = {
         progressSeconds: progressUpdate.progressSeconds,
-        durationSeconds: progressUpdate.durationSeconds || lastProgressRef.current.durationSeconds || 0,
+        durationSeconds: progressUpdate.durationSeconds || lastProgressRef.current.durationSeconds || Math.max(0, Math.floor(Number(durationHintSeconds) || 0)),
       }
 
       persistProgress(progressUpdate).catch(() => {})
@@ -410,7 +413,7 @@ export default function PlayerModal({
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [isOpen, persistProgress])
+  }, [durationHintSeconds, isOpen, persistProgress])
 
   useEffect(() => () => {
     window.clearTimeout(timeoutRef.current)

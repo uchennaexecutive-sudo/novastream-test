@@ -75,7 +75,7 @@ export default function EpisodeSelector({
                   borderColor: 'var(--border-hover)',
                   boxShadow: '0 0 20px var(--accent-glow), 0 12px 40px rgba(0,0,0,0.3)',
                 }}
-                onClick={() => onPlay(season, ep.episode_number)}
+                onClick={() => onPlay(season, ep.episode_number, ep.runtime || null)}
               >
                 <div className="relative h-28">
                   {ep.still_path ? (

@@ -42,6 +42,7 @@ export default function Detail() {
   const [playSeason, setPlaySeason] = useState(requestedResumeSeason || 1)
   const [playEpisode, setPlayEpisode] = useState(requestedResumeEpisode || 1)
   const [playerResumeAt, setPlayerResumeAt] = useState(requestedResumeAt)
+  const [playerDurationHint, setPlayerDurationHint] = useState(0)
   const [resumeProgress, setResumeProgress] = useState(location.state?.resumeProgress || null)
   const [progressMap, setProgressMap] = useState({})
   const [inWatchlist, setInWatchlist] = useState(false)
@@ -59,6 +60,7 @@ export default function Detail() {
     setPlaySeason(requestedResumeSeason || 1)
     setPlayEpisode(requestedResumeEpisode || 1)
     setPlayerResumeAt(requestedResumeAt)
+    setPlayerDurationHint(0)
     autoOpenHandledRef.current = false
 
     getDetails(type, id)
@@ -130,13 +132,14 @@ export default function Detail() {
     }
   }, [animeTitle, isAnime])
 
-  const handlePlay = (seasonNumber = 1, episodeNumber = 1, resumeSeconds = 0) => {
+  const handlePlay = (seasonNumber = 1, episodeNumber = 1, resumeSeconds = 0, durationHintSeconds = 0) => {
     const nextSeason = seasonNumber || 1
     const nextEpisode = episodeNumber || 1
 
     setPlaySeason(nextSeason)
     setPlayEpisode(nextEpisode)
     setPlayerResumeAt(Math.max(0, Math.floor(Number(resumeSeconds) || 0)))
+    setPlayerDurationHint(Math.max(0, Math.floor(Number(durationHintSeconds) || 0)))
 
     if (isAnime) {
       setAnimePlayerOpen(true)
@@ -156,9 +159,13 @@ export default function Detail() {
       0,
       Math.floor(Number(location.state?.resumeAt || fallbackProgress?.progress_seconds || playerResumeAt || 0))
     )
+    const targetDurationHint = Math.max(
+      0,
+      Math.floor(Number(data.runtime || data.episode_run_time?.[0] || 0) * 60)
+    )
 
     autoOpenHandledRef.current = true
-    handlePlay(targetSeason, targetEpisode, targetResumeAt)
+    handlePlay(targetSeason, targetEpisode, targetResumeAt, targetDurationHint)
   }, [data, location.state?.autoOpenPlayer, location.state?.resumeAt, location.state?.resumeEpisode, location.state?.resumeProgress, location.state?.resumeSeason, playEpisode, playSeason, playerResumeAt, resumeProgress])
 
   if (loading || !data) {
@@ -182,9 +189,14 @@ export default function Detail() {
   const numSeasons = data.number_of_seasons || 0
   const year = (data.release_date || data.first_air_date || '').slice(0, 4)
   const showResumeButton = isResumableProgress(resumeProgress)
+  const defaultDurationHint = Math.max(
+    0,
+    Math.floor(Number(data.runtime || data.episode_run_time?.[0] || 0) * 60)
+  )
   const resumeLabel = type === 'movie'
     ? `Resume ${formatTime(resumeProgress?.progress_seconds || 0)}`
     : `Resume S${resumeProgress?.season || playSeason || 1} E${resumeProgress?.episode || playEpisode || 1}`
+  const primaryLabel = showResumeButton ? resumeLabel : 'Stream Now'
 
   const handleWatchlist = async () => {
     await addToWatchlist({
@@ -301,7 +313,12 @@ export default function Detail() {
 
             <div className="flex gap-4 flex-wrap" style={{ marginTop: 32 }}>
               <motion.button
-                onClick={() => handlePlay(type === 'movie' ? 1 : playSeason, type === 'movie' ? 1 : playEpisode, 0)}
+                onClick={() => handlePlay(
+                  type === 'movie' ? 1 : (showResumeButton ? (resumeProgress?.season || playSeason || 1) : playSeason),
+                  type === 'movie' ? 1 : (showResumeButton ? (resumeProgress?.episode || playEpisode || 1) : playEpisode),
+                  showResumeButton ? (resumeProgress?.progress_seconds || playerResumeAt || 0) : 0,
+                  defaultDurationHint
+                )}
                 className="flex items-center gap-3 font-semibold rounded-xl"
                 style={{
                   background: 'var(--accent)',
@@ -316,32 +333,8 @@ export default function Detail() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
-                Stream Now
+                {primaryLabel}
               </motion.button>
-
-              {showResumeButton && (
-                <motion.button
-                  onClick={() => handlePlay(
-                    resumeProgress?.season || playSeason || 1,
-                    resumeProgress?.episode || playEpisode || 1,
-                    resumeProgress?.progress_seconds || playerResumeAt || 0
-                  )}
-                  className="font-semibold rounded-xl"
-                  style={{
-                    background: 'rgba(255,255,255,0.05)',
-                    color: 'var(--text-primary)',
-                    padding: '16px 28px',
-                    fontSize: 18,
-                    border: '1px solid var(--accent)',
-                    boxShadow: '0 0 20px var(--accent-glow)',
-                    backdropFilter: 'blur(12px)',
-                  }}
-                  whileHover={{ scale: 1.02, boxShadow: '0 0 28px var(--accent-glow)' }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  {resumeLabel}
-                </motion.button>
-              )}
 
               <motion.button
                 onClick={handleWatchlist}
@@ -430,7 +423,12 @@ export default function Detail() {
               currentSeason={playSeason}
               currentEpisode={playEpisode}
               progressMap={progressMap}
-              onPlay={(seasonNumber, episodeNumber) => handlePlay(seasonNumber, episodeNumber, 0)}
+              onPlay={(seasonNumber, episodeNumber, runtime) => handlePlay(
+                seasonNumber,
+                episodeNumber,
+                0,
+                Math.max(0, Math.floor(Number(runtime || data.episode_run_time?.[0] || 0) * 60))
+              )}
             />
           </section>
         )}
@@ -459,6 +457,7 @@ export default function Detail() {
           season={playSeason}
           episode={playEpisode}
           resumeAt={playerResumeAt}
+          durationHintSeconds={playerDurationHint || defaultDurationHint}
           isAnime={false}
         />
       )}
