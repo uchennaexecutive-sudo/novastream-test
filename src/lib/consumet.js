@@ -14,13 +14,23 @@ export async function getAnimeEpisodes(animeId) {
   return data.data?.episodes || []
 }
 
-// Get stream URL for a specific episode
-export async function getAnimeStream(episodeId, server = 'hd-1') {
+// Get stream payload for a specific episode
+export async function getAnimeStream(episodeId, server = 'hd-2') {
   const res = await fetch(
     `${ANIWATCH_BASE_URL}/api/v2/hianime/episode/sources?animeEpisodeId=${encodeURIComponent(episodeId)}&server=${encodeURIComponent(server)}&category=sub`
   )
   const data = await res.json()
   const sources = data.data?.sources || []
+  const tracks = (data.data?.tracks || []).map((track) => ({
+    ...track,
+    kind: track.kind || (String(track.lang).toLowerCase() === 'thumbnails' ? 'thumbnails' : 'captions'),
+  }))
   const m3u8 = sources.find(source => source.type === 'hls') || sources[0]
-  return m3u8?.url || null
+
+  return {
+    url: m3u8?.url || null,
+    sources,
+    tracks,
+    headers: data.data?.headers || {},
+  }
 }
