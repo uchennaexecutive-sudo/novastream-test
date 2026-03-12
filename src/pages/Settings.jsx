@@ -244,6 +244,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.0.18 - Anime streaming now uses Consumet API with native HLS.js playback in the premium popup</p>
             <p>v1.0.17 - Anime NativePlayer now uses the standard TV embed sources that capture reliably</p>
             <p>v1.0.15 - Phase 1 native player for anime via Tauri stream URL capture</p>
             <p>v1.0.14 - Fixed `release.ps1` to auto-bump version in all 4 files before release</p>

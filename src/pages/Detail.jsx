@@ -8,10 +8,9 @@ import RatingBadge from '../components/UI/RatingBadge'
 import GlassBadge from '../components/UI/GlassBadge'
 import MediaCard from '../components/Cards/MediaCard'
 import EpisodeSelector from '../components/Player/EpisodeSelector'
-import NativePlayer from '../components/Player/NativePlayer'
+import AnimePlayer from '../components/Player/AnimePlayer'
 import PlayerModal from '../components/Player/PlayerModal'
-import { ANIME_SERVER_LABELS, getAnimeEmbeds } from '../lib/embeds'
-import { addToHistory, addToWatchlist, isInWatchlist } from '../lib/supabase'
+import { addToWatchlist, isInWatchlist } from '../lib/supabase'
 
 export default function Detail() {
   const { type, id } = useParams()
@@ -19,10 +18,9 @@ export default function Detail() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [playerOpen, setPlayerOpen] = useState(false)
-  const [nativePlayerOpen, setNativePlayerOpen] = useState(false)
+  const [animePlayerOpen, setAnimePlayerOpen] = useState(false)
   const [playSeason, setPlaySeason] = useState(1)
   const [playEpisode, setPlayEpisode] = useState(1)
-  const [animeSourceIndex, setAnimeSourceIndex] = useState(0)
   const [inWatchlist, setInWatchlist] = useState(false)
 
   useEffect(() => {
@@ -54,7 +52,7 @@ export default function Detail() {
   const numSeasons = data.number_of_seasons || 0
   const year = (data.release_date || data.first_air_date || '').slice(0, 4)
   const isAnime = Boolean(location.state?.isAnime)
-  const animeEmbeds = isAnime ? getAnimeEmbeds(data.id, playSeason, playEpisode) : []
+  const animeTitle = location.state?.animeTitle || location.state?.animeAltTitle || title
 
   const handleWatchlist = async () => {
     await addToWatchlist({
@@ -74,34 +72,11 @@ export default function Detail() {
     setPlayEpisode(nextEpisode)
 
     if (isAnime) {
-      setAnimeSourceIndex(0)
-      setNativePlayerOpen(true)
-      addToHistory({
-        tmdb_id: data.id,
-        media_type: type,
-        title,
-        poster_path: data.poster_path,
-        season: nextSeason,
-        episode: nextEpisode,
-      }).catch(() => {})
+      setAnimePlayerOpen(true)
       return
     }
 
     setPlayerOpen(true)
-  }
-
-  const handleCloseNativePlayer = () => {
-    setNativePlayerOpen(false)
-    setAnimeSourceIndex(0)
-  }
-
-  const handleAnimeCaptureFailure = () => {
-    if (animeSourceIndex < animeEmbeds.length - 1) {
-      setAnimeSourceIndex(i => i + 1)
-      return true
-    }
-
-    return false
   }
 
   return (
@@ -357,15 +332,13 @@ export default function Detail() {
         />
       )}
 
-      {isAnime && nativePlayerOpen && animeEmbeds[animeSourceIndex] && (
-        <NativePlayer
-          key={`${data.id}-${playSeason}-${playEpisode}-${animeSourceIndex}`}
-          embedUrl={animeEmbeds[animeSourceIndex]}
-          title={title}
-          onClose={handleCloseNativePlayer}
-          onFailure={handleAnimeCaptureFailure}
-          isAnime
-          serverName={ANIME_SERVER_LABELS[animeSourceIndex]}
+      {isAnime && animePlayerOpen && (
+        <AnimePlayer
+          animeTitle={animeTitle}
+          season={playSeason}
+          episode={playEpisode}
+          backdrop={backdrop}
+          onClose={() => setAnimePlayerOpen(false)}
         />
       )}
     </div>
