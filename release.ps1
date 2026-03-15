@@ -2,11 +2,11 @@
 # Usage: .\release.ps1 1.0.8 "Short changelog note"
 
 param(
-  [Parameter(Mandatory=$true)][string]$Version,
-  [Parameter(Mandatory=$true)][string]$Notes
+  [Parameter(Mandatory = $true)][string]$Version,
+  [Parameter(Mandatory = $true)][string]$Notes
 )
 
-Set-Location c:\Users\uchen\nova-stream-dev
+Set-Location c:\Users\uchen\nova-stream-dev-test
 
 $TargetVersion = if ($args.Count -gt 0 -and $args[0]) { $args[0] } else { $Version }
 
@@ -47,4 +47,4 @@ git push origin "v$TargetVersion" --force
 if ($LASTEXITCODE -ne 0) { Write-Host "Tag push failed" -ForegroundColor Red; exit 1 }
 
 Write-Host "`nv$TargetVersion pushed! CI is now building." -ForegroundColor Green
-Write-Host "   https://github.com/uchennaexecutive-sudo/novastream/actions`n" -ForegroundColor DarkGray
+Write-Host "   https://github.com/uchennaexecutive-sudo/novastream-test/actions`n" -ForegroundColor DarkGray
