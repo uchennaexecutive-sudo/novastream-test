@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import ReactPlayer from 'react-player'
@@ -11,6 +11,7 @@ import {
   getProgress,
   isResumableProgress,
 } from '../lib/progress'
+import { getAnimeById } from '../lib/anilist'
 import RatingBadge from '../components/UI/RatingBadge'
 import GlassBadge from '../components/UI/GlassBadge'
 import MediaCard from '../components/Cards/MediaCard'
@@ -18,6 +19,10 @@ import EpisodeSelector from '../components/Player/EpisodeSelector'
 import AnimePlayer from '../components/Player/AnimePlayer'
 import MoviePlayer from '../components/Player/MoviePlayer'
 import { addToWatchlist, isInWatchlist } from '../lib/supabase'
+import {
+  buildAnimeCanonicalFromAniList,
+  buildAnimeEpisodesFromAniListEntry,
+} from '../lib/animeMapper'
 
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
@@ -34,9 +39,11 @@ export default function Detail() {
   const { type, id } = useParams()
   const isMovieLike = isMovieLikeMediaType(type)
   const location = useLocation()
+
   const requestedResumeAt = Math.max(0, Math.floor(Number(location.state?.resumeAt) || 0))
   const requestedResumeSeason = Number(location.state?.resumeSeason) || null
   const requestedResumeEpisode = Number(location.state?.resumeEpisode) || null
+
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [playerOpen, setPlayerOpen] = useState(false)
@@ -48,13 +55,24 @@ export default function Detail() {
   const [resumeProgress, setResumeProgress] = useState(location.state?.resumeProgress || null)
   const [progressMap, setProgressMap] = useState({})
   const [inWatchlist, setInWatchlist] = useState(false)
+
+  const [canonicalAnime, setCanonicalAnime] = useState(null)
+  const [canonicalLoading, setCanonicalLoading] = useState(false)
+  const [selectedEntryIndex, setSelectedEntryIndex] = useState(0)
+  const [animePlayTitle, setAnimePlayTitle] = useState('')
+  const [animePlayAltTitle, setAnimePlayAltTitle] = useState('')
+  const [prefetchedAnimeData, setPrefetchedAnimeData] = useState(null)
+
   const animePrefetchRef = useRef(new Map())
   const prefetchedAnimeIdRef = useRef(null)
   const autoOpenHandledRef = useRef(false)
 
   const isAnime = Boolean(location.state?.isAnime)
-  const animeTitle = location.state?.animeTitle || location.state?.animeAltTitle || data?.title || data?.name || ''
-  const animeAltTitle = location.state?.animeAltTitle || data?.original_name || data?.original_title || ''
+  const animeTitle =
+    location.state?.animeTitle || location.state?.animeAltTitle || data?.title || data?.name || ''
+  const animeAltTitle =
+    location.state?.animeAltTitle || data?.original_name || data?.original_title || ''
+  const anilistId = Number(location.state?.anilistId) || null
 
   useEffect(() => {
     setLoading(true)
@@ -64,6 +82,12 @@ export default function Detail() {
     setPlayEpisode(requestedResumeEpisode || 1)
     setPlayerResumeAt(requestedResumeAt)
     setPlayerDurationHint(0)
+    setCanonicalAnime(null)
+    setCanonicalLoading(false)
+    setSelectedEntryIndex(0)
+    setAnimePlayTitle('')
+    setAnimePlayAltTitle('')
+    setPrefetchedAnimeData(null)
     autoOpenHandledRef.current = false
 
     getDetails(type, id)
@@ -71,7 +95,17 @@ export default function Detail() {
       .finally(() => setLoading(false))
 
     isInWatchlist(Number(id)).then(setInWatchlist).catch(() => { })
-  }, [id, location.state?.resumeAt, location.state?.resumeEpisode, location.state?.resumeProgress, location.state?.resumeSeason, type])
+  }, [
+    id,
+    location.state?.resumeAt,
+    location.state?.resumeEpisode,
+    location.state?.resumeProgress,
+    location.state?.resumeSeason,
+    requestedResumeAt,
+    requestedResumeEpisode,
+    requestedResumeSeason,
+    type,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -90,8 +124,10 @@ export default function Detail() {
 
         if (cancelled) return
 
-        const preferredProgress = [directProgress, latestProgress, location.state?.resumeProgress]
-          .find(item => isResumableProgress(item)) || null
+        const preferredProgress =
+          [directProgress, latestProgress, location.state?.resumeProgress].find((item) =>
+            isResumableProgress(item)
+          ) || null
 
         setProgressMap(nextProgressMap || {})
         setResumeProgress(preferredProgress)
@@ -118,27 +154,98 @@ export default function Detail() {
   }, [id, isMovieLike, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, type])
 
   useEffect(() => {
-    if (!isAnime || (!animeTitle && !animeAltTitle)) return undefined
+    if (!isAnime || !anilistId) return undefined
+
+    let cancelled = false
+    setCanonicalLoading(true)
+
+    getAnimeById(anilistId)
+      .then((media) => {
+        if (cancelled) return
+
+        const result = buildAnimeCanonicalFromAniList(media)
+        setCanonicalAnime(result || null)
+
+        if (result?.entries?.length) {
+          const requestedSeason = Number(location.state?.resumeSeason || resumeProgress?.season || 1)
+
+          const matchedSeasonIndex = result.entries.findIndex(
+            (entry) => entry.kind === 'season' && Number(entry.seasonNumber || 0) === requestedSeason
+          )
+
+          setSelectedEntryIndex(matchedSeasonIndex >= 0 ? matchedSeasonIndex : 0)
+        } else {
+          setSelectedEntryIndex(0)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCanonicalAnime(null)
+          setSelectedEntryIndex(0)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCanonicalLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [anilistId, isAnime, location.state?.resumeSeason, resumeProgress?.season])
+
+  const selectedCanonicalEntry = canonicalAnime?.entries?.[selectedEntryIndex] || null
+
+  const selectedEpisodes = useMemo(() => {
+    if (selectedCanonicalEntry?.isLongRunner) {
+      const providerEpisodes = Array.isArray(prefetchedAnimeData?.episodes)
+        ? prefetchedAnimeData.episodes
+        : []
+
+      if (providerEpisodes.length > 0) {
+        return providerEpisodes.map((episode, index) => ({
+          number: Number(episode?.number || episode?.episodeNumber || index + 1),
+          title: episode?.title || `Episode ${index + 1}`,
+          image: selectedCanonicalEntry?.bannerImage || selectedCanonicalEntry?.image || '',
+          isMainSeriesLauncher: false,
+        }))
+      }
+    }
+
+    return buildAnimeEpisodesFromAniListEntry(selectedCanonicalEntry)
+  }, [prefetchedAnimeData, selectedCanonicalEntry])
+
+  const playbackAnimeTitle = useMemo(() => {
+    if (!isAnime) return animeTitle
+    return selectedCanonicalEntry?.title || animeTitle
+  }, [animeTitle, isAnime, selectedCanonicalEntry])
+
+  useEffect(() => {
+    if (!isAnime || !playbackAnimeTitle) return undefined
 
     let cancelled = false
 
-    preloadAnimePlayback(animeTitle, animeAltTitle)
+    preloadAnimePlayback(playbackAnimeTitle, animeAltTitle)
       .then((payload) => {
         if (cancelled || !payload?.animeId) return
         animePrefetchRef.current.set(payload.animeId, payload)
         prefetchedAnimeIdRef.current = payload.animeId
+        setPrefetchedAnimeData(payload)
       })
       .catch(() => { })
 
     return () => {
       cancelled = true
     }
-  }, [animeAltTitle, animeTitle, isAnime])
+  }, [animeAltTitle, isAnime, playbackAnimeTitle])
 
-  const handlePlay = async (seasonNumber = 1, episodeNumber = 1, resumeSeconds = 0, durationHintSeconds = 0) => {
-
-    console.log('[Detail] handlePlay triggered', { isAnime, type })
-
+  const handlePlay = async (
+    seasonNumber = 1,
+    episodeNumber = 1,
+    resumeSeconds = 0,
+    durationHintSeconds = 0,
+    animePlaybackTitle = '',
+    animePlaybackAltTitle = ''
+  ) => {
     const nextSeason = seasonNumber || 1
     const nextEpisode = episodeNumber || 1
 
@@ -148,6 +255,8 @@ export default function Detail() {
     setPlayerDurationHint(Math.max(0, Math.floor(Number(durationHintSeconds) || 0)))
 
     if (isAnime) {
+      setAnimePlayTitle(animePlaybackTitle || playbackAnimeTitle || animeTitle)
+      setAnimePlayAltTitle(animePlaybackAltTitle || animeAltTitle || animeTitle)
       setPlayerOpen(false)
       setAnimePlayerOpen(true)
       return
@@ -174,7 +283,18 @@ export default function Detail() {
 
     autoOpenHandledRef.current = true
     handlePlay(targetSeason, targetEpisode, targetResumeAt, targetDurationHint)
-  }, [data, location.state?.autoOpenPlayer, location.state?.resumeAt, location.state?.resumeEpisode, location.state?.resumeProgress, location.state?.resumeSeason, playEpisode, playSeason, playerResumeAt, resumeProgress])
+  }, [
+    data,
+    location.state?.autoOpenPlayer,
+    location.state?.resumeAt,
+    location.state?.resumeEpisode,
+    location.state?.resumeProgress,
+    location.state?.resumeSeason,
+    playEpisode,
+    playSeason,
+    playerResumeAt,
+    resumeProgress,
+  ])
 
   if (loading || !data) {
     return (
@@ -190,7 +310,9 @@ export default function Detail() {
   const title = data.title || data.name || ''
   const backdrop = imgOriginal(data.backdrop_path)
   const poster = imgW500(data.poster_path)
-  const trailer = data.videos?.results?.find(video => video.type === 'Trailer' && video.site === 'YouTube')
+  const trailer = data.videos?.results?.find(
+    (video) => video.type === 'Trailer' && video.site === 'YouTube'
+  )
   const cast = data.credits?.cast?.slice(0, 16) || []
   const similar = data.similar?.results?.slice(0, 12) || []
   const genres = data.genres || []
@@ -205,6 +327,18 @@ export default function Detail() {
     ? `Resume ${formatTime(resumeProgress?.progress_seconds || 0)}`
     : `Resume S${resumeProgress?.season || playSeason || 1} E${resumeProgress?.episode || playEpisode || 1}`
   const primaryLabel = showResumeButton ? resumeLabel : 'Stream Now'
+
+  const getAnimeCardImage = (entry, episode = null) => {
+    return (
+      episode?.image ||
+      entry?.bannerImage ||
+      entry?.image ||
+      backdrop ||
+      poster ||
+      ''
+    )
+  }
+  const isMainSeriesLauncher = () => false
 
   const handleWatchlist = async () => {
     await addToWatchlist({
@@ -234,7 +368,10 @@ export default function Detail() {
             style={{ background: 'linear-gradient(135deg, var(--bg-base), var(--orb-1), var(--bg-base))' }}
           />
         )}
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-base) 0%, transparent 70%)' }} />
+        <div
+          className="absolute inset-0"
+          style={{ background: 'linear-gradient(to top, var(--bg-base) 0%, transparent 70%)' }}
+        />
       </div>
 
       <div className="relative z-10 w-full" style={{ marginTop: -120, padding: '0 64px 64px 64px' }}>
@@ -308,7 +445,9 @@ export default function Detail() {
 
             {genres.length > 0 && (
               <div className="flex items-center gap-2 mb-6 flex-wrap">
-                {genres.map(genre => <GlassBadge key={genre.id}>{genre.name}</GlassBadge>)}
+                {genres.map((genre) => (
+                  <GlassBadge key={genre.id}>{genre.name}</GlassBadge>
+                ))}
               </div>
             )}
 
@@ -321,12 +460,14 @@ export default function Detail() {
 
             <div className="flex gap-4 flex-wrap" style={{ marginTop: 32 }}>
               <motion.button
-                onClick={() => handlePlay(
-                  isMovieLike ? 1 : (showResumeButton ? (resumeProgress?.season || playSeason || 1) : playSeason),
-                  isMovieLike ? 1 : (showResumeButton ? (resumeProgress?.episode || playEpisode || 1) : playEpisode),
-                  showResumeButton ? (resumeProgress?.progress_seconds || playerResumeAt || 0) : 0,
-                  defaultDurationHint
-                )}
+                onClick={() =>
+                  handlePlay(
+                    isMovieLike ? 1 : showResumeButton ? resumeProgress?.season || playSeason || 1 : playSeason,
+                    isMovieLike ? 1 : showResumeButton ? resumeProgress?.episode || playEpisode || 1 : playEpisode,
+                    showResumeButton ? resumeProgress?.progress_seconds || playerResumeAt || 0 : 0,
+                    defaultDurationHint
+                  )
+                }
                 className="flex items-center gap-3 font-semibold rounded-xl"
                 style={{
                   background: 'var(--accent)',
@@ -355,7 +496,11 @@ export default function Detail() {
                   border: '1px solid var(--border)',
                   backdropFilter: 'blur(12px)',
                 }}
-                whileHover={{ scale: 1.02, borderColor: 'var(--accent)', boxShadow: '0 0 20px var(--accent-glow)' }}
+                whileHover={{
+                  scale: 1.02,
+                  borderColor: 'var(--accent)',
+                  boxShadow: '0 0 20px var(--accent-glow)',
+                }}
                 whileTap={{ scale: 0.98 }}
               >
                 {inWatchlist ? 'In Watchlist' : '+ Watchlist'}
@@ -372,7 +517,7 @@ export default function Detail() {
               Cast
             </h3>
             <div className="flex gap-5 overflow-x-auto hide-scrollbar pb-3">
-              {cast.map(person => (
+              {cast.map((person) => (
                 <div key={person.id} className="flex flex-col items-center flex-shrink-0 w-24 group">
                   <div
                     className="w-20 h-20 rounded-full overflow-hidden mb-2 transition-all duration-200 group-hover:ring-2 group-hover:ring-[var(--accent)] group-hover:scale-105"
@@ -420,7 +565,170 @@ export default function Detail() {
           </section>
         )}
 
-        {type === 'tv' && numSeasons > 0 && (
+        {isAnime && (
+          <section>
+            <h3 className="font-display font-semibold text-xl mb-5" style={{ color: 'var(--text-primary)' }}>
+              Episodes
+            </h3>
+
+            {canonicalLoading ? (
+              <div className="flex justify-center py-8">
+                <div
+                  className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+                  style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
+                />
+              </div>
+            ) : canonicalAnime?.entries?.length ? (
+              <div>
+                <div className="flex gap-2 mb-5 flex-wrap">
+                  {canonicalAnime.entries.map((entry, index) => {
+                    const active = index === selectedEntryIndex
+                    return (
+                      <button
+                        key={`${entry.kind}-${entry.id}-${index}`}
+                        onClick={() => {
+                          setSelectedEntryIndex(index)
+                          setPlaySeason(Number(entry.seasonNumber || 1))
+                          setPlayEpisode(1)
+                        }}
+                        className="px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200"
+                        style={{
+                          background: active ? 'var(--accent)' : 'var(--bg-surface)',
+                          color: active ? '#fff' : 'var(--text-secondary)',
+                          border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                          boxShadow: active ? '0 0 16px var(--accent-glow)' : 'none',
+                        }}
+                      >
+                        {entry.label}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {selectedEpisodes.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {selectedEpisodes.map((episode, index) => {
+                      const entrySeason = Number(selectedCanonicalEntry?.seasonNumber || 1)
+                      const episodeNumber = Number(episode.number || index + 1)
+                      const isCurrentEpisode =
+                        Number(playSeason) === entrySeason && Number(playEpisode) === episodeNumber
+
+                      return (
+                        <motion.div
+                          key={`${selectedCanonicalEntry?.id}-${episodeNumber}`}
+                          className="rounded-xl overflow-hidden cursor-pointer group"
+                          style={{
+                            background: 'var(--bg-surface)',
+                            border: isCurrentEpisode ? '1px solid var(--accent)' : '1px solid var(--border)',
+                            boxShadow: isCurrentEpisode
+                              ? '0 0 24px var(--accent-glow), var(--card-shadow)'
+                              : 'var(--card-shadow)',
+                          }}
+                          whileHover={{
+                            y: -3,
+                            borderColor: 'var(--border-hover)',
+                            boxShadow: '0 0 20px var(--accent-glow), 0 12px 40px rgba(0,0,0,0.3)',
+                          }}
+                          onClick={() =>
+                            handlePlay(
+                              entrySeason,
+                              isMainSeriesLauncher(episode) ? 1 : episodeNumber,
+                              0,
+                              defaultDurationHint,
+                              selectedCanonicalEntry?.title || playbackAnimeTitle || animeTitle,
+                              animeAltTitle || animeTitle
+                            )
+                          }
+                        >
+                          <div className="relative h-28 overflow-hidden">
+                            {getAnimeCardImage(selectedCanonicalEntry, episode) ? (
+                              <img
+                                src={getAnimeCardImage(selectedCanonicalEntry, episode)}
+                                alt={episode.title || `Episode ${episodeNumber}`}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              />
+                            ) : (
+                              <div
+                                className="w-full h-full flex items-center justify-center"
+                                style={{ background: 'var(--bg-elevated)' }}
+                              >
+                                <span className="text-2xl opacity-40">TV</span>
+                              </div>
+                            )}
+
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: 'linear-gradient(to top, rgba(0,0,0,0.75), rgba(0,0,0,0.15), transparent)',
+                              }}
+                            />
+
+                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                              <div
+                                className="w-11 h-11 rounded-full flex items-center justify-center"
+                                style={{ background: 'var(--accent)', boxShadow: '0 0 20px var(--accent-glow-strong)' }}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                                  <polygon points="6 3 20 12 6 21 6 3" />
+                                </svg>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>
+                                E{episodeNumber}
+                              </span>
+                              <span
+                                className="text-xs truncate font-medium"
+                                style={{ color: 'var(--text-primary)' }}
+                              >
+                                {isMainSeriesLauncher(episode) ? 'Open Main Series' : (episode.title || `Episode ${episodeNumber}`)}
+                              </span>
+                            </div>
+
+                            <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>
+                              {isMainSeriesLauncher(episode)
+                                ? 'Long-running series'
+                                : selectedCanonicalEntry?.kind === 'season'
+                                  ? `Season ${entrySeason}`
+                                  : selectedCanonicalEntry?.label || 'Anime'}
+                            </span>
+                          </div>
+                        </motion.div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div
+                    className="rounded-2xl p-5"
+                    style={{
+                      border: '1px solid var(--border)',
+                      background: 'rgba(255,255,255,0.03)',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    Anime season data could not be loaded.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                className="rounded-2xl p-5"
+                style={{
+                  border: '1px solid var(--border)',
+                  background: 'rgba(255,255,255,0.03)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Anime season data could not be loaded.
+              </div>
+            )}
+          </section>
+        )}
+
+        {!isAnime && type === 'tv' && numSeasons > 0 && (
           <section>
             <h3 className="font-display font-semibold text-xl mb-5" style={{ color: 'var(--text-primary)' }}>
               Episodes
@@ -431,12 +739,14 @@ export default function Detail() {
               currentSeason={playSeason}
               currentEpisode={playEpisode}
               progressMap={progressMap}
-              onPlay={(seasonNumber, episodeNumber, runtime) => handlePlay(
-                seasonNumber,
-                episodeNumber,
-                0,
-                Math.max(0, Math.floor(Number(runtime || data.episode_run_time?.[0] || 0) * 60))
-              )}
+              onPlay={(seasonNumber, episodeNumber, runtime) =>
+                handlePlay(
+                  seasonNumber,
+                  episodeNumber,
+                  0,
+                  Math.max(0, Math.floor(Number(runtime || data.episode_run_time?.[0] || 0) * 60))
+                )
+              }
             />
           </section>
         )}
@@ -447,14 +757,16 @@ export default function Detail() {
               More Like This
             </h3>
             <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-3">
-              {similar.map(item => <MediaCard key={item.id} item={item} type={type} />)}
+              {similar.map((item) => (
+                <MediaCard key={item.id} item={item} type={type} />
+              ))}
             </div>
           </section>
         )}
       </div>
 
-      {!isAnime && (
-        playerOpen ? (
+      {!isAnime &&
+        (playerOpen ? (
           <MoviePlayer
             tmdbId={data.id}
             imdbId={data.imdb_id || null}
@@ -467,13 +779,12 @@ export default function Detail() {
             resumeAt={playerResumeAt}
             onClose={() => setPlayerOpen(false)}
           />
-        ) : null
-      )}
+        ) : null)}
 
       {isAnime && animePlayerOpen && (
         <AnimePlayer
-          animeTitle={animeTitle}
-          animeAltTitle={animeAltTitle}
+          animeTitle={animePlayTitle || playbackAnimeTitle || animeTitle}
+          animeAltTitle={animePlayAltTitle || animeAltTitle}
           contentId={data.id}
           season={playSeason}
           episode={playEpisode}

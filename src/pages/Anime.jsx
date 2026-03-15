@@ -58,6 +58,73 @@ const scoreItem = (item) => {
   return episodes * 100000 + score * 100 + popularity
 }
 
+const getAllTitles = (item) =>
+  [
+    item?.title?.english,
+    item?.title?.romaji,
+    item?.title?.native,
+    ...(Array.isArray(item?.synonyms) ? item.synonyms : []),
+  ]
+    .filter(Boolean)
+    .map(normalizeTitle)
+    .filter(Boolean)
+
+const hasExplicitSequelMarker = (item) => {
+  const joined = getAllTitles(item).join(' ')
+  return (
+    /\bseason\s+\d+\b/i.test(joined) ||
+    /\bpart\s+\d+\b/i.test(joined) ||
+    /\bcour\s+\d+\b/i.test(joined) ||
+    /\b2nd\s+season\b/i.test(joined) ||
+    /\b3rd\s+season\b/i.test(joined) ||
+    /\b4th\s+season\b/i.test(joined) ||
+    /\b5th\s+season\b/i.test(joined) ||
+    /\b6th\s+season\b/i.test(joined) ||
+    /\bfinal\s+season\b/i.test(joined)
+  )
+}
+
+const hasPrequelRelation = (item) =>
+  Array.isArray(item?.relations?.edges) &&
+  item.relations.edges.some((edge) => {
+    const relationType = String(edge?.relationType || '').toUpperCase()
+    const nodeFormat = String(edge?.node?.format || '').toUpperCase()
+    return (
+      relationType === 'PREQUEL' &&
+      (nodeFormat === 'TV' || nodeFormat === 'TV_SHORT')
+    )
+  })
+
+const isLikelyStandaloneSeason1 = (item) => {
+  if (hasExplicitSequelMarker(item)) return false
+  if (hasPrequelRelation(item)) return false
+  return true
+}
+const titleHasHardSequelMarker = (item) => {
+  const rawTitles = [
+    item?.title?.english,
+    item?.title?.romaji,
+    item?.title?.native,
+    ...(Array.isArray(item?.synonyms) ? item.synonyms : []),
+  ].filter(Boolean)
+
+  return rawTitles.some((title) => {
+    const t = String(title).toLowerCase()
+    return (
+      /\bseason\s+[2-9]\d*\b/.test(t) ||
+      /\b[2-9]\d*(st|nd|rd|th)\s+season\b/.test(t) ||
+      /\bpart\s+[2-9]\d*\b/.test(t) ||
+      /\bcour\s+[2-9]\d*\b/.test(t) ||
+      /\bfinal\s+season\b/.test(t)
+    )
+  })
+}
+
+const shouldHideAsSequelCard = (item) => {
+  if (titleHasHardSequelMarker(item)) return true
+  if (hasPrequelRelation(item)) return true
+  return false
+}
 export default function Anime() {
   const [tab, setTab] = useState('Trending')
   const [allAnime, setAllAnime] = useState([])
@@ -100,20 +167,27 @@ export default function Anime() {
   }, [])
 
   const getGroupKey = useCallback((item) => {
-    const title = normalizeTitle(getPrimaryTitle(item))
+    const relationRoot = Array.isArray(item?.relations?.edges)
+      ? item.relations.edges.find((edge) => {
+        const relationType = String(edge?.relationType || '').toUpperCase()
+        const nodeFormat = String(edge?.node?.format || '').toUpperCase()
+        return (
+          relationType === 'PREQUEL' &&
+          (nodeFormat === 'TV' || nodeFormat === 'TV_SHORT')
+        )
+      })
+      : null
 
-    return title
-      .replace(/\bseason\s+\d+\b/gi, '')
-      .replace(/\bpart\s+\d+\b/gi, '')
-      .replace(/\bcour\s+\d+\b/gi, '')
-      .replace(/\b2nd\s+season\b/gi, '')
-      .replace(/\b3rd\s+season\b/gi, '')
-      .replace(/\b4th\s+season\b/gi, '')
-      .replace(/\bfinal\s+season\b/gi, '')
-      .replace(/\bthe\s+culling\s+game\b/gi, 'jujutsu kaisen')
-      .replace(/\bshibuya\s+incident\b/gi, 'jujutsu kaisen')
-      .replace(/\bseason\s+3\s+the\s+culling\s+game\b/gi, 'jujutsu kaisen')
-      .trim()
+    const relationTitle =
+      relationRoot?.node?.title?.english ||
+      relationRoot?.node?.title?.romaji ||
+      relationRoot?.node?.title?.native
+
+    if (relationTitle) {
+      return normalizeTitle(relationTitle)
+    }
+
+    return normalizeTitle(getPrimaryTitle(item))
   }, [])
 
   const fetchPage = useCallback(async (pageNum, append = false) => {
@@ -177,28 +251,43 @@ export default function Anime() {
       ? allAnime.filter(item => item.genres?.includes(genre))
       : allAnime
 
-    const bestByKey = new Map()
+    const grouped = new Map()
 
     for (const item of filteredAnime) {
       const key = getGroupKey(item)
       if (!key) continue
 
-      const current = bestByKey.get(key)
-      const currentEpisodes = Number(current?.episodes || 0)
-      const nextEpisodes = Number(item?.episodes || 0)
-      const currentScore = Number(current?.averageScore || 0)
-      const nextScore = Number(item?.averageScore || 0)
-
-      if (
-        !current ||
-        nextEpisodes > currentEpisodes ||
-        (nextEpisodes === currentEpisodes && nextScore > currentScore)
-      ) {
-        bestByKey.set(key, item)
-      }
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key).push(item)
     }
 
-    return Array.from(bestByKey.values())
+    const picked = []
+
+    for (const entries of grouped.values()) {
+      const season1Candidates = entries.filter((item) => !shouldHideAsSequelCard(item))
+
+      const pool = season1Candidates.length > 0 ? season1Candidates : entries
+
+      let best = null
+      for (const item of pool) {
+        const currentEpisodes = Number(best?.episodes || 0)
+        const nextEpisodes = Number(item?.episodes || 0)
+        const currentScore = Number(best?.averageScore || 0)
+        const nextScore = Number(item?.averageScore || 0)
+
+        if (
+          !best ||
+          nextEpisodes > currentEpisodes ||
+          (nextEpisodes === currentEpisodes && nextScore > currentScore)
+        ) {
+          best = item
+        }
+      }
+
+      if (best) picked.push(best)
+    }
+
+    return picked.filter((item) => !shouldHideAsSequelCard(item))
   }, [allAnime, genre, getGroupKey])
 
   const handlePlay = async (item) => {

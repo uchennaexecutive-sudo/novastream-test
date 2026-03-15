@@ -37,6 +37,58 @@ const normalizeTracks = (tracks) =>
       url: track.url || track.file || null,
     }))
 
+const normalizeAnimeSearchText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\bseason\s+\d+\b/gi, ' ')
+    .replace(/\bpart\s+\d+\b/gi, ' ')
+    .replace(/\bcour\s+\d+\b/gi, ' ')
+    .replace(/\b\d+(st|nd|rd|th)\s+season\b/gi, ' ')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const getProviderAnimeTitle = (anime) =>
+  anime?.title ||
+  anime?.name ||
+  anime?.japaneseTitle ||
+  anime?.englishTitle ||
+  ''
+
+const scoreAnimeSearchResult = (query, anime) => {
+  const normalizedQuery = normalizeAnimeSearchText(query)
+  const normalizedTitle = normalizeAnimeSearchText(getProviderAnimeTitle(anime))
+
+  if (!normalizedQuery || !normalizedTitle) return -1
+
+  let score = 0
+
+  if (normalizedTitle === normalizedQuery) score += 200
+  else if (normalizedTitle.startsWith(normalizedQuery)) score += 120
+  else if (normalizedTitle.includes(normalizedQuery)) score += 80
+  else if (normalizedQuery.includes(normalizedTitle)) score += 50
+
+  const episodes = Number(anime?.episodes?.length || anime?.episodeCount || anime?.subOrDubEpisodes || 0)
+  score += Math.min(episodes, 300) / 10
+
+  return score
+}
+
+const pickBestAnimeResult = (query, results = []) => {
+  let best = null
+  let bestScore = -1
+
+  for (const anime of results) {
+    const score = scoreAnimeSearchResult(query, anime)
+    if (score > bestScore) {
+      best = anime
+      bestScore = score
+    }
+  }
+
+  return best
+}
 
 export function buildAnimeSearchCandidates(...titles) {
   const seen = new Set()
@@ -67,34 +119,45 @@ export function buildAnimeSearchCandidates(...titles) {
 }
 
 export async function resolveAnimeSearch(titles, provider = 'animekai') {
-  const candidates = buildAnimeSearchCandidates(...[].concat(titles || []))
+  const candidates = buildAnimeSearchCandidates([].concat(titles || []))
+
+  let bestAnime = null
+  let bestTitle = ''
+  let bestScore = -1
 
   for (const candidate of candidates) {
-    const anime = await searchAnime(candidate, { provider, fresh: true })
-    if (anime?.id) {
-      return {
-        anime,
-        matchedTitle: candidate,
-        candidates,
+    try {
+      const anime = await searchAnime(candidate, { provider, fresh: true })
+      if (!anime?.id) continue
+
+      const score = scoreAnimeSearchResult(candidate, anime)
+      if (score > bestScore) {
+        bestAnime = anime
+        bestTitle = candidate
+        bestScore = score
       }
+
+      if (score >= 200) break
+    } catch {
+      //
     }
   }
 
   return {
-    anime: null,
-    matchedTitle: '',
+    anime: bestAnime,
+    matchedTitle: bestTitle,
     candidates,
   }
 }
-
 export async function searchAnime(title, { provider = 'animekai', fresh = false } = {}) {
-  const cacheKey = `${provider}:${String(title || '').trim().toLowerCase()}`
+  const normalizedTitle = String(title || '').trim()
+  const cacheKey = `${provider}:${normalizedTitle.toLowerCase()}`
 
   if (!fresh && animeIdCache.has(cacheKey)) {
     return { id: animeIdCache.get(cacheKey) }
   }
 
-  const query = encodeURIComponent(title)
+  const query = encodeURIComponent(normalizedTitle)
   const res = await fetch(`${ANIWATCH_BASE_URL}/anime/${provider}/${query}`, {
     cache: 'no-store',
   })
@@ -104,18 +167,21 @@ export async function searchAnime(title, { provider = 'animekai', fresh = false 
   }
 
   const data = await res.json()
-  const anime =
-    data.results?.[0] ||
-    data.data?.animes?.[0] ||
-    data.data?.results?.[0] ||
-    data.data?.[0] ||
-    null
+  const results =
+    data.results ||
+    data.data?.animes ||
+    data.data?.results ||
+    data.data ||
+    []
+
+  const list = Array.isArray(results) ? results : []
+  const anime = pickBestAnimeResult(normalizedTitle, list)
 
   if (anime?.id) {
     animeIdCache.set(cacheKey, anime.id)
   }
 
-  return anime
+  return anime || null
 }
 
 
@@ -209,8 +275,8 @@ export async function getAnimeStream(episodeId, provider = 'animekai') {
 }
 
 
-export async function preloadAnimePlayback(...titles) {
-  const { anime, matchedTitle } = await resolveAnimeSearch(...titles)
+export async function preloadAnimePlayback(titles) {
+  const { anime, matchedTitle } = await resolveAnimeSearch(titles)
 
   if (!anime?.id) return null
 

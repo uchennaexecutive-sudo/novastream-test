@@ -13,7 +13,7 @@ Working copy at `c:\Users\uchen\nova-stream-dev` (outside OneDrive for npm compa
 Local test builds go to `C:\Users\uchen\OneDrive\Documents\ANTIGRAVITY\APPLICATIONS`
 
 ## Repository
-GitHub: `uchennaexecutive-sudo/novastream`
+GitHub: `uchennaexecutive-sudo/novastream-test`
 
 ## API Keys
 - **TMDB:** `49bd672b0680fac7de50e5b9f139a98b` - Base: `https://api.themoviedb.org/3`
@@ -31,7 +31,7 @@ GitHub: `uchennaexecutive-sudo/novastream`
 - [x] Anime browse - AniList-powered, tabs (Trending/Popular/Top Rated), genre filters, infinite scroll
 - [x] Anime player - premium popup with native HLS playback via aniwatch-api, Rust-backed segment fetching, auto server fallback, subtitles, seekbar, keyboard shortcuts, and episode navigation
 - [x] Animation browse - grid layout
-- [x] Search overlay - debounced TMDB multi-search, keyboard navigation, grouped results
+- [x] Search overlay - debounced TMDB multi-search + AniList anime search, keyboard navigation, grouped Movies / Series / Anime results, and anime search routing through TMDB-matched anime detail flow
 - [x] Movie / Series / Animation player - native custom player using Nuvio resolver streams, Rust-backed manifest/segment fetching, custom controls, English subtitle toggle via Wyzie, and series episode navigation
 - [x] Watchlist - localStorage-backed add/remove/check, responsive grid
 - [x] Watch history - auto-recorded on play, localStorage-backed
@@ -76,6 +76,14 @@ GitHub: `uchennaexecutive-sudo/novastream`
 - Resolution choices are derived from the HLS manifest levels inside the player
 - The anime popup keeps the custom seekbar, play/pause, skip, volume, subtitle toggle, playback speed, fullscreen, keyboard shortcuts, and previous/next episode navigation
 - Anime is stable and should stay isolated from movie/series/animation resolver work
+- Anime detail routing now supports a dedicated AniList-backed mapper for season / extras structure instead of relying only on title guessing
+- `src/lib/animeMapper.js` now builds anime canonical detail tabs from AniList identity + relation data
+- Standard seasonal anime (for example Jujutsu Kaisen, Frieren, Bleach) now route through anime detail with improved season grouping
+- Long-running anime are handled separately from normal sequel-based anime
+- One Piece now uses a main-series-first anime detail structure with grouped Movies / OVA / ONA / Specials
+- Anime search results now include a dedicated Anime section in `SearchOverlay.jsx`
+- Anime clicks from search now resolve through TMDB matching first, then open the anime detail path with AniList metadata state
+- This prevents anime search results from opening the wrong TMDB TV detail page
 
 ## Movie / Series / Animation Streaming
 - Native playback now uses `src/components/Player/MoviePlayer.jsx`
@@ -111,7 +119,18 @@ GitHub: `uchennaexecutive-sudo/novastream`
 > Never manually edit version numbers - just run `release.ps1`
 > **Always use `release.ps1`** - never push manually. The CI bot commits `latest.json` back to `main` after each build, causing rejections. The script handles rebase + force-tag automatically.
 
+## Anime Detail / Search Routing
+- `src/pages/Detail.jsx` now uses AniList identity state (`anilistId`, anime titles, anime year) for anime-specific detail handling
+- `src/lib/animeMapper.js` separates normal seasonal anime from long-running anime and groups extra content into Movies / OVA / ONA / Specials
+- Bleach sequel handling was corrected so sequel seasons can appear without collapsing the whole franchise into a single long-runner bucket
+- One Piece is treated as a long-running anime and no longer builds fake sequel seasons from AniList relation noise
+- `src/components/Search/SearchOverlay.jsx` now supports AniList anime results in addition to TMDB Movies / Series results
+- Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
+
 ## Version History
+- v1.3.2 - Added AniList-backed anime detail/search routing, anime mapper flow for seasons and grouped extras, fixed anime search to open through TMDB-matched anime detail, improved Bleach sequel handling, and stabilized One Piece long-runner treatment
+- v1.3.1 - change release build repo and location
+- v1.3.0 - added subtitle to movie/series/animation, still updating anime interface
 - v1.2.0 - Native movie, series, and animation playback via Nuvio-backed resolver streams, Rust movie HLS fetching, custom controls, Wyzie-powered English subtitles, and deduplicated continue watching for episodic titles
 - v1.1.5 - Fix anime streaming with a Rust segment fetcher and custom HLS.js loader so HiAnime headers are applied to protected HLS assets
 - v1.1.4 - Fix GitHub release workflow so `latest.json` updates after release creation without the broken asset wait step

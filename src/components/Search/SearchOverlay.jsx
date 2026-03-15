@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { searchMulti, imgW500 } from '../../lib/tmdb'
+import { searchAnime as searchAniListAnime } from '../../lib/anilist'
 import useAppStore from '../../store/useAppStore'
+import { searchMulti, searchAnimeOnTMDB, imgW500 } from '../../lib/tmdb'
 
 export default function SearchOverlay() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
+  const [animeResults, setAnimeResults] = useState([])
   const [selected, setSelected] = useState(0)
   const inputRef = useRef(null)
   const navigate = useNavigate()
@@ -18,27 +20,87 @@ export default function SearchOverlay() {
     const handler = (e) => { if (e.key === 'Escape') setSearchOpen(false) }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [setSearchOpen])
 
   const doSearch = useCallback((q) => {
-    if (!q.trim()) { setResults([]); return }
-    searchMulti(q).then(r => setResults(r?.filter(i => i.media_type !== 'person').slice(0, 12) || []))
+    if (!q.trim()) {
+      setResults([])
+      setAnimeResults([])
+      return
+    }
+
+    Promise.all([
+      searchMulti(q),
+      searchAniListAnime(q),
+    ]).then(([tmdbResults, aniResults]) => {
+      setResults(tmdbResults?.filter(i => i.media_type !== 'person').slice(0, 12) || [])
+      setAnimeResults(Array.isArray(aniResults) ? aniResults.slice(0, 8) : [])
+    }).catch(() => {
+      setResults([])
+      setAnimeResults([])
+    })
   }, [])
 
   useEffect(() => {
     clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => doSearch(query), 300)
     return () => clearTimeout(timerRef.current)
-  }, [query])
+  }, [query, doSearch])
+
+  const openTmdbItem = (item) => {
+    const type = item.media_type || (item.title ? 'movie' : 'tv')
+    navigate(`/detail/${type}/${item.id}`)
+    setSearchOpen(false)
+  }
+
+  const openAnimeItem = async (item) => {
+    const englishTitle = item?.title?.english || ''
+    const romajiTitle = item?.title?.romaji || ''
+    const animeYear = item?.seasonYear || item?.startDate?.year || null
+
+    try {
+      const match = await searchAnimeOnTMDB(
+        englishTitle,
+        romajiTitle,
+        animeYear
+      )
+
+      if (!match) return
+
+      navigate(`/detail/${match.mediaType}/${match.tmdbId}`, {
+        state: {
+          isAnime: true,
+          anilistId: item.id,
+          animeTitle: englishTitle || romajiTitle,
+          animeAltTitle: romajiTitle || englishTitle,
+          animeYear,
+        },
+      })
+
+      setSearchOpen(false)
+    } catch (err) {
+      console.error('[SearchOverlay] Anime TMDB match failed:', err)
+    }
+  }
 
   const handleKey = (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(i => Math.min(i + 1, results.length - 1)) }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(i => Math.max(i - 1, 0)) }
-    if (e.key === 'Enter' && results[selected]) {
-      const item = results[selected]
-      const type = item.media_type || (item.title ? 'movie' : 'tv')
-      navigate(`/detail/${type}/${item.id}`)
-      setSearchOpen(false)
+    const flatResults = [
+      ...animeResults.map(item => ({ kind: 'anime', item })),
+      ...results.map(item => ({ kind: 'tmdb', item })),
+    ]
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelected(i => Math.min(i + 1, flatResults.length - 1))
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelected(i => Math.max(i - 1, 0))
+    }
+    if (e.key === 'Enter' && flatResults[selected]) {
+      const selectedItem = flatResults[selected]
+      if (selectedItem.kind === 'anime') openAnimeItem(selectedItem.item)
+      else openTmdbItem(selectedItem.item)
     }
   }
 
@@ -89,39 +151,48 @@ export default function SearchOverlay() {
           </kbd>
         </div>
 
-        {results.length > 0 && (
+        {(animeResults.length > 0 || results.length > 0) && (
           <div className="max-h-96 overflow-y-auto p-2">
+            {animeResults.length > 0 && (
+              <div className="mb-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5" style={{ color: 'var(--text-muted)' }}>
+                  ⚔️ Anime
+                </p>
+                {animeResults.map((item) => (
+                  <AnimeResultItem
+                    key={item.id}
+                    item={item}
+                    onClick={() => openAnimeItem(item)}
+                  />
+                ))}
+              </div>
+            )}
+
             {movies.length > 0 && (
               <div className="mb-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5" style={{ color: 'var(--text-muted)' }}>
                   🎬 Movies
                 </p>
                 {movies.map((item) => (
-                  <ResultItem key={item.id} item={item} onClick={() => { navigate(`/detail/movie/${item.id}`); setSearchOpen(false) }} />
+                  <ResultItem key={item.id} item={item} onClick={() => openTmdbItem(item)} />
                 ))}
               </div>
             )}
+
             {shows.length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5" style={{ color: 'var(--text-muted)' }}>
                   📺 Series
                 </p>
                 {shows.map((item) => (
-                  <ResultItem
-                    key={item.id}
-                    item={item}
-                    onClick={() => {
-                      navigate(`/detail/tv/${item.id}`);
-                      setSearchOpen(false);
-                    }}
-                  />
+                  <ResultItem key={item.id} item={item} onClick={() => openTmdbItem(item)} />
                 ))}
               </div>
             )}
           </div>
         )}
 
-        {query && results.length === 0 && (
+        {query && animeResults.length === 0 && results.length === 0 && (
           <div className="p-10 text-center" style={{ color: 'var(--text-muted)' }}>
             <span className="text-3xl block mb-3 opacity-40">🔍</span>
             No results found
@@ -135,6 +206,7 @@ export default function SearchOverlay() {
 function ResultItem({ item, onClick }) {
   const title = item.title || item.name
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)
+
   return (
     <motion.button
       onClick={onClick}
@@ -155,13 +227,57 @@ function ResultItem({ item, onClick }) {
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate group-hover:text-[var(--accent)] transition-colors" style={{ color: 'var(--text-primary)' }}>{title}</p>
+        <p className="text-sm font-medium truncate group-hover:text-[var(--accent)] transition-colors" style={{ color: 'var(--text-primary)' }}>
+          {title}
+        </p>
         <div className="flex items-center gap-2">
           {year && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{year}</span>}
           {item.vote_average > 0 && (
             <span className="text-xs font-mono flex items-center gap-1" style={{ color: 'var(--accent)' }}>
               <span className="w-1 h-1 rounded-full" style={{ background: 'var(--accent)' }} />
               {item.vote_average.toFixed(1)}
+            </span>
+          )}
+        </div>
+      </div>
+    </motion.button>
+  )
+}
+
+function AnimeResultItem({ item, onClick }) {
+  const title = item?.title?.english || item?.title?.romaji || item?.title?.native || 'Untitled'
+  const year = item?.seasonYear || item?.startDate?.year || ''
+  const image = item?.coverImage?.large || item?.coverImage?.extraLarge || ''
+
+  return (
+    <motion.button
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left group"
+      style={{ transition: 'background 0.15s' }}
+      whileHover={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
+      initial={{ opacity: 0, x: -10 }}
+      animate={{ opacity: 1, x: 0 }}
+    >
+      <div
+        className="w-10 h-14 rounded-lg overflow-hidden flex-shrink-0"
+        style={{ background: 'var(--bg-elevated)', boxShadow: 'var(--card-shadow)' }}
+      >
+        {image ? (
+          <img src={image} alt={title} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-lg opacity-40">⚔️</div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate group-hover:text-[var(--accent)] transition-colors" style={{ color: 'var(--text-primary)' }}>
+          {title}
+        </p>
+        <div className="flex items-center gap-2">
+          {year && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{year}</span>}
+          {item?.averageScore > 0 && (
+            <span className="text-xs font-mono flex items-center gap-1" style={{ color: 'var(--accent)' }}>
+              <span className="w-1 h-1 rounded-full" style={{ background: 'var(--accent)' }} />
+              {(Number(item.averageScore) / 10).toFixed(1)}
             </span>
           )}
         </div>

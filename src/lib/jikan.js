@@ -1,4 +1,5 @@
 const JIKAN_BASE_URL = 'https://api.jikan.moe/v4'
+const memoryCache = new Map()
 
 const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim()
 
@@ -8,30 +9,52 @@ export const normalizeAnimeTitle = (value) =>
         .replace(/\bseason\s+\d+\b/gi, '')
         .replace(/\bpart\s+\d+\b/gi, '')
         .replace(/\bcour\s+\d+\b/gi, '')
-        .replace(/\b2nd\s+season\b/gi, '')
-        .replace(/\b3rd\s+season\b/gi, '')
-        .replace(/\b4th\s+season\b/gi, '')
+        .replace(/\b\d+(st|nd|rd|th)\s+season\b/gi, '')
         .replace(/\bfinal\s+season\b/gi, '')
         .replace(/\([^)]*\)/g, ' ')
         .replace(/[^\w\s]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
 
+async function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchJsonWithRetry(url, retries = 1) {
+    let lastError
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+            const res = await fetch(url)
+            if (!res.ok) throw new Error(`Jikan request failed: ${res.status}`)
+            return await res.json()
+        } catch (error) {
+            lastError = error
+            if (attempt < retries) {
+                await sleep(500 * (attempt + 1))
+            }
+        }
+    }
+
+    throw lastError
+}
+
 async function jikanGet(path, params = {}) {
     const url = new URL(`${JIKAN_BASE_URL}${path}`)
+
     Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
             url.searchParams.set(key, String(value))
         }
     })
 
-    const res = await fetch(url.toString())
-    if (!res.ok) {
-        throw new Error(`Jikan request failed: ${res.status}`)
-    }
+    const cacheKey = url.toString()
+    if (memoryCache.has(cacheKey)) return memoryCache.get(cacheKey)
 
-    const json = await res.json()
-    return json.data
+    const json = await fetchJsonWithRetry(cacheKey, 1)
+    const data = json.data
+    memoryCache.set(cacheKey, data)
+    return data
 }
 
 function titleVariants(item) {
@@ -39,32 +62,35 @@ function titleVariants(item) {
         item?.title,
         item?.title_english,
         item?.title_japanese,
-        ...(item?.titles || []).map((entry) => entry?.title),
+        ...(Array.isArray(item?.titles) ? item.titles.map((entry) => entry?.title) : []),
     ]
         .map(normalizeAnimeTitle)
         .filter(Boolean)
 }
 
 function scoreCandidate(item, titles = [], year = null) {
-    const queries = titles.map(normalizeAnimeTitle).filter(Boolean)
+    const queries = Array.from(new Set([].concat(titles || []).map(normalizeAnimeTitle).filter(Boolean)))
     const variants = titleVariants(item)
+
     let score = 0
 
     for (const query of queries) {
         for (const variant of variants) {
-            if (variant === query) score += 100
-            else if (variant.includes(query)) score += 50
-            else if (query.includes(variant)) score += 30
+            if (variant === query) score += 120
+            else if (variant.includes(query)) score += 60
+            else if (query.includes(variant)) score += 35
         }
     }
 
-    if (item?.type === 'TV') score += 12
-    if (item?.type === 'MOVIE') score += 6
+    const type = String(item?.type || '').toUpperCase()
+    if (type === 'TV') score += 15
+    if (type === 'MOVIE') score += 6
+    if (type === 'OVA' || type === 'ONA' || type === 'SPECIAL') score += 2
 
     if (year && item?.year) {
         const diff = Math.abs(Number(year) - Number(item.year))
-        if (diff === 0) score += 25
-        else if (diff === 1) score += 15
+        if (diff === 0) score += 30
+        else if (diff === 1) score += 18
         else if (diff === 2) score += 8
     }
 
@@ -103,35 +129,43 @@ export async function getAnimeFullFromJikan(malId) {
 }
 
 export async function getAnimeEpisodesFromJikan(malId) {
+    const cacheKey = `episodes:${malId}`
+    if (memoryCache.has(cacheKey)) return memoryCache.get(cacheKey)
+
     const episodes = []
     let page = 1
     let hasNextPage = true
+    let runningNumber = 1
 
     while (hasNextPage) {
         const url = new URL(`${JIKAN_BASE_URL}/anime/${malId}/episodes`)
         url.searchParams.set('page', String(page))
 
-        const res = await fetch(url.toString())
-        if (!res.ok) {
-            throw new Error(`Jikan episodes failed: ${res.status}`)
-        }
-
-        const json = await res.json()
-        const data = json.data || []
+        const json = await fetchJsonWithRetry(url.toString(), 1)
+        const data = Array.isArray(json.data) ? json.data : []
         const pagination = json.pagination || {}
 
-        episodes.push(
-            ...data.map((episode, index) => ({
-                malId: episode.mal_id,
-                number: Number(episode.mal_id || episode.number || index + 1),
-                title: clean(episode.title) || `Episode ${episode.mal_id || episode.number || index + 1}`,
-                aired: episode.aired || null,
-            }))
-        )
+        for (const episode of data) {
+            const explicitNumber = Number(episode?.number)
+            const number = Number.isFinite(explicitNumber) && explicitNumber > 0
+                ? explicitNumber
+                : runningNumber
+
+            episodes.push({
+                malId: episode?.mal_id || null,
+                number,
+                title: clean(episode?.title) || `Episode ${number}`,
+                aired: episode?.aired || null,
+            })
+
+            runningNumber += 1
+        }
 
         hasNextPage = Boolean(pagination?.has_next_page)
         page += 1
     }
 
-    return episodes
+    const sorted = episodes.sort((a, b) => Number(a.number || 0) - Number(b.number || 0))
+    memoryCache.set(cacheKey, sorted)
+    return sorted
 }
