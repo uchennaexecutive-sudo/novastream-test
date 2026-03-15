@@ -153,8 +153,10 @@ export async function searchAnime(title, { provider = 'animekai', fresh = false 
   const normalizedTitle = String(title || '').trim()
   const cacheKey = `${provider}:${normalizedTitle.toLowerCase()}`
 
+  if (!normalizedTitle) return null
+
   if (!fresh && animeIdCache.has(cacheKey)) {
-    return { id: animeIdCache.get(cacheKey) }
+    return animeIdCache.get(cacheKey)
   }
 
   const query = encodeURIComponent(normalizedTitle)
@@ -178,7 +180,7 @@ export async function searchAnime(title, { provider = 'animekai', fresh = false 
   const anime = pickBestAnimeResult(normalizedTitle, list)
 
   if (anime?.id) {
-    animeIdCache.set(cacheKey, anime.id)
+    animeIdCache.set(cacheKey, anime)
   }
 
   return anime || null
@@ -194,10 +196,10 @@ export async function getAnimeEpisodes(animeId, provider = 'animekai', { fresh =
 
   let url = ''
 
-  if (provider === 'animekai' || provider === 'kickassanime') {
+  if (provider === 'animekai' || provider === 'kickassanime' || provider === 'animesaturn' || provider === 'animeunity') {
     url = `${ANIWATCH_BASE_URL}/anime/${provider}/info?id=${encodeURIComponent(animeId)}`
   } else {
-    url = `${ANIWATCH_BASE_URL}/anime/${provider}/info/${animeId}`
+    url = `${ANIWATCH_BASE_URL}/anime/${provider}/info/${encodeURIComponent(animeId)}`
   }
 
   const res = await fetch(url, {
@@ -226,10 +228,12 @@ export async function getAnimeEpisodes(animeId, provider = 'animekai', { fresh =
 }
 
 async function fetchAnimeProviderStream(provider, episodeId) {
-  const res = await fetch(
-    `${ANIWATCH_BASE_URL}/anime/${provider}/watch/${episodeId}`,
-    { cache: 'no-store' }
-  )
+  const watchUrl =
+    provider === 'animepahe'
+      ? `${ANIWATCH_BASE_URL}/anime/${provider}/watch?episodeId=${encodeURIComponent(episodeId)}`
+      : `${ANIWATCH_BASE_URL}/anime/${provider}/watch/${encodeURIComponent(episodeId)}`
+
+  const res = await fetch(watchUrl, { cache: 'no-store' })
 
   if (!res.ok) {
     throw new Error(`${provider} watch failed`)
@@ -275,16 +279,26 @@ export async function getAnimeStream(episodeId, provider = 'animekai') {
 }
 
 
-export async function preloadAnimePlayback(titles) {
-  const { anime, matchedTitle } = await resolveAnimeSearch(titles)
+export async function preloadAnimePlayback(...titles) {
+  const candidateTitles = titles.flat().filter(Boolean)
+  const provider = 'animekai'
+  const { anime, matchedTitle } = await resolveAnimeSearch(candidateTitles, provider)
 
   if (!anime?.id) return null
 
-  const episodes = await getAnimeEpisodes(anime.id)
+  const episodes = await getAnimeEpisodes(anime.id, provider)
 
   return {
+    providerId: provider,
     animeId: anime.id,
     episodes,
     matchedTitle,
+    anime,
   }
+}
+
+export function clearAnimePlaybackCache() {
+  animeIdCache.clear()
+  animeEpisodesCache.clear()
+  animeStreamCache.clear()
 }

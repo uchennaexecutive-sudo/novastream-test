@@ -5,6 +5,7 @@ import {
   getAnimeEpisodes,
   getAnimeStream,
   resolveAnimeSearch,
+  clearAnimePlaybackCache,
 } from '../../lib/consumet'
 import { saveProgress } from '../../lib/progress'
 import SharedNativePlayer from './SharedNativePlayer'
@@ -13,7 +14,7 @@ const STREAM_RETRY_DELAY_MS = 2000
 const MAX_STREAM_ATTEMPTS = 3
 const ANIME_PROVIDERS = [
   { id: 'animekai', label: 'AnimeKai' },
-  { id: 'kickassanime', label: 'KickAssAnime' },
+  { id: 'animesaturn', label: 'AnimeSaturn' },
 ]
 
 
@@ -63,9 +64,12 @@ export default function AnimePlayer({
   const hlsHeadersRef = useRef({})
   const providerIndexRef = useRef(0)
   const providerStateRef = useRef({})
+  const lockedProviderIdRef = useRef('')
+  const lockedEpisodeRef = useRef(null)
+  const successfulProviderIdRef = useRef('')
   const lastPlaybackRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
-    durationSeconds: 0,
+    durationInSeconds: 0,
   })
 
   const [episodes, setEpisodes] = useState([])
@@ -142,6 +146,9 @@ export default function AnimePlayer({
     streamAttemptRef.current = 0
     providerIndexRef.current = 0
     resetPlaybackState()
+    lockedProviderIdRef.current =
+      lockedProviderIdRef.current || successfulProviderIdRef.current || ''
+    lockedEpisodeRef.current = Number(currentEpisode)
     setLoading(true)
     setLoadingStage('Fetching stream...')
     setError('')
@@ -165,19 +172,49 @@ export default function AnimePlayer({
     }
 
     setLoading(true)
-    setLoadingStage('Fetching stream...')
+    setLoadingStage('Fetching stream.')
     setError('')
     resetPlaybackState()
 
     retryTimerRef.current = window.setTimeout(() => {
+      try {
+        clearAnimePlaybackCache()
+      } catch (warning) {
+        console.warn('[AnimePlayer] failed to clear playback cache before retry', warning)
+      }
+
+      providerIndexRef.current = 0
+      providerStateRef.current = {}
+      streamAttemptRef.current = 0
+      setEpisodes([])
       setRetryNonce(value => value + 1)
+      setProviderTick(value => value + 1)
     }, STREAM_RETRY_DELAY_MS)
   }, [resetPlaybackState])
 
   const handleStreamFailure = useCallback((detail) => {
+    const nextProviderIndex = providerIndexRef.current + 1
+    const nextProvider = ANIME_PROVIDERS[nextProviderIndex]
+
     setErrorDetail(detail || '')
+
+    if (nextProvider && providerStateRef.current[nextProvider.id]?.episodes?.length) {
+      clearRetryTimer()
+      providerIndexRef.current = nextProviderIndex
+      lockedProviderIdRef.current = nextProvider.id
+      lockedEpisodeRef.current = Number(currentEpisode)
+      streamAttemptRef.current = 0
+      resetPlaybackState()
+      setEpisodes(providerStateRef.current[nextProvider.id].episodes || [])
+      setLoading(true)
+      setLoadingStage(`Switching to ${nextProvider.label}.`)
+      setError('')
+      setProviderTick(value => value + 1)
+      return
+    }
+
     scheduleFreshStreamRetry(detail || '')
-  }, [scheduleFreshStreamRetry])
+  }, [currentEpisode, resetPlaybackState, scheduleFreshStreamRetry])
 
   const handlePlaybackSnapshot = useCallback((snapshot) => {
     lastPlaybackRef.current = snapshot
@@ -201,6 +238,8 @@ export default function AnimePlayer({
     lastPlaybackRef.current = { progressSeconds: 0, durationSeconds: 0 }
     setResumePosition(0)
     resetPlaybackState()
+    lockedProviderIdRef.current = successfulProviderIdRef.current || ''
+    lockedEpisodeRef.current = Number(nextEpisode)
     setCurrentEpisode(Number(nextEpisode))
     setLoading(true)
     setLoadingStage('Fetching stream...')
@@ -247,14 +286,19 @@ export default function AnimePlayer({
       const titles = [animeTitle, animeAltTitle].filter(Boolean)
 
       for (const provider of ANIME_PROVIDERS) {
+        console.log('[AnimePlayer] loading provider', provider.id)
         try {
           let anime = null
           let matchedTitle = ''
+          let providerEpisodes = []
 
           if (prefetchedAnime?.providerId === provider.id && prefetchedAnime?.animeId) {
-            anime = { id: prefetchedAnime.animeId }
+            anime = prefetchedAnime.anime || { id: prefetchedAnime.animeId }
             matchedTitle = prefetchedAnime.matchedTitle || animeTitle
-          } else {
+            providerEpisodes = Array.isArray(prefetchedAnime.episodes) ? prefetchedAnime.episodes : []
+          }
+
+          if (!anime?.id) {
             const resolved = await resolveAnimeSearch(titles, provider.id)
             anime = resolved.anime
             matchedTitle = resolved.matchedTitle
@@ -265,8 +309,10 @@ export default function AnimePlayer({
             continue
           }
 
-          setLoadingStage(`Loading episodes from ${provider.label}...`)
-          const providerEpisodes = await getAnimeEpisodes(anime.id, provider.id)
+          if (!providerEpisodes.length) {
+            setLoadingStage(`Loading episodes from ${provider.label}.`)
+            providerEpisodes = await getAnimeEpisodes(anime.id, provider.id, { fresh: true })
+          }
 
           if (!providerEpisodes?.length) {
             console.warn(`[AnimePlayer] ${provider.id} returned no episodes`)
@@ -274,7 +320,9 @@ export default function AnimePlayer({
           }
 
           providerStateRef.current[provider.id] = {
+            providerId: provider.id,
             animeId: anime.id,
+            anime,
             matchedTitle,
             episodes: providerEpisodes,
           }
@@ -284,9 +332,20 @@ export default function AnimePlayer({
         }
       }
 
-      const firstProvider = ANIME_PROVIDERS.find(
-        (provider) => providerStateRef.current[provider.id]?.episodes?.length
-      )
+      const lockedProvider =
+        lockedEpisodeRef.current === Number(currentEpisode)
+          ? ANIME_PROVIDERS.find(
+            provider =>
+              provider.id === lockedProviderIdRef.current &&
+              providerStateRef.current[provider.id]?.episodes?.length
+          )
+          : null
+
+      const firstProvider =
+        lockedProvider ||
+        ANIME_PROVIDERS.find(
+          (provider) => providerStateRef.current[provider.id]?.episodes?.length
+        )
 
       if (!firstProvider) {
         throw new Error('Anime not found on available providers')
@@ -297,7 +356,7 @@ export default function AnimePlayer({
       )
       setEpisodes(providerStateRef.current[firstProvider.id].episodes || [])
       setProviderTick(value => value + 1)
-      setLoadingStage('Fetching stream...')
+      setLoadingStage('Fetching stream.')
     }
 
     loadProviders()
@@ -306,20 +365,63 @@ export default function AnimePlayer({
 
   useEffect(() => {
     const provider = activeProvider
-    const providerState = providerStateRef.current[provider.id]
-
-    if (!providerState?.episodes?.length) return undefined
+    let providerState = providerStateRef.current[provider.id]
 
     clearRetryTimer()
     let cancelled = false
 
     async function resolveStream() {
       const requestedEpisode = Number(currentEpisode)
+
+      if (!providerState?.episodes?.length) {
+        try {
+          setLoading(true)
+          setLoadingStage(`Refreshing ${provider.label}.`)
+          setError('')
+          setErrorDetail('')
+
+          const titles = [animeTitle, animeAltTitle].filter(Boolean)
+          const resolved = await resolveAnimeSearch(titles, provider.id)
+          if (!resolved?.anime?.id) {
+            throw new Error(`Could not resolve ${provider.label} for this anime`)
+          }
+
+          const freshEpisodes = await getAnimeEpisodes(resolved.anime.id, provider.id, { fresh: true })
+          if (!freshEpisodes?.length) {
+            throw new Error(`No episode list found for ${provider.label}`)
+          }
+
+          providerState = {
+            providerId: provider.id,
+            animeId: resolved.anime.id,
+            anime: resolved.anime,
+            matchedTitle: resolved.matchedTitle,
+            episodes: freshEpisodes,
+          }
+
+          providerStateRef.current[provider.id] = providerState
+        } catch (refreshError) {
+          const nextProviderIndex = providerIndexRef.current + 1
+          const nextProvider = ANIME_PROVIDERS[nextProviderIndex]
+
+          if (nextProvider && providerStateRef.current[nextProvider.id]?.episodes?.length) {
+            providerIndexRef.current = nextProviderIndex
+            setEpisodes(providerStateRef.current[nextProvider.id].episodes || [])
+            setProviderTick(value => value + 1)
+            return
+          }
+
+          throw refreshError
+        }
+      }
+
       const targetEpisode = providerState.episodes.find(
         item => Number(item.number) === requestedEpisode
       )
 
-      if (!targetEpisode?.episodeId) {
+      const resolvedEpisodeId = targetEpisode?.episodeId || targetEpisode?.id
+
+      if (!resolvedEpisodeId) {
         const nextProviderIndex = providerIndexRef.current + 1
         const nextProvider = ANIME_PROVIDERS[nextProviderIndex]
 
@@ -335,13 +437,13 @@ export default function AnimePlayer({
 
       streamAttemptRef.current += 1
       setLoading(true)
-      setLoadingStage(`Fetching stream from ${provider.label}...`)
+      setLoadingStage(`Fetching stream from ${provider.label}.`)
       setError('')
       setErrorDetail('')
       resetPlaybackState()
 
       try {
-        const payload = await getAnimeStream(targetEpisode.episodeId, provider.id)
+        const payload = await getAnimeStream(resolvedEpisodeId, provider.id, { fresh: retryNonce > 0 })
         if (cancelled) return
         if (!payload?.rawUrl) throw new Error('Invalid stream')
 
@@ -356,6 +458,8 @@ export default function AnimePlayer({
           captionTracks: captionTracks.length,
         })
 
+        successfulProviderIdRef.current = payload.provider || provider.id
+        setEpisodes(providerState.episodes || [])
         setStreamData({ rawUrl: payload.rawUrl || '' })
         setSubtitleTracks(captionTracks)
         setSubtitleEnabled(captionTracks.length > 0)
@@ -443,7 +547,7 @@ export default function AnimePlayer({
       backdrop={backdrop}
       streamUrl={activeStreamUrl}
       streamHeaders={hlsHeadersRef.current}
-      streamType="hls"
+      streamType={activeStreamUrl?.includes('.m3u8') ? 'hls' : 'file'}
       streamLabel={activeProvider.label}
       streamMeta={`Season ${season} Episode ${currentEpisodeMeta?.number || currentEpisode} | ${activeProvider.label} | HLS`}
       loading={loading}

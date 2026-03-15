@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.2.0
+Premium streaming desktop application (Tauri 2) - v1.3.3
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -58,32 +58,37 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Rust deps: `reqwest` (stream + rustls-tls), `futures-util`, `tokio`
 
 ## Anime Streaming
-- Anime discovery remains AniList-powered in the browse page
-- Anime detail pages carry the AniList title into the player flow for better API search matching
-- Anime playback uses `src/components/Player/AnimePlayer.jsx`, not iframe embeds or the old hidden-webview interceptor
-- Anime stream resolution uses `src/lib/consumet.js` as the client wrapper, targeting the live aniwatch HiAnime API
-- HLS manifests still load through HLS.js, but fragments and keys are fetched through the Tauri `fetch_hls_segment` command
-- The Rust command uses `reqwest` with HiAnime `Referer`, `Origin`, and desktop `User-Agent` headers so segment requests are no longer blocked
-- `AnimePlayer.jsx` installs a custom HLS loader that routes `.ts`, `.m4s`, `.aac`, `.mp4`, and key requests through Rust while keeping playlists on the default loader
-- Current source flow:
-  1. `GET /api/v2/hianime/search?q=...`
-  2. `GET /api/v2/hianime/anime/{animeId}/episodes`
-  3. `GET /api/v2/hianime/episode/sources?animeEpisodeId=...&server=hd-2&category=sub`
-  4. HLS.js loads the manifest and Rust fetches protected HLS assets over IPC
-- Default server order is `hd-2`, then `hd-1`, then `hd-3`
-- `AnimePlayer.jsx` silently auto-tries all 3 HiAnime servers with a 3 second delay before showing an error
-- Subtitle tracks come from the HiAnime `tracks` payload and render as a styled HTML overlay
-- Resolution choices are derived from the HLS manifest levels inside the player
-- The anime popup keeps the custom seekbar, play/pause, skip, volume, subtitle toggle, playback speed, fullscreen, keyboard shortcuts, and previous/next episode navigation
-- Anime is stable and should stay isolated from movie/series/animation resolver work
-- Anime detail routing now supports a dedicated AniList-backed mapper for season / extras structure instead of relying only on title guessing
-- `src/lib/animeMapper.js` now builds anime canonical detail tabs from AniList identity + relation data
-- Standard seasonal anime (for example Jujutsu Kaisen, Frieren, Bleach) now route through anime detail with improved season grouping
-- Long-running anime are handled separately from normal sequel-based anime
-- One Piece now uses a main-series-first anime detail structure with grouped Movies / OVA / ONA / Specials
-- Anime search results now include a dedicated Anime section in `SearchOverlay.jsx`
-- Anime clicks from search now resolve through TMDB matching first, then open the anime detail path with AniList metadata state
-- This prevents anime search results from opening the wrong TMDB TV detail page
+- Anime discovery and anime detail identity are now AniList-driven
+- Anime detail/playback should remain isolated from Movie / Series / Animation resolver logic
+- Anime playback uses `src/components/Player/AnimePlayer.jsx`
+- Anime provider client logic lives in `src/lib/consumet.js`
+- Live anime backend is the Railway deployment at `https://web-production-f746c.up.railway.app`
+- Anime detail pages carry AniList title identity into playback for stronger provider matching
+- Current provider order is:
+  1. `animekai`
+  2. `animesaturn`
+- `kickassanime` was removed from automatic fallback because it was returning repeated 500 / no-anime failures in testing
+- `animepahe` was tested but is not currently used because its info/episode route was not reliable
+- `animeunity` is a possible future third fallback provider and tested alive at search/info level
+- Playback fallback now works at multiple stages:
+  1. provider search / anime match
+  2. provider episode loading
+  3. stream resolution
+  4. actual media playback failure via `onStreamFailure`
+- `AnimePlayer.jsx` now supports provider stickiness:
+  - if a fallback provider succeeds for the current episode, it stays locked for that episode
+  - the next episode tries the last successful provider first for faster startup
+- `SharedNativePlayer.jsx` now receives dynamic `streamType` so `.m3u8` sources are treated as HLS and direct `.mp4` sources are treated as file playback
+- This was required because AnimeSaturn can return direct mp4 sources instead of HLS manifests
+- Previous / next episode controls were preserved after delayed fallback recovery by re-binding the active provider episode list after successful stream resolution
+- Anime browse/detail/search architecture remains:
+  - AniList-powered browse in `src/pages/Anime.jsx`
+  - AniList identity handling in `src/lib/anilist.js`
+  - anime canonical/franchise mapping in `src/lib/animeMapper.js`
+  - anime detail handling in `src/pages/Detail.jsx`
+  - anime search section in `src/components/Search/SearchOverlay.jsx`
+- Anime search results open through TMDB-matched anime detail rather than using AniList/MAL ids as TMDB ids
+- Standard seasonal anime and long-running anime still use the existing mapper structure; do not casually rewrite anime browse/detail grouping logic
 
 ## Movie / Series / Animation Streaming
 - Native playback now uses `src/components/Player/MoviePlayer.jsx`
@@ -128,6 +133,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
 ## Version History
+- v1.3.3 - Reworked anime playback fallback around the Railway Consumet backend, removed KickAssAnime from automatic fallback, added AnimeSaturn fallback, improved fresh retry/provider locking, preserved episode navigation after delayed recovery, and fixed direct MP4 fallback playback handling
 - v1.3.2 - Added AniList-backed anime detail/search routing, anime mapper flow for seasons and grouped extras, fixed anime search to open through TMDB-matched anime detail, improved Bleach sequel handling, and stabilized One Piece long-runner treatment
 - v1.3.1 - change release build repo and location
 - v1.3.0 - added subtitle to movie/series/animation, still updating anime interface
