@@ -3,10 +3,9 @@ import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import BackgroundOrbs from './BackgroundOrbs'
 import Sidebar from './Sidebar'
+import TitleBar from './TitleBar'
 import TopBar from './TopBar'
 import useAppStore from '../../store/useAppStore'
-
-const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
 
 const pageVariants = {
   initial: { opacity: 0, y: 20, filter: 'blur(4px)' },
@@ -18,6 +17,7 @@ const pageTransition = {
   duration: 0.4,
   ease: [0.4, 0, 0.2, 1],
 }
+const TOPBAR_HEIGHT = 56
 
 export default function Layout() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
@@ -35,13 +35,21 @@ export default function Layout() {
   }, [setSearchOpen])
 
   return (
-    <div className="min-h-screen relative" style={{ background: 'var(--bg-base)' }}>
+    <div
+      className="relative h-screen overflow-hidden"
+      style={{ background: 'var(--bg-base)' }}
+    >
       <BackgroundOrbs />
+      <TitleBar />
       <TopBar />
       <Sidebar />
       <main
-        className="relative ml-[72px] min-h-screen"
-        style={{ zIndex: 1, paddingTop: 56 }}
+        className="relative ml-[72px] overflow-y-auto overflow-x-hidden"
+        style={{
+          zIndex: 1,
+          marginTop: TOPBAR_HEIGHT,
+          height: `calc(100vh - ${TOPBAR_HEIGHT}px)`,
+        }}
       >
         <AnimatePresence mode="wait">
           <motion.div

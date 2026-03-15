@@ -56,19 +56,77 @@ export const getRecommendations = (type, id) =>
   tmdb.get(`/${type === 'movie' ? 'movie' : 'tv'}/${id}/recommendations`).then(r => r.data.results || [])
 
 // Dedicated anime lookup: searches /search/tv which is more reliable than /search/multi for anime titles
-export const searchAnimeOnTMDB = async (englishTitle, romajiTitle) => {
+export const searchAnimeOnTMDB = async (englishTitle, romajiTitle, animeYear = null) => {
+  const clean = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/\bseason\s+\d+\b/gi, '')
+      .replace(/\bpart\s+\d+\b/gi, '')
+      .replace(/\bcour\s+\d+\b/gi, '')
+      .replace(/\b2nd\s+season\b/gi, '')
+      .replace(/\b3rd\s+season\b/gi, '')
+      .replace(/\b4th\s+season\b/gi, '')
+      .replace(/\bfinal\s+season\b/gi, '')
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  const scoreResult = (result, queryTitle) => {
+    const query = clean(queryTitle)
+    const name = clean(result?.name || result?.original_name || '')
+    const year = result?.first_air_date ? Number(String(result.first_air_date).slice(0, 4)) : null
+
+    let score = 0
+
+    if (name === query) score += 100
+    else if (name.includes(query)) score += 60
+    else if (query.includes(name)) score += 40
+
+    if (animeYear && year) {
+      const diff = Math.abs(Number(animeYear) - year)
+      if (diff === 0) score += 30
+      else if (diff === 1) score += 20
+      else if (diff === 2) score += 10
+    }
+
+    if (result?.popularity) score += Math.min(result.popularity / 10, 20)
+
+    return score
+  }
+
   const tryTitle = async (title) => {
     if (!title) return null
+
     try {
       const res = await tmdb.get('/search/tv', { params: { query: title } })
       const results = res.data.results || []
-      return results.length > 0 ? results[0] : null
+
+      if (!results.length) return null
+
+      const ranked = [...results]
+        .map((result) => ({
+          result,
+          score: scoreResult(result, title),
+        }))
+        .sort((a, b) => b.score - a.score)
+
+      return ranked[0]?.result || null
     } catch {
       return null
     }
   }
-  const hit = await tryTitle(englishTitle) || await tryTitle(romajiTitle)
-  return hit ? { tmdbId: hit.id, mediaType: 'tv', title: hit.name } : null
+
+  const hit =
+    (await tryTitle(englishTitle)) ||
+    (await tryTitle(romajiTitle))
+
+  return hit
+    ? {
+      tmdbId: hit.id,
+      mediaType: 'tv',
+      title: hit.name,
+    }
+    : null
 }
 
 export const getImages = (type, id) =>

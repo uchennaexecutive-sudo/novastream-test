@@ -107,7 +107,14 @@ export default function SearchOverlay() {
                   📺 Series
                 </p>
                 {shows.map((item) => (
-                  <ResultItem key={item.id} item={item} onClick={() => { navigate(`/detail/tv/${item.id}`); setSearchOpen(false) }} />
+                  <ResultItem
+                    key={item.id}
+                    item={item}
+                    onClick={() => {
+                      navigate(`/detail/tv/${item.id}`);
+                      setSearchOpen(false);
+                    }}
+                  />
                 ))}
               </div>
             )}

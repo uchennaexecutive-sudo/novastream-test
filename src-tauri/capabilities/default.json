@@ -19,6 +19,8 @@
     "allow-fetch-hls-manifest",
     "allow-fetch-movie-segment",
     "allow-fetch-movie-manifest",
+    "allow-fetch-movie-subtitles",
+    "allow-fetch-movie-text",
     "allow-fetch-movie-resolver-streams",
     "allow-probe-movie-stream",
     "allow-open-iframe-player-window",

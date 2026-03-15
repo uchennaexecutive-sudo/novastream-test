@@ -26,7 +26,19 @@ export default function MediaCard({ item, type, aspectRatio = 'portrait' }) {
         borderColor: 'var(--border-hover)',
         transition: { duration: 0.3, ease: 'easeOut' },
       }}
-      onClick={() => navigate(`/detail/${mediaType}/${item.id}`)}
+      onClick={() =>
+        navigate(`/detail/${mediaType}/${item.id}`, {
+          state:
+            mediaType === 'anime'
+              ? {
+                isAnime: true,
+                animeTitle: item.title || item.name || item.original_title || '',
+                animeAltTitle: item.original_name || item.original_title || '',
+                animeYear: item.releaseDate || item.start_date || item.year || null,
+              }
+              : undefined,
+        })
+      }
     >
       {poster ? (
         <img

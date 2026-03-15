@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { ANIWATCH_BASE_URL, getAnimeEpisodes, getAnimeStream, searchAnime } from '../../lib/consumet'
+import {
+  ANIWATCH_BASE_URL,
+  getAnimeEpisodes,
+  getAnimeStream,
+  resolveAnimeSearch,
+} from '../../lib/consumet'
 import { saveProgress } from '../../lib/progress'
 import SharedNativePlayer from './SharedNativePlayer'
 
-const STREAM_SERVER = { id: 'hd-2', label: 'HD-2' }
 const STREAM_RETRY_DELAY_MS = 2000
 const MAX_STREAM_ATTEMPTS = 3
+const ANIME_PROVIDERS = [
+  { id: 'animekai', label: 'AnimeKai' },
+  { id: 'kickassanime', label: 'KickAssAnime' },
+]
+
 
 const parseTimestamp = (value) => {
   const [time, milliseconds = '0'] = value.split('.')
@@ -39,6 +48,7 @@ const parseVtt = (text) => text
 
 export default function AnimePlayer({
   animeTitle,
+  animeAltTitle = '',
   contentId,
   season,
   episode,
@@ -51,14 +61,15 @@ export default function AnimePlayer({
   const retryTimerRef = useRef(null)
   const streamAttemptRef = useRef(0)
   const hlsHeadersRef = useRef({})
+  const providerIndexRef = useRef(0)
+  const providerStateRef = useRef({})
   const lastPlaybackRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
     durationSeconds: 0,
   })
 
-  const [animeId, setAnimeId] = useState('')
   const [episodes, setEpisodes] = useState([])
-  const [currentEpisode, setCurrentEpisode] = useState(Number(episode) || 1)
+  const [currentEpisode, setCurrentEpisode] = useState(Math.max(1, Number(episode) || 1))
   const [resumePosition, setResumePosition] = useState(Math.max(0, Math.floor(Number(resumeAt) || 0)))
   const [streamData, setStreamData] = useState({ rawUrl: '' })
   const [subtitleTracks, setSubtitleTracks] = useState([])
@@ -69,6 +80,9 @@ export default function AnimePlayer({
   const [error, setError] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
   const [retryNonce, setRetryNonce] = useState(0)
+  const [providerTick, setProviderTick] = useState(0)
+
+  const activeProvider = ANIME_PROVIDERS[providerIndexRef.current] || ANIME_PROVIDERS[0]
 
   const apiHost = useMemo(() => {
     try {
@@ -102,7 +116,7 @@ export default function AnimePlayer({
   }, [])
 
   const persistProgress = useCallback(async (snapshot = lastPlaybackRef.current) => {
-    const effectiveContentId = contentId || animeId || animeTitle
+    const effectiveContentId = contentId || animeTitle
     const progressSeconds = Math.max(0, Math.floor(Number(snapshot?.progressSeconds) || 0))
     const durationSeconds = Math.max(0, Math.floor(Number(snapshot?.durationSeconds) || 0))
 
@@ -121,17 +135,19 @@ export default function AnimePlayer({
       progressSeconds,
       durationSeconds,
     })
-  }, [animeId, animeTitle, backdrop, contentId, currentEpisode, poster, season])
+  }, [animeTitle, backdrop, contentId, currentEpisode, poster, season])
 
   const retryFreshStream = useCallback(() => {
     clearRetryTimer()
     streamAttemptRef.current = 0
+    providerIndexRef.current = 0
     resetPlaybackState()
     setLoading(true)
     setLoadingStage('Fetching stream...')
     setError('')
     setErrorDetail('')
     setRetryNonce(value => value + 1)
+    setProviderTick(value => value + 1)
   }, [resetPlaybackState])
 
   const scheduleFreshStreamRetry = useCallback((detail = '') => {
@@ -179,7 +195,7 @@ export default function AnimePlayer({
     const match = episodes.find(item => Number(item.number) === Number(nextEpisode))
     if (!match) return
 
-    persistProgress().catch(() => {})
+    persistProgress().catch(() => { })
     clearRetryTimer()
     streamAttemptRef.current = 0
     lastPlaybackRef.current = { progressSeconds: 0, durationSeconds: 0 }
@@ -195,11 +211,12 @@ export default function AnimePlayer({
   useEffect(() => {
     clearRetryTimer()
     streamAttemptRef.current = 0
+    providerIndexRef.current = 0
     lastPlaybackRef.current = {
       progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
       durationSeconds: 0,
     }
-    setCurrentEpisode(Number(episode) || 1)
+    setCurrentEpisode(Math.max(1, Number(episode) || 1))
     setResumePosition(Math.max(0, Math.floor(Number(resumeAt) || 0)))
   }, [episode, resumeAt])
 
@@ -214,78 +231,124 @@ export default function AnimePlayer({
   }, [])
 
   useEffect(() => {
-    clearRetryTimer()
-    streamAttemptRef.current = 0
-    resetPlaybackState()
-    setAnimeId(prefetchedAnime?.animeId || '')
-    setEpisodes(prefetchedAnime?.episodes || [])
-    setLoading(true)
-    setLoadingStage(prefetchedAnime?.animeId && prefetchedAnime?.episodes?.length ? 'Fetching stream...' : 'Finding anime...')
-    setError('')
-
     let cancelled = false
 
-    async function loadAnime() {
-      if (prefetchedAnime?.animeId && prefetchedAnime?.episodes?.length) {
-        setAnimeId(prefetchedAnime.animeId)
-        setEpisodes(prefetchedAnime.episodes)
-        return
-      }
+    async function loadProviders() {
+      clearRetryTimer()
+      streamAttemptRef.current = 0
+      providerIndexRef.current = 0
+      providerStateRef.current = {}
+      resetPlaybackState()
+      setLoading(true)
+      setLoadingStage('Finding anime...')
+      setError('')
+      setErrorDetail('')
 
-      try {
-        const anime = await searchAnime(animeTitle)
-        if (!anime?.id) throw new Error('Anime not found')
-        if (cancelled) return
+      const titles = [animeTitle, animeAltTitle].filter(Boolean)
 
-        setLoadingStage('Loading episodes...')
-        const nextEpisodes = await getAnimeEpisodes(anime.id)
-        if (cancelled) return
+      for (const provider of ANIME_PROVIDERS) {
+        try {
+          let anime = null
+          let matchedTitle = ''
 
-        setAnimeId(anime.id)
-        setEpisodes(nextEpisodes)
-      } catch {
-        if (!cancelled) {
-          setError('Could not load stream')
-          setLoading(false)
-          setLoadingStage('')
+          if (prefetchedAnime?.providerId === provider.id && prefetchedAnime?.animeId) {
+            anime = { id: prefetchedAnime.animeId }
+            matchedTitle = prefetchedAnime.matchedTitle || animeTitle
+          } else {
+            const resolved = await resolveAnimeSearch(titles, provider.id)
+            anime = resolved.anime
+            matchedTitle = resolved.matchedTitle
+          }
+
+          if (!anime?.id) {
+            console.warn(`[AnimePlayer] ${provider.id} search returned no anime`)
+            continue
+          }
+
+          setLoadingStage(`Loading episodes from ${provider.label}...`)
+          const providerEpisodes = await getAnimeEpisodes(anime.id, provider.id)
+
+          if (!providerEpisodes?.length) {
+            console.warn(`[AnimePlayer] ${provider.id} returned no episodes`)
+            continue
+          }
+
+          providerStateRef.current[provider.id] = {
+            animeId: anime.id,
+            matchedTitle,
+            episodes: providerEpisodes,
+          }
+        } catch (providerError) {
+          console.warn(`[AnimePlayer] provider load failed for ${provider.id}`, providerError)
+          continue
         }
       }
+
+      const firstProvider = ANIME_PROVIDERS.find(
+        (provider) => providerStateRef.current[provider.id]?.episodes?.length
+      )
+
+      if (!firstProvider) {
+        throw new Error('Anime not found on available providers')
+      }
+
+      providerIndexRef.current = ANIME_PROVIDERS.findIndex(
+        provider => provider.id === firstProvider.id
+      )
+      setEpisodes(providerStateRef.current[firstProvider.id].episodes || [])
+      setProviderTick(value => value + 1)
+      setLoadingStage('Fetching stream...')
     }
 
-    loadAnime()
+    loadProviders()
     return () => { cancelled = true }
-  }, [animeTitle, prefetchedAnime, resetPlaybackState])
+  }, [animeAltTitle, animeTitle, prefetchedAnime, resetPlaybackState])
 
   useEffect(() => {
-    if (!animeId || episodes.length === 0) return undefined
+    const provider = activeProvider
+    const providerState = providerStateRef.current[provider.id]
+
+    if (!providerState?.episodes?.length) return undefined
 
     clearRetryTimer()
     let cancelled = false
 
     async function resolveStream() {
-      const targetEpisode = episodes.find(item => Number(item.number) === Number(currentEpisode))
+      const requestedEpisode = Number(currentEpisode)
+      const targetEpisode = providerState.episodes.find(
+        item => Number(item.number) === requestedEpisode
+      )
+
       if (!targetEpisode?.episodeId) {
-        setError('Could not load stream')
-        setLoading(false)
-        setLoadingStage('')
-        return
+        const nextProviderIndex = providerIndexRef.current + 1
+        const nextProvider = ANIME_PROVIDERS[nextProviderIndex]
+
+        if (nextProvider && providerStateRef.current[nextProvider.id]?.episodes?.length) {
+          providerIndexRef.current = nextProviderIndex
+          setEpisodes(providerStateRef.current[nextProvider.id].episodes || [])
+          setProviderTick(value => value + 1)
+          return
+        }
+
+        throw new Error(`Episode ${requestedEpisode} not found on available providers`)
       }
 
       streamAttemptRef.current += 1
       setLoading(true)
-      setLoadingStage('Fetching stream...')
+      setLoadingStage(`Fetching stream from ${provider.label}...`)
       setError('')
       setErrorDetail('')
       resetPlaybackState()
 
       try {
-        const payload = await getAnimeStream(targetEpisode.episodeId, STREAM_SERVER.id, { fresh: true })
+        const payload = await getAnimeStream(targetEpisode.episodeId, provider.id)
         if (cancelled) return
         if (!payload?.rawUrl) throw new Error('Invalid stream')
 
         const captionTracks = (payload.tracks || []).filter(track => track.kind === 'captions')
         hlsHeadersRef.current = payload.headers || {}
         console.info('[AnimePlayer] resolved stream', {
+          provider: payload.provider || provider.id,
           animeTitle,
           episode: currentEpisode,
           rawUrl: payload.rawUrl,
@@ -296,11 +359,31 @@ export default function AnimePlayer({
         setStreamData({ rawUrl: payload.rawUrl || '' })
         setSubtitleTracks(captionTracks)
         setSubtitleEnabled(captionTracks.length > 0)
+
+        const nextEpisode = providerState.episodes.find(
+          e => Number(e.number) === Number(currentEpisode) + 1
+        )
+
+        if (nextEpisode?.episodeId) {
+          getAnimeStream(nextEpisode.episodeId, provider.id).catch(() => { })
+        }
+
         clearRetryTimer()
         setLoading(false)
         setLoadingStage('Buffering...')
       } catch (streamError) {
         console.error('[AnimePlayer] stream resolution failed', streamError)
+
+        const nextProviderIndex = providerIndexRef.current + 1
+        const nextProvider = ANIME_PROVIDERS[nextProviderIndex]
+
+        if (!cancelled && nextProvider && providerStateRef.current[nextProvider.id]?.episodes?.length) {
+          providerIndexRef.current = nextProviderIndex
+          setEpisodes(providerStateRef.current[nextProvider.id].episodes || [])
+          setProviderTick(value => value + 1)
+          return
+        }
+
         if (!cancelled) {
           const detail = streamError instanceof Error ? streamError.message : 'Stream resolution failed'
           scheduleFreshStreamRetry(detail)
@@ -310,13 +393,18 @@ export default function AnimePlayer({
 
     resolveStream()
     return () => { cancelled = true }
-  }, [animeId, animeTitle, currentEpisode, episodes, resetPlaybackState, retryNonce, scheduleFreshStreamRetry])
+  }, [activeProvider, animeTitle, currentEpisode, providerTick, resetPlaybackState, retryNonce, scheduleFreshStreamRetry])
 
   useEffect(() => {
     const preferredTrack = subtitleTracks.find(track => String(track.lang || '').toLowerCase().includes('english')) || subtitleTracks[0]
     const trackUrl = preferredTrack?.file || preferredTrack?.url || preferredTrack?.rawFile || null
 
     if (!subtitleEnabled || !trackUrl) {
+      setSubtitleCues([])
+      return undefined
+    }
+
+    if (/\.gif(\?|$)/i.test(trackUrl)) {
       setSubtitleCues([])
       return undefined
     }
@@ -346,7 +434,7 @@ export default function AnimePlayer({
 
   useEffect(() => () => {
     clearRetryTimer()
-    persistProgress().catch(() => {})
+    persistProgress().catch(() => { })
   }, [persistProgress])
 
   return (
@@ -356,13 +444,13 @@ export default function AnimePlayer({
       streamUrl={activeStreamUrl}
       streamHeaders={hlsHeadersRef.current}
       streamType="hls"
-      streamLabel={STREAM_SERVER.label}
-      streamMeta={`Season ${season} Episode ${currentEpisodeMeta?.number || currentEpisode} | ${STREAM_SERVER.label} | HLS`}
+      streamLabel={activeProvider.label}
+      streamMeta={`Season ${season} Episode ${currentEpisodeMeta?.number || currentEpisode} | ${activeProvider.label} | HLS`}
       loading={loading}
       loadingStage={loadingStage}
       loadingHost={apiHost}
       error={error}
-      errorDetail={errorDetail || `HD-2 did not return a playable source after ${MAX_STREAM_ATTEMPTS} fresh attempts.`}
+      errorDetail={errorDetail || ''}
       onRetry={retryFreshStream}
       onClose={onClose}
       onStreamFailure={handleStreamFailure}
@@ -378,7 +466,7 @@ export default function AnimePlayer({
       prevLabel={`← Ep ${currentEpisode - 1}`}
       nextLabel={`Ep ${currentEpisode + 1} →`}
       resumeAt={resumePosition}
-      resumeKey={`${currentEpisode}-${retryNonce}`}
+      resumeKey={`${activeProvider.id}-${currentEpisode}-${retryNonce}`}
     />
   )
 }

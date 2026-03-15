@@ -105,7 +105,19 @@ export default function HeroSlide({ item }) {
         <div className="flex gap-3">
           <GlassButton
             variant="filled"
-            onClick={() => navigate(`/detail/${type}/${item.id}`)}
+            onClick={() =>
+              navigate(`/detail/${type}/${item.id}`, {
+                state:
+                  type === 'anime'
+                    ? {
+                      isAnime: true,
+                      animeTitle: item.title || item.name || item.original_title || '',
+                      animeAltTitle: item.original_name || item.original_title || '',
+                      animeYear: item.releaseDate || item.start_date || item.year || null,
+                    }
+                    : undefined,
+              })
+            }
             className="accent-pulse"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">

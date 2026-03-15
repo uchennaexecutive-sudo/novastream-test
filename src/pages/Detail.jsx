@@ -54,6 +54,7 @@ export default function Detail() {
 
   const isAnime = Boolean(location.state?.isAnime)
   const animeTitle = location.state?.animeTitle || location.state?.animeAltTitle || data?.title || data?.name || ''
+  const animeAltTitle = location.state?.animeAltTitle || data?.original_name || data?.original_title || ''
 
   useEffect(() => {
     setLoading(true)
@@ -69,7 +70,7 @@ export default function Detail() {
       .then(setData)
       .finally(() => setLoading(false))
 
-    isInWatchlist(Number(id)).then(setInWatchlist).catch(() => {})
+    isInWatchlist(Number(id)).then(setInWatchlist).catch(() => { })
   }, [id, location.state?.resumeAt, location.state?.resumeEpisode, location.state?.resumeProgress, location.state?.resumeSeason, type])
 
   useEffect(() => {
@@ -117,24 +118,27 @@ export default function Detail() {
   }, [id, isMovieLike, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, type])
 
   useEffect(() => {
-    if (!isAnime || !animeTitle) return undefined
+    if (!isAnime || (!animeTitle && !animeAltTitle)) return undefined
 
     let cancelled = false
 
-    preloadAnimePlayback(animeTitle)
+    preloadAnimePlayback(animeTitle, animeAltTitle)
       .then((payload) => {
         if (cancelled || !payload?.animeId) return
         animePrefetchRef.current.set(payload.animeId, payload)
         prefetchedAnimeIdRef.current = payload.animeId
       })
-      .catch(() => {})
+      .catch(() => { })
 
     return () => {
       cancelled = true
     }
-  }, [animeTitle, isAnime])
+  }, [animeAltTitle, animeTitle, isAnime])
 
   const handlePlay = async (seasonNumber = 1, episodeNumber = 1, resumeSeconds = 0, durationHintSeconds = 0) => {
+
+    console.log('[Detail] handlePlay triggered', { isAnime, type })
+
     const nextSeason = seasonNumber || 1
     const nextEpisode = episodeNumber || 1
 
@@ -144,10 +148,12 @@ export default function Detail() {
     setPlayerDurationHint(Math.max(0, Math.floor(Number(durationHintSeconds) || 0)))
 
     if (isAnime) {
+      setPlayerOpen(false)
       setAnimePlayerOpen(true)
       return
     }
 
+    setAnimePlayerOpen(false)
     setPlayerOpen(true)
   }
 
@@ -467,6 +473,7 @@ export default function Detail() {
       {isAnime && animePlayerOpen && (
         <AnimePlayer
           animeTitle={animeTitle}
+          animeAltTitle={animeAltTitle}
           contentId={data.id}
           season={playSeason}
           episode={playEpisode}

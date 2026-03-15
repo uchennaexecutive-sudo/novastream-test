@@ -11,11 +11,11 @@ export default function TopBar() {
         top: 0,
         left: 72,
         height: 56,
-        background: 'var(--topbar-bg)',
-        backdropFilter: 'blur(24px)',
-        WebkitBackdropFilter: 'blur(24px)',
-        borderBottom: '1px solid var(--border)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.15), var(--inner-glow)',
+        paddingRight: 24,
+        background: 'linear-gradient(180deg, rgba(15,15,21,0.68) 0%, rgba(15,15,21,0.46) 58%, rgba(15,15,21,0.18) 100%)',
+        backdropFilter: 'blur(34px) saturate(145%)',
+        WebkitBackdropFilter: 'blur(34px) saturate(145%)',
+        boxShadow: '0 12px 40px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.06), var(--inner-glow)',
         zIndex: 40,
       }}
     >
@@ -23,14 +23,16 @@ export default function TopBar() {
         onClick={() => setSearchOpen(true)}
         className="flex items-center gap-3 px-4 py-2 rounded-xl text-sm"
         style={{
-          background: 'var(--bg-surface)',
+          background: 'rgba(14, 14, 20, 0.55)',
           color: 'var(--text-muted)',
-          border: '1px solid var(--border)',
-          backdropFilter: 'var(--glass-blur)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          boxShadow: '0 10px 28px rgba(0,0,0,0.18)',
         }}
         whileHover={{
-          borderColor: 'var(--border-hover)',
-          boxShadow: '0 0 20px var(--accent-glow)',
+          borderColor: 'rgba(255,255,255,0.18)',
+          boxShadow: '0 0 20px var(--accent-glow), 0 10px 28px rgba(0,0,0,0.18)',
         }}
         whileTap={{ scale: 0.97 }}
       >

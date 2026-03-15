@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Hls from 'hls.js'
 import { invoke } from '@tauri-apps/api/core'
 import {
+  Captions,
   Maximize,
   Minimize,
   Pause,
@@ -21,6 +22,11 @@ import {
   getMovieStreams,
   getSeriesStreams,
 } from '../../lib/movieStreams'
+import {
+  getAnimationSubtitles,
+  getMovieSubtitles,
+  getSeriesSubtitles,
+} from '../../lib/movieSubtitles'
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2]
 const FALLBACK_RESOLUTIONS = [
@@ -31,6 +37,36 @@ const FALLBACK_RESOLUTIONS = [
 ]
 const CONTROLS_TIMEOUT_MS = 3000
 const STARTUP_TIMEOUT_MS = 20000
+
+const parseTimestamp = (value) => {
+  const normalized = String(value || '').trim().replace(',', '.')
+  const [time, milliseconds = '0'] = normalized.split('.')
+  const parts = time.split(':').map(Number)
+  const baseSeconds = parts.length === 3
+    ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+    : parts[0] * 60 + parts[1]
+
+  return baseSeconds + Number(`0.${milliseconds}`)
+}
+
+const parseSubtitles = (text) => text
+  .split(/\r?\n\r?\n/)
+  .map(block => block.trim())
+  .filter(Boolean)
+  .map(block => {
+    const lines = block.split(/\r?\n/).filter(Boolean)
+    const timing = lines.find(line => line.includes('-->'))
+    if (!timing) return null
+
+    const [start, end] = timing.split('-->').map(value => value.trim())
+
+    return {
+      start: parseTimestamp(start),
+      end: parseTimestamp(end),
+      text: lines.slice(lines.indexOf(timing) + 1).join(' ').trim(),
+    }
+  })
+  .filter(item => item?.text)
 
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -232,6 +268,9 @@ export default function MoviePlayer({
   const [availableResolutions, setAvailableResolutions] = useState(FALLBACK_RESOLUTIONS)
   const [selectedResolution, setSelectedResolution] = useState('auto')
   const [mediaLoading, setMediaLoading] = useState(false)
+  const [subtitleTracks, setSubtitleTracks] = useState([])
+  const [subtitleCues, setSubtitleCues] = useState([])
+  const [subtitleEnabled, setSubtitleEnabled] = useState(false)
 
   const stream = streams[streamIndex] || null
   const streamType = inferStreamType(stream)
@@ -252,6 +291,11 @@ export default function MoviePlayer({
   const playerMeta = isSeriesContent(contentType)
     ? `${seasonEpisodeLabel} | ${stream?.provider || 'Provider'} | ${stream?.quality || streamType.toUpperCase()}`
     : `${stream?.provider || 'Provider'} | ${stream?.quality || streamType.toUpperCase()}`
+  const subtitleText = useMemo(() => {
+    if (!subtitleEnabled || subtitleCues.length === 0) return ''
+    const cue = subtitleCues.find(item => currentTime >= item.start && currentTime <= item.end)
+    return cue?.text || ''
+  }, [currentTime, subtitleCues, subtitleEnabled])
 
   const clearHideTimer = () => {
     window.clearTimeout(hideTimerRef.current)
@@ -466,6 +510,38 @@ export default function MoviePlayer({
   useEffect(() => {
     let cancelled = false
 
+    async function loadSubtitles() {
+      try {
+        const nextTracks = contentType === 'series'
+          ? await getSeriesSubtitles(tmdbId, currentSeason, currentEpisode, imdbId)
+          : contentType === 'animation'
+            ? await getAnimationSubtitles(tmdbId, imdbId)
+            : await getMovieSubtitles(tmdbId, imdbId)
+
+        if (cancelled) return
+
+        setSubtitleTracks(nextTracks)
+        setSubtitleEnabled(nextTracks.length > 0)
+      } catch {
+        if (cancelled) return
+        setSubtitleTracks([])
+        setSubtitleEnabled(false)
+      }
+    }
+
+    setSubtitleTracks([])
+    setSubtitleCues([])
+    setSubtitleEnabled(false)
+    loadSubtitles()
+
+    return () => {
+      cancelled = true
+    }
+  }, [contentType, currentEpisode, currentSeason, imdbId, retryNonce, tmdbId])
+
+  useEffect(() => {
+    let cancelled = false
+
     async function loadStreams() {
       setLoading(true)
       setLoadingStage('Finding stream...')
@@ -511,6 +587,39 @@ export default function MoviePlayer({
     setSelectedResolution('auto')
     setAvailableResolutions(FALLBACK_RESOLUTIONS)
   }, [streamIndex, currentEpisode, currentSeason, retryNonce])
+
+  useEffect(() => {
+    const preferredTrack = subtitleTracks.find(track => String(track.language || '').toLowerCase() === 'en')
+      || subtitleTracks[0]
+    const trackUrl = preferredTrack?.url || null
+
+    if (!subtitleEnabled || !trackUrl) {
+      setSubtitleCues([])
+      return undefined
+    }
+
+    let cancelled = false
+    const subtitleRequest = window.__TAURI_INTERNALS__
+      ? invoke('fetch_movie_text', { url: trackUrl })
+      : fetch(trackUrl).then(response => {
+        if (!response.ok) throw new Error('Subtitle fetch failed')
+        return response.text()
+      })
+
+    subtitleRequest
+      .then(text => {
+        if (!cancelled) {
+          setSubtitleCues(parseSubtitles(text))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSubtitleCues([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [subtitleEnabled, subtitleTracks])
 
   useEffect(() => {
     if (!stream?.url) return
@@ -972,6 +1081,29 @@ export default function MoviePlayer({
               }}
             />
 
+            {subtitleEnabled && subtitleText && !effectiveLoading && !error && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  bottom: controlsVisible ? 132 : 88,
+                  transform: 'translateX(-50%)',
+                  zIndex: 26,
+                  maxWidth: '80%',
+                  padding: '8px 14px',
+                  borderRadius: 999,
+                  background: 'rgba(0,0,0,0.65)',
+                  color: '#fff',
+                  fontSize: 18,
+                  lineHeight: 1.4,
+                  textAlign: 'center',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                }}
+              >
+                {subtitleText}
+              </div>
+            )}
+
             {effectiveLoading && (
               <div
                 className="flex flex-col items-center justify-center gap-4 text-center"
@@ -1109,6 +1241,19 @@ export default function MoviePlayer({
                     </div>
 
                     <div className="flex items-center gap-2 justify-self-end">
+                      {subtitleTracks.length > 0 && (
+                        <button
+                          onClick={() => setSubtitleEnabled(value => !value)}
+                          className="px-3 h-10 rounded-xl flex items-center gap-2 text-xs font-semibold text-white"
+                          style={{
+                            background: subtitleEnabled ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.08)',
+                            border: subtitleEnabled ? '1px solid rgba(139,92,246,0.55)' : '1px solid rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          <Captions size={15} />
+                          {subtitleEnabled ? 'SUB ON' : 'SUB OFF'}
+                        </button>
+                      )}
                       <select value={selectedResolution} onChange={(event) => handleResolutionChange(event.target.value)} className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
                         {(availableResolutions.length > 0 ? availableResolutions : FALLBACK_RESOLUTIONS).map(option => (
                           <option key={option.value} value={option.value} style={{ color: '#000' }}>

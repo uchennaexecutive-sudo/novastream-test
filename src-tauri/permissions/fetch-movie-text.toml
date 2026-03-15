@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fetch-movie-text"
+description = "Fetch movie subtitle text through Rust"
+commands.allow = ["fetch_movie_text"]

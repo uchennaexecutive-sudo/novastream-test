@@ -116,12 +116,20 @@ function createTauriLoader(base, getHeaders, getSessionId) {
 
       const url = context.url
       const isBlobUrl = url.startsWith('blob:')
-      const isPlaylist = url.includes('.m3u8')
-      const isSegment = url.includes('.ts')
-        || url.includes('.m4s')
-        || url.includes('.aac')
-        || url.includes('.mp4')
-      const isKey = url.includes('.key') || context.type === 'key'
+      const lowerUrl = url.toLowerCase()
+      const isPlaylist = lowerUrl.includes('.m3u8')
+      const isImageTrack =
+        lowerUrl.includes('.gif') ||
+        lowerUrl.includes('.jpg') ||
+        lowerUrl.includes('.jpeg') ||
+        lowerUrl.includes('.png') ||
+        lowerUrl.includes('.webp')
+      const isSegment = lowerUrl.includes('.ts')
+        || lowerUrl.includes('.m4s')
+        || lowerUrl.includes('.aac')
+        || lowerUrl.includes('.mp4')
+      const isKey = lowerUrl.includes('.key') || context.type === 'key'
+
       const headers = getHeaders() || {}
       const sessionId = getSessionId?.() || null
 
@@ -138,6 +146,17 @@ function createTauriLoader(base, getHeaders, getSessionId) {
             callbacks.onError({ code: 0, text: err.toString() }, context, null)
           })
 
+        return
+      }
+
+      if (isImageTrack) {
+        const startTime = performance.now()
+        callbacks.onSuccess(
+          { data: new Uint8Array(0).buffer, url },
+          createLoaderStats(startTime, 0),
+          context,
+          null
+        )
         return
       }
 
@@ -301,7 +320,7 @@ export default function SharedNativePlayer({
     const video = videoRef.current
     if (!video || effectiveLoading || error) return
 
-    if (video.paused) video.play().catch(() => {})
+    if (video.paused) video.play().catch(() => { })
     else video.pause()
   }
 
@@ -322,8 +341,8 @@ export default function SharedNativePlayer({
   const toggleFullscreen = () => {
     const container = playerContainerRef.current
     if (!container) return
-    if (!document.fullscreenElement) container.requestFullscreen().catch(() => {})
-    else document.exitFullscreen().catch(() => {})
+    if (!document.fullscreenElement) container.requestFullscreen().catch(() => { })
+    else document.exitFullscreen().catch(() => { })
     revealControls()
   }
 
@@ -367,7 +386,7 @@ export default function SharedNativePlayer({
   }
 
   const handleClose = () => {
-    persistProgress().catch(() => {})
+    persistProgress().catch(() => { })
     onClose?.()
   }
 
@@ -484,7 +503,7 @@ export default function SharedNativePlayer({
           ])
         }
 
-        video.play().catch(() => {})
+        video.play().catch(() => { })
       })
 
       hls.on(Hls.Events.ERROR, (_, data) => {
@@ -510,7 +529,7 @@ export default function SharedNativePlayer({
     }, STARTUP_TIMEOUT_MS)
 
     video.src = streamUrl
-    video.play().catch(() => {})
+    video.play().catch(() => { })
 
     return () => {
       disposed = true
@@ -691,7 +710,7 @@ export default function SharedNativePlayer({
     const timer = window.setInterval(() => {
       const video = videoRef.current
       if (!video || video.paused) return
-      persistProgress().catch(() => {})
+      persistProgress().catch(() => { })
     }, 10000)
 
     return () => window.clearInterval(timer)
@@ -700,7 +719,7 @@ export default function SharedNativePlayer({
   useEffect(() => () => {
     clearHideTimer()
     clearStartupTimer()
-    persistProgress().catch(() => {})
+    persistProgress().catch(() => { })
   }, [persistProgress])
 
   return createPortal(
@@ -775,7 +794,7 @@ export default function SharedNativePlayer({
               <div className="flex flex-col items-center gap-3" style={{ position: 'absolute', inset: 0, justifyContent: 'center', background: 'rgba(0,0,0,0.28)', zIndex: 12 }}>
                 <span className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
                 <span className="text-sm text-white/60 font-mono">{loadingStage || 'Buffering...'}</span>
-                <span className="text-xs text-white/40">{loadingHost ? `${loadingHost} / ${streamLabel}` : streamLabel}</span>
+                <span className="text-xs text-white/40">{streamLabel}</span>
               </div>
             )}
 

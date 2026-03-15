@@ -27,11 +27,10 @@ export default function Sidebar() {
       className="fixed left-0 bottom-0 flex flex-col"
       style={{
         top: 0,
-        background: 'var(--sidebar-bg)',
-        backdropFilter: 'blur(24px)',
-        WebkitBackdropFilter: 'blur(24px)',
-        borderRight: '1px solid var(--border)',
-        boxShadow: 'var(--sidebar-shadow), var(--inner-glow)',
+        background: 'linear-gradient(180deg, rgba(11,11,16,0.52) 0%, rgba(11,11,16,0.3) 60%, rgba(11,11,16,0.14) 100%)',
+        backdropFilter: 'blur(28px)',
+        WebkitBackdropFilter: 'blur(28px)',
+        boxShadow: 'var(--inner-glow)',
         zIndex: 50,
         overflow: 'hidden',
       }}
@@ -46,7 +45,6 @@ export default function Sidebar() {
         style={{
           height: TOPBAR_HEIGHT,
           paddingLeft: 16,
-          borderBottom: '1px solid var(--border)',
         }}
       >
         <div

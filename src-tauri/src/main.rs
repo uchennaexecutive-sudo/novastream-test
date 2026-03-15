@@ -26,9 +26,11 @@ const STREAM_CAPTURE_SCHEME: &str = "novastream-capture";
 const ANIME_DEBUG_LOG_FILE: &str = "nova-stream-anime-debug.log";
 const RESOLVER_DEBUG_LOG_FILE: &str = "nova-stream-resolver-debug.log";
 const ANIWATCH_BASE_URL: &str = "https://aniwatch-api-orcin-six.vercel.app";
+const ANIME_ROUGE_BASE_URL: &str = "https://api-anime-rouge.vercel.app";
 const TMDB_API_KEY: &str = "49bd672b0680fac7de50e5b9f139a98b";
 const TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 const NUVIO_STREAMS_BASE_URL: &str = "https://nuvio-streams-addon-fawn.vercel.app";
+const WYZIE_SUBTITLES_BASE_URL: &str = "https://sub.wyzie.io";
 const IFRAME_PLAYER_WINDOW_LABEL: &str = "iframe-player";
 const BROWSER_FETCH_BRIDGE_WINDOW_LABEL: &str = "browser-fetch-bridge";
 const IFRAME_PLAYER_BROWSER_ARGS: &str =
@@ -288,6 +290,27 @@ struct ResolveEmbedStreamPayload {
     embed_url: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MovieSubtitleRequest {
+    tmdb_id: String,
+    imdb_id: Option<String>,
+    content_type: String,
+    season: Option<u32>,
+    episode: Option<u32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolvedMovieSubtitle {
+    url: String,
+    label: String,
+    language: String,
+    format: String,
+    source: String,
+    hearing_impaired: bool,
+}
+
 struct StaticCaptureResolution {
     resolved_stream: Option<ResolvedEmbedStream>,
     next_url: String,
@@ -457,6 +480,12 @@ fn aniwatch_api_url(path: &str) -> Result<Url, String> {
         .map_err(|e| e.to_string())
 }
 
+fn anime_rouge_api_url(path: &str) -> Result<Url, String> {
+    let base = Url::parse(ANIME_ROUGE_BASE_URL).map_err(|e| e.to_string())?;
+    base.join(path.trim_start_matches('/'))
+        .map_err(|e| e.to_string())
+}
+
 async fn fetch_aniwatch_json(url: Url) -> Result<serde_json::Value, String> {
     log_anime_debug(&format!("[aniwatch] URL: {}", url));
 
@@ -489,6 +518,108 @@ async fn fetch_aniwatch_json(url: Url) -> Result<serde_json::Value, String> {
     })
 }
 
+async fn fetch_anime_rouge_json(url: Url) -> Result<serde_json::Value, String> {
+    log_anime_debug(&format!("[anime-rouge] URL: {}", url));
+
+    let response = aniwatch_client()
+        .get(url.clone())
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| {
+            log_anime_debug(&format!("[anime-rouge] Request error: {e}"));
+            e.to_string()
+        })?;
+    let status = response.status();
+    let body = response.text().await.map_err(|e| {
+        log_anime_debug(&format!("[anime-rouge] Body read error: {e}"));
+        e.to_string()
+    })?;
+    let preview: String = body.chars().take(300).collect();
+
+    log_anime_debug(&format!("[anime-rouge] Status: {}", status));
+    log_anime_debug(&format!("[anime-rouge] Body preview: {}", preview));
+
+    if !status.is_success() {
+        return Err(format!("Anime Rouge request failed: HTTP {}", status));
+    }
+
+    serde_json::from_str(&body).map_err(|e| {
+        log_anime_debug(&format!("[anime-rouge] JSON parse error: {e}"));
+        e.to_string()
+    })
+}
+
+fn normalize_anime_rouge_track(track: &serde_json::Value) -> Option<serde_json::Value> {
+    let file = track
+        .get("file")
+        .or_else(|| track.get("url"))
+        .and_then(|value| value.as_str())?;
+    let lang = track
+        .get("lang")
+        .or_else(|| track.get("label"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("Unknown");
+
+    Some(serde_json::json!({
+        "kind": if lang.eq_ignore_ascii_case("thumbnails") { "thumbnails" } else { "captions" },
+        "lang": lang,
+        "label": lang,
+        "file": file,
+        "url": file,
+        "default": track.get("default").and_then(|value| value.as_bool()).unwrap_or(false),
+    }))
+}
+
+fn normalize_anime_rouge_source_payload(payload: &serde_json::Value) -> serde_json::Value {
+    let sources = payload
+        .get("sources")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|source| {
+            let url = source.get("url").and_then(|value| value.as_str())?;
+            let source_type = if source
+                .get("type")
+                .and_then(|value| value.as_str())
+                .map(|value| value.eq_ignore_ascii_case("hls"))
+                .unwrap_or(false)
+                || source
+                    .get("isM3U8")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+            {
+                "hls"
+            } else {
+                "mp4"
+            };
+
+            Some(serde_json::json!({
+                "url": url,
+                "type": source_type,
+                "quality": source.get("quality").cloned().unwrap_or(serde_json::Value::Null),
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    let subtitles = payload
+        .get("subtitles")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let tracks = subtitles
+        .into_iter()
+        .filter_map(|track| normalize_anime_rouge_track(&track))
+        .collect::<Vec<_>>();
+
+    serde_json::json!({
+        "sources": sources,
+        "tracks": tracks,
+        "headers": {},
+    })
+}
+
 #[tauri::command]
 async fn search_hianime(title: String) -> Result<serde_json::Value, String> {
     let mut url = aniwatch_api_url("/api/v2/hianime/search")?;
@@ -497,8 +628,24 @@ async fn search_hianime(title: String) -> Result<serde_json::Value, String> {
         .append_pair("page", "1");
 
     let payload = fetch_aniwatch_json(url).await?;
-    Ok(payload
+    let anime = payload
         .pointer("/data/animes/0")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    if !anime.is_null() {
+        return Ok(anime);
+    }
+
+    let mut rouge_url = anime_rouge_api_url("/aniwatch/search")?;
+    rouge_url
+        .query_pairs_mut()
+        .append_pair("keyword", &title)
+        .append_pair("page", "1");
+
+    let rouge_payload = fetch_anime_rouge_json(rouge_url).await?;
+    Ok(rouge_payload
+        .pointer("/animes/0")
         .cloned()
         .unwrap_or(serde_json::Value::Null))
 }
@@ -507,11 +654,46 @@ async fn search_hianime(title: String) -> Result<serde_json::Value, String> {
 async fn get_hianime_episodes(anime_id: String) -> Result<serde_json::Value, String> {
     let url = aniwatch_api_url(&format!("/api/v2/hianime/anime/{anime_id}/episodes"))?;
     let payload = fetch_aniwatch_json(url).await?;
-
-    Ok(payload
+    let episodes = payload
         .pointer("/data/episodes")
         .cloned()
-        .unwrap_or_else(|| serde_json::Value::Array(Vec::new())))
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+
+    if episodes.as_array().map(|items| !items.is_empty()).unwrap_or(false) {
+        return Ok(episodes);
+    }
+
+    let rouge_url = anime_rouge_api_url(&format!("/aniwatch/episodes/{anime_id}"))?;
+    let rouge_payload = fetch_anime_rouge_json(rouge_url).await?;
+    let rouge_episodes = rouge_payload
+        .get("episodes")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|episode| {
+            let number = episode
+                .get("number")
+                .or_else(|| episode.get("episodeNo"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let title = episode
+                .get("title")
+                .or_else(|| episode.get("name"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+
+            serde_json::json!({
+                "number": number,
+                "title": title,
+                "episodeId": episode.get("episodeId").cloned().unwrap_or(serde_json::Value::Null),
+                "isFiller": episode.get("isFiller").or_else(|| episode.get("filler")).cloned().unwrap_or(serde_json::Value::Bool(false)),
+                "dub": episode.get("dub").cloned().unwrap_or(serde_json::Value::Bool(false)),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(serde_json::Value::Array(rouge_episodes))
 }
 
 #[tauri::command]
@@ -538,11 +720,32 @@ async fn get_hianime_stream(
         }
     }
 
-    let payload = fetch_aniwatch_json(url).await?;
-    Ok(payload
-        .get("data")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null))
+    match fetch_aniwatch_json(url).await {
+        Ok(payload) => {
+            let data = payload.get("data").cloned().unwrap_or(serde_json::Value::Null);
+            let has_sources = data
+                .get("sources")
+                .and_then(|value| value.as_array())
+                .map(|items| !items.is_empty())
+                .unwrap_or(false);
+
+            if has_sources {
+                return Ok(data);
+            }
+
+            log_anime_debug("[aniwatch] Source payload empty, falling back to Anime Rouge");
+        }
+        Err(error) => {
+            log_anime_debug(&format!(
+                "[aniwatch] Source request failed, falling back to Anime Rouge: {error}"
+            ));
+        }
+    }
+
+    let mut rouge_url = anime_rouge_api_url("/aniwatch/episode-srcs")?;
+    rouge_url.query_pairs_mut().append_pair("id", &episode_id);
+    let rouge_payload = fetch_anime_rouge_json(rouge_url).await?;
+    Ok(normalize_anime_rouge_source_payload(&rouge_payload))
 }
 
 #[tauri::command]
@@ -1750,6 +1953,164 @@ async fn resolve_tmdb_external_imdb_id(
         .ok_or_else(|| format!("No IMDb ID found for this {}", if content_type == "series" { "episode" } else { "movie" }))
 }
 
+fn normalize_wyzie_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubtitle> {
+    let Some(streams) = data.as_array() else {
+        return Vec::new();
+    };
+
+    let mut subtitles = streams
+        .iter()
+        .filter_map(|item| {
+            let url = item.get("url")?.as_str()?.trim().to_string();
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return None;
+            }
+
+            let language = item
+                .get("language")
+                .and_then(|value| value.as_str())
+                .unwrap_or("en")
+                .to_string();
+            let display = item
+                .get("display")
+                .and_then(|value| value.as_str())
+                .unwrap_or("English")
+                .to_string();
+            let format = item
+                .get("format")
+                .and_then(|value| value.as_str())
+                .unwrap_or("srt")
+                .to_string();
+            let source = item
+                .get("source")
+                .and_then(|value| value.as_str())
+                .unwrap_or("wyzie")
+                .to_string();
+            let hearing_impaired = item
+                .get("isHearingImpaired")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let label = if hearing_impaired {
+                format!("{display} (CC)")
+            } else {
+                display.clone()
+            };
+
+            Some(ResolvedMovieSubtitle {
+                url,
+                label,
+                language,
+                format,
+                source,
+                hearing_impaired,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    subtitles.sort_by(|a, b| {
+        a.hearing_impaired
+            .cmp(&b.hearing_impaired)
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.url.cmp(&b.url))
+    });
+    subtitles.dedup_by(|left, right| left.url == right.url);
+    subtitles
+}
+
+#[tauri::command]
+async fn fetch_movie_subtitles(
+    payload: MovieSubtitleRequest,
+) -> Result<Vec<ResolvedMovieSubtitle>, String> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let normalized_content_type = if payload.content_type == "series" {
+        "series".to_string()
+    } else {
+        "movie".to_string()
+    };
+
+    let imdb_id = match payload.imdb_id.clone() {
+        Some(imdb_id) if !imdb_id.trim().is_empty() => imdb_id,
+        _ => resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, &normalized_content_type).await?,
+    };
+
+    let mut url = Url::parse(&format!("{WYZIE_SUBTITLES_BASE_URL}/search")).map_err(|e| e.to_string())?;
+    {
+        let mut query = url.query_pairs_mut();
+        query
+            .append_pair("id", &imdb_id)
+            .append_pair("language", "en")
+            .append_pair("format", "srt");
+
+        if normalized_content_type == "series" {
+            query.append_pair("season", &payload.season.unwrap_or(1).to_string());
+            query.append_pair("episode", &payload.episode.unwrap_or(1).to_string());
+        }
+    }
+
+    log_resolver_debug(&format!(
+        "[fetch_movie_subtitles] tmdbId={} contentType={} imdbId={} url={}",
+        payload.tmdb_id, normalized_content_type, imdb_id, url
+    ));
+
+    let response = client.get(url.clone()).send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    let body = response.text().await.map_err(|e| e.to_string())?;
+
+    if status == reqwest::StatusCode::BAD_REQUEST {
+        log_resolver_debug(&format!(
+            "[fetch_movie_subtitles] no subtitles tmdbId={} imdbId={} status={}",
+            payload.tmdb_id, imdb_id, status
+        ));
+        return Ok(Vec::new());
+    }
+
+    if !status.is_success() {
+        return Err(format!("Movie subtitle request failed: HTTP {}", status));
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let subtitles = normalize_wyzie_subtitles(&value);
+
+    log_resolver_debug(&format!(
+        "[fetch_movie_subtitles] subtitle_count={} tmdbId={} imdbId={}",
+        subtitles.len(), payload.tmdb_id, imdb_id
+    ));
+
+    Ok(subtitles)
+}
+
+#[tauri::command]
+async fn fetch_movie_text(url: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(&url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    let body = response.text().await.map_err(|e| e.to_string())?;
+
+    if !status.is_success() {
+        return Err(format!("Movie subtitle text fetch failed: HTTP {}", status));
+    }
+
+    Ok(body)
+}
+
 #[tauri::command]
 async fn fetch_movie_resolver_streams(
     payload: MovieResolverRequest,
@@ -2798,6 +3159,8 @@ fn main() {
             fetch_hls_manifest,
             fetch_movie_segment,
             fetch_movie_manifest,
+            fetch_movie_subtitles,
+            fetch_movie_text,
             fetch_movie_resolver_streams,
             probe_movie_stream,
             capture_stream,
