@@ -1325,7 +1325,7 @@ async fn open_iframe_player_window(
     .data_directory(data_directory);
 
     if let Some(main_window) = main_window.as_ref() {
-        builder = builder.owner(main_window).map_err(|e| e.to_string())?;
+        builder = builder.parent(main_window).map_err(|e| e.to_string())?;
 
         if let Ok(position) = main_window.outer_position() {
             builder = builder.position(position.x as f64, position.y as f64);
