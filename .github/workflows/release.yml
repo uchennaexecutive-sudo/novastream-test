@@ -104,3 +104,66 @@ jobs:
           git add updates/latest.json
           git commit -m "chore: update latest.json for v${{ steps.version.outputs.VERSION }}" || true
           git push origin main
+          
+  build-macos:
+    needs: build
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app (macOS)
+        run: npx tauri build
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Find DMG
+        id: artifacts
+        shell: bash
+        run: |
+          echo "=== Looking for macOS dmg ==="
+          DMG_PATH=$(find src-tauri/target/release/bundle/dmg -name "*.dmg" | head -n 1)
+
+          if [ -z "$DMG_PATH" ]; then
+            echo "ERROR: No dmg found"
+            find src-tauri/target/release/bundle -type f
+            exit 1
+          fi
+
+          echo "Found dmg: $DMG_PATH"
+          echo "DMG_PATH=$DMG_PATH" >> $GITHUB_OUTPUT
+          echo "DMG_NAME=NOVA-STREAM-${{ steps.version.outputs.VERSION }}-macos.dmg" >> $GITHUB_OUTPUT
+
+      - name: Rename DMG
+        shell: bash
+        run: |
+          cp "${{ steps.artifacts.outputs.DMG_PATH }}" "${{ steps.artifacts.outputs.DMG_NAME }}"
+
+      - name: Upload DMG to existing GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "v${{ steps.version.outputs.VERSION }}" "${{ steps.artifacts.outputs.DMG_NAME }}" --clobber
