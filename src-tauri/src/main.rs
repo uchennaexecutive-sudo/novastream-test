@@ -1315,7 +1315,6 @@ async fn open_iframe_player_window(
     .minimizable(false)
     .decorations(false)
     .shadow(false)
-    .opaque(false)
     .skip_taskbar(true)
     .focused(true)
     .visible(true)
