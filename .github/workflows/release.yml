@@ -168,14 +168,25 @@ jobs:
           find src-tauri/target/release/bundle -type f
           exit 1
 
-      - name: Rename Mac Artifact
+      - name: Package Mac Artifact
+        id: package_artifact
         shell: bash
         run: |
-          cp -R "${{ steps.artifacts.outputs.ARTIFACT_PATH }}" "${{ steps.artifacts.outputs.ARTIFACT_NAME }}"
+          ARTIFACT_PATH="${{ steps.artifacts.outputs.ARTIFACT_PATH }}"
+          ARTIFACT_NAME="${{ steps.artifacts.outputs.ARTIFACT_NAME }}"
+
+          if [[ "$ARTIFACT_PATH" == *.app ]]; then
+            ZIP_NAME="NOVA-STREAM-${{ steps.version.outputs.VERSION }}-macos.app.zip"
+            ditto -c -k --sequesterRsrc --keepParent "$ARTIFACT_PATH" "$ZIP_NAME"
+            echo "UPLOAD_NAME=$ZIP_NAME" >> $GITHUB_OUTPUT
+          else
+            cp "$ARTIFACT_PATH" "$ARTIFACT_NAME"
+            echo "UPLOAD_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload Mac artifact to existing GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "v${{ steps.version.outputs.VERSION }}" "${{ steps.artifacts.outputs.ARTIFACT_NAME }}" --clobber
+          gh release upload "v${{ steps.version.outputs.VERSION }}" "${{ steps.package_artifact.outputs.UPLOAD_NAME }}" --clobber
