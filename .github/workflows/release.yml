@@ -32,7 +32,7 @@ jobs:
         run: npm ci
 
       - name: Install vendored Nuvio sidecar dependencies
-        run: npm ci --prefix vendor/nuvio-streams-addon --omit=dev
+        run: npm install --prefix vendor/nuvio-streams-addon --omit=dev --no-audit --no-fund
 
       - name: Build Tauri app
         run: npx tauri build
@@ -135,7 +135,7 @@ jobs:
         run: npm ci
 
       - name: Install vendored Nuvio sidecar dependencies
-        run: npm ci --prefix vendor/nuvio-streams-addon --omit=dev
+        run: npm install --prefix vendor/nuvio-streams-addon --omit=dev --no-audit --no-fund
 
       - name: Build Tauri app (macOS DMG)
         run: npx tauri build --bundles dmg
