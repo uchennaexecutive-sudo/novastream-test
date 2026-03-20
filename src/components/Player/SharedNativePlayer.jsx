@@ -543,11 +543,12 @@ export default function SharedNativePlayer({
       })
 
       hls.on(Hls.Events.LEVEL_LOADED, () => {
-        scheduleStartupFailure('Startup timeout after initial HLS level load', 15000)
+        const followupTimeout = streamSessionId ? SESSION_STARTUP_TIMEOUT_MS : 25000
+        scheduleStartupFailure('Startup timeout after initial HLS level load', followupTimeout)
       })
 
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
-        scheduleStartupFailure('Startup timeout after initial HLS buffering', 15000)
+        markStartupReady()
       })
 
       hls.on(Hls.Events.ERROR, (_, data) => {

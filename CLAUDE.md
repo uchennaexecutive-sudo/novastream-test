@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.3.9
+Premium streaming desktop application (Tauri 2) - v1.4.1
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -21,7 +21,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - **Supabase Anon Key:** `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93eW1lenB0Y213bXJsa2V1eGNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMTM2NjEsImV4cCI6MjA4ODU4OTY2MX0.4OZvH_afMKK-CCEgSrW4ga7oC2y0Hqh3uz5ZeRVtvPQ`
 - **AniList GraphQL:** `https://graphql.anilist.co` (no key needed)
 - **Aniwatch API:** `https://aniwatch-api-orcin-six.vercel.app`
-- **Streaming Resolvers:** AniWatch API for anime, Nuvio Streams addon for movie/series/animation native streams
+- **Streaming Resolvers:** In-project Gogoanime resolver for anime, embedded local Nuvio sidecar runtime for movie/series/animation native streams
 
 ## Completed Features
 - [x] Home page - hero carousel (5 trending, 8s auto-advance) + 9 content rows
@@ -29,7 +29,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Movies browse - genre filters, paginated grid
 - [x] Series browse - genre filters, paginated grid
 - [x] Anime browse - AniList-powered, tabs (Trending/Popular/Top Rated), genre filters, infinite scroll
-- [x] Anime player - premium popup with native HLS playback via aniwatch-api, Rust-backed segment fetching, auto server fallback, subtitles, seekbar, keyboard shortcuts, and episode navigation
+- [x] Anime player - premium popup with native playback via in-project Gogoanime resolution, Rust-backed manifest/segment/session fetching, subtitles, seekbar, keyboard shortcuts, and episode navigation
 - [x] Animation browse - grid layout
 - [x] Search overlay - debounced TMDB multi-search + AniList anime search, keyboard navigation, grouped Movies / Series / Anime results, and anime search routing through TMDB-matched anime detail flow
 - [x] Movie / Series / Animation player - native custom player using Nuvio resolver streams, Rust-backed manifest/segment fetching, custom controls, English subtitle toggle via Wyzie, and series episode navigation
@@ -41,7 +41,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Layout - sidebar (top-aligned logo, collapses to 72px, expands to 240px on hover), top bar (search), ambient orbs
 - [x] Tauri desktop - native Windows exe, `decorations: true` (native title bar - no 32px offset needed)
 - [x] Auto-update - raw GitHub feed check, resilient download retries, streamed progress, local updater logging, and restart prompt
-- [x] macOS test release artifact via GitHub Actions (`.app.zip` currently, unsigned)
+- [x] macOS release artifact via GitHub Actions (`.dmg`, unsigned)
 
 ## Layout Notes
 - `decorations: true` in `tauri.conf.json` -> native Windows title bar sits OUTSIDE content area
@@ -62,26 +62,22 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime discovery and anime detail identity are now AniList-driven
 - Anime detail/playback should remain isolated from Movie / Series / Animation resolver logic
 - Anime playback uses `src/components/Player/AnimePlayer.jsx`
-- Anime provider client logic lives in `src/lib/consumet.js`
-- Live anime backend is the Railway deployment at `https://web-production-f746c.up.railway.app`
+- Anime provider orchestration lives in:
+  - `src/lib/animeAddons/resolveAnimeStreams.js`
+  - `src/lib/animeAddons/providers/gogoanime.js`
+  - `src/lib/animeAddons/providers/gogoanimeScraper.js`
 - Anime detail pages carry AniList title identity into playback for stronger provider matching
-- Current provider order is:
-  1. `animekai`
-  2. `animesaturn`
-- `kickassanime` was removed from automatic fallback because it was returning repeated 500 / no-anime failures in testing
-- `animepahe` was tested but is not currently used because its info/episode route was not reliable
-- `animeunity` is a possible future third fallback provider and tested alive at search/info level
-- Playback fallback now works at multiple stages:
-  1. provider search / anime match
-  2. provider episode loading
-  3. stream resolution
-  4. actual media playback failure via `onStreamFailure`
-- `AnimePlayer.jsx` now supports provider stickiness:
-  - if a fallback provider succeeds for the current episode, it stays locked for that episode
-  - the next episode tries the last successful provider first for faster startup
-- `SharedNativePlayer.jsx` now receives dynamic `streamType` so `.m3u8` sources are treated as HLS and direct `.mp4` sources are treated as file playback
-- This was required because AnimeSaturn can return direct mp4 sources instead of HLS manifests
-- Previous / next episode controls were preserved after delayed fallback recovery by re-binding the active provider episode list after successful stream resolution
+- Current active anime provider is `gogoanime`
+- Gogoanime search, anime detail, and server discovery are now self-contained in-project; the old localhost Rust bridge has been removed
+- Current Gogo flow:
+  1. AniList/TMDB identity reaches `AnimePlayer.jsx`
+  2. `gogoanimeScraper.js` resolves search match, anime detail, and episode server URLs
+  3. `gogoanime.js` resolves wrapper pages / embed pages / dynamic stream capture
+  4. Rust handles session-aware fetch, HLS manifest/segment fetching, and native playback transport
+- DotStream is deprioritized and rejected where possible; the working path is the non-DotStream dynamic capture/native playback flow
+- Dynamic subtitle tracks captured from the live embed/runtime are forwarded into the native player
+- Gogo source-quality guardrails reject obvious CAM / bad wrapper cases when they are detected
+- Anime next-episode behavior is faster because provider state and episode resolution are cached/reused across episode switches
 - Anime browse/detail/search architecture remains:
   - AniList-powered browse in `src/pages/Anime.jsx`
   - AniList identity handling in `src/lib/anilist.js`
@@ -90,26 +86,41 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - anime search section in `src/components/Search/SearchOverlay.jsx`
 - Anime search results open through TMDB-matched anime detail rather than using AniList/MAL ids as TMDB ids
 - Standard seasonal anime and long-running anime still use the existing mapper structure; do not casually rewrite anime browse/detail grouping logic
+- Future fallback path under consideration:
+  - `animekai` as the first absorbed fallback
+  - `animepahe` as a later optional fallback
 
 ## Movie / Series / Animation Streaming
 - Native playback now uses `src/components/Player/MoviePlayer.jsx`
 - Stream discovery is handled by `fetch_movie_resolver_streams` in Rust, not browser fetches, so resolver requests avoid browser CORS failures
-- Current working resolver source is Nuvio Streams at `https://nuvio-streams-addon-fawn.vercel.app`
+- Current working resolver source is the app-managed embedded local Nuvio sidecar at `http://127.0.0.1:7779`
 - Resolver flow:
   1. Convert TMDB IDs to IMDb IDs through TMDB `external_ids` when needed
-  2. Query Nuvio movie/series endpoints
-  3. Reject opaque token URLs and dead direct hosts
-  4. Accept validated direct HLS/MP4 streams only
-  5. Route movie HLS manifests, nested playlists, segments, and keys through `fetch_movie_manifest` / `fetch_movie_segment`
+  2. Start / health-check the local Nuvio sidecar if needed
+  3. Query staged Nuvio movie/series endpoints:
+     - primary-provider
+     - fast-providers
+     - full-fallback
+  4. Reject opaque token URLs, junk URLs, HTML pages, and dead direct hosts
+  5. Accept only validated HLS / direct-media streams
+  6. Route movie HLS manifests, nested playlists, segments, and keys through `fetch_movie_manifest` / `fetch_movie_segment`
 - `MoviePlayer.jsx` reuses the premium native control model: play/pause, seekbar, volume, speed, fullscreen, keyboard shortcuts, provider/quality badge, and progress persistence
+- `MoviePlayer.jsx` now auto-falls back to the next validated stream when the current stream fails
+- Provider preference is tuned to favor `Vixsrc`, `MoviesMod`, `MoviesDrive`, and `UHDMovies` ahead of `4KHDHub`
+- Animation now uses its own staged provider preference set instead of piggybacking on the generic movie fast path
 - Movie / series / animation subtitles are now separate from the stream resolver:
   1. `fetch_movie_subtitles` resolves English subtitle candidates in Rust using Wyzie subtitles
   2. `fetch_movie_text` downloads subtitle text through Rust when a subtitle file is selected
   3. `src/lib/movieSubtitles.js` normalizes subtitle results for `MoviePlayer.jsx`
   4. `MoviePlayer.jsx` parses subtitle text into cues and exposes the same styled `SUB ON / SUB OFF` toggle pattern used by anime
 - Current subtitle backend is Wyzie at `https://sub.wyzie.io`
+- Subtitle selection is now ranked toward WEB-aligned English tracks, but subtitle quality is still source-dependent
 - Series playback includes previous/next episode navigation inside the player
 - Animation follows the same resolver path as movies
+- The vendored Nuvio sidecar lives in `vendor/nuvio-streams-addon`
+- Release builds now embed the Nuvio runtime and extract it to local app data on launch, so packaged apps do not depend on the repo layout
+- If the extracted Nuvio runtime is deleted, the app recreates it automatically on next launch
+- Some individual titles can still fail because upstream provider links themselves are bad or non-playable; this is currently treated as a source-quality edge case, not an absorption failure
 
 ## Release Workflow
 1. Update changelog in `src/pages/Settings.jsx`
@@ -120,13 +131,14 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 3. GitHub Actions CI auto-builds + creates release + updates `updates/latest.json`
 
 - Release workflow now publishes `updates/latest.json` after GitHub release creation. Do not add extra asset polling steps unless they are verified on `windows-latest`.
+- macOS CI now builds and uploads a real DMG via `npx tauri build --bundles dmg`
 
 > `release.ps1` automatically bumps version in all 4 files.
 > Never manually edit version numbers - just run `release.ps1`
 > **Always use `release.ps1`** - never push manually. The CI bot commits `latest.json` back to `main` after each build, causing rejections. The script handles rebase + force-tag automatically.
-- GitHub Actions now also builds a macOS test artifact and uploads it to the GitHub Release page
-- Current macOS release artifact is a zipped app bundle: `NOVA-STREAM-x.x.x-macos.app.zip`
-- Mac users should unzip `NOVA-STREAM-x.x.x-macos.app.zip`, move `NOVA STREAM.app` to Applications, then right-click -> Open on first launch because the app is currently unsigned
+- GitHub Actions now also builds a macOS DMG and uploads it to the GitHub Release page
+- Current macOS release artifact is `NOVA-STREAM-x.x.x-macos.dmg`
+- The app is still unsigned, so macOS trust warnings may still require manual open/allow steps until signing/notarization is added
 - Windows release flow remains unchanged and still publishes the portable exe + `updates/latest.json`
 
 ## Anime Detail / Search Routing
@@ -138,6 +150,8 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
 ## Version History
+- v1.4.1 - Embedded the Nuvio sidecar runtime into packaged builds so portable releases can launch movie/series/animation resolvers without repo-relative files, added automatic runtime re-extraction, and relaxed anime HLS startup timeout behavior after initial level load/buffer
+- v1.4.0 - Absorbed Gogoanime search/detail/server discovery into the app, removed the old anime localhost bridge from Rust, adopted a local Nuvio sidecar for movie/series/animation, added staged provider fetch and auto-fallback for movie playback, improved startup/selection behavior, and switched macOS release builds to DMG
 - v1.3.9 - Added GitHub Actions macOS test builds, upload of macOS release artifacts to GitHub Releases, macOS transparent window support via `macOSPrivateApi`, and cross-platform iframe player parent-window handling using `.parent(main_window)`
 - v1.3.3 - Reworked anime playback fallback around the Railway Consumet backend, removed KickAssAnime from automatic fallback, added AnimeSaturn fallback, improved fresh retry/provider locking, preserved episode navigation after delayed recovery, and fixed direct MP4 fallback playback handling
 - v1.3.2 - Added AniList-backed anime detail/search routing, anime mapper flow for seasons and grouped extras, fixed anime search to open through TMDB-matched anime detail, improved Bleach sequel handling, and stabilized One Piece long-runner treatment

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Cursor, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::{
@@ -33,6 +33,7 @@ use axum::{
 use futures_util::TryStreamExt;
 use tokio::net::TcpListener;
 use uuid::Uuid;
+use zip::ZipArchive;
 
 const STREAM_CAPTURE_SCHEME: &str = "novastream-capture";
 const ANIME_DEBUG_LOG_FILE: &str = "nova-stream-anime-debug.log";
@@ -63,6 +64,8 @@ const BROWSER_FETCH_BRIDGE_WINDOW_LABEL: &str = "browser-fetch-bridge";
 const IFRAME_PLAYER_BROWSER_ARGS: &str =
     "--disable-web-security --allow-running-insecure-content --disable-features=IsolateOrigins,site-per-process";
 const IFRAME_PLAYER_DATA_DIR: &str = "iframe-player-webview";
+const EMBEDDED_NUVIO_RUNTIME_ARCHIVE: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/nuvio-runtime.zip"));
 const STREAM_CAPTURE_SCRIPT: &str = r#"
 (() => {
   if (window.__NOVA_STREAM_CAPTURE__) return;
@@ -775,8 +778,103 @@ fn set_cached_value<T: Clone>(
     }
 }
 
+fn embedded_nuvio_runtime_version() -> String {
+    format!("{}-{}", env!("CARGO_PKG_VERSION"), std::env::consts::OS)
+}
+
+fn embedded_nuvio_runtime_root() -> Result<PathBuf, String> {
+    let base_dir = dirs::data_local_dir()
+        .or_else(dirs::data_dir)
+        .ok_or("failed to resolve local app data directory".to_string())?;
+
+    Ok(base_dir.join("NOVA STREAM").join("runtime"))
+}
+
+fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
+    let runtime_root = embedded_nuvio_runtime_root()?;
+    let version_file = runtime_root.join(".nuvio-runtime-version");
+    let version = embedded_nuvio_runtime_version();
+    let node_name = if cfg!(target_os = "windows") {
+        "node.exe"
+    } else {
+        "node"
+    };
+    let sidecar_dir = runtime_root.join("vendor").join("nuvio-streams-addon");
+    let node_path = runtime_root.join("node").join(node_name);
+
+    if version_file.exists()
+        && fs::read_to_string(&version_file).ok().as_deref() == Some(version.as_str())
+        && sidecar_dir.join("server.js").exists()
+        && sidecar_dir.join("package.json").exists()
+        && node_path.exists()
+    {
+        return Ok(runtime_root);
+    }
+
+    fs::create_dir_all(&runtime_root)
+        .map_err(|e| format!("failed to create Nuvio runtime root: {e}"))?;
+    let _ = fs::remove_dir_all(runtime_root.join("vendor"));
+    let _ = fs::remove_dir_all(runtime_root.join("node"));
+
+    let reader = Cursor::new(EMBEDDED_NUVIO_RUNTIME_ARCHIVE);
+    let mut archive =
+        ZipArchive::new(reader).map_err(|e| format!("failed to open embedded Nuvio archive: {e}"))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|e| format!("failed to read embedded Nuvio archive entry: {e}"))?;
+
+        let enclosed = entry
+            .enclosed_name()
+            .map(|path| path.to_owned())
+            .ok_or("embedded Nuvio archive contained an unsafe path".to_string())?;
+        let output_path = runtime_root.join(enclosed);
+
+        if entry.is_dir() {
+            fs::create_dir_all(&output_path)
+                .map_err(|e| format!("failed to create embedded Nuvio directory: {e}"))?;
+            continue;
+        }
+
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create embedded Nuvio parent directory: {e}"))?;
+        }
+
+        let mut file = fs::File::create(&output_path)
+            .map_err(|e| format!("failed to create embedded Nuvio file: {e}"))?;
+        std::io::copy(&mut entry, &mut file)
+            .map_err(|e| format!("failed to extract embedded Nuvio file: {e}"))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            if let Some(mode) = entry.unix_mode() {
+                let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(mode));
+            } else if output_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                == Some(node_name)
+            {
+                let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(0o755));
+            }
+        }
+    }
+
+    fs::write(&version_file, version)
+        .map_err(|e| format!("failed to write embedded Nuvio runtime version: {e}"))?;
+
+    Ok(runtime_root)
+}
+
 fn nuvio_sidecar_dir_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+
+    if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
+        candidates.push(runtime_root.join("vendor").join("nuvio-streams-addon"));
+    }
 
     if let Some(repo_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
         candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
@@ -822,12 +920,34 @@ fn npm_command() -> &'static str {
     }
 }
 
-fn node_command() -> &'static str {
-    if cfg!(target_os = "windows") {
+fn resolve_node_binary() -> PathBuf {
+    let node_name = if cfg!(target_os = "windows") {
         "node.exe"
     } else {
         "node"
+    };
+
+    if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
+        let candidate = runtime_root.join("node").join(node_name);
+        if candidate.exists() {
+            return candidate;
+        }
     }
+
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            for candidate in [
+                exe_dir.join("resources").join("node").join(node_name),
+                exe_dir.join("node").join(node_name),
+            ] {
+                if candidate.exists() {
+                    return candidate;
+                }
+            }
+        }
+    }
+
+    PathBuf::from(node_name)
 }
 
 fn install_nuvio_sidecar_dependencies(sidecar_dir: PathBuf) -> Result<(), String> {
@@ -868,7 +988,7 @@ fn spawn_nuvio_sidecar(sidecar_dir: PathBuf) -> Result<Child, String> {
         NUVIO_SIDECAR_PORT
     ));
 
-    Command::new(node_command())
+    Command::new(resolve_node_binary())
         .arg("server.js")
         .current_dir(&sidecar_dir)
         .env("PORT", NUVIO_SIDECAR_PORT.to_string())
