@@ -16,7 +16,7 @@ import UpdateToast from './components/UI/UpdateToast'
 import useAppStore from './store/useAppStore'
 
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-const APP_VERSION = '1.4.1'
+const APP_VERSION = '1.4.2'
 const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream/main/updates/latest.json'
 const UPDATE_CHECK_TIMEOUT_MS = 15000
 const UPDATE_INITIAL_DELAY_MS = 5000

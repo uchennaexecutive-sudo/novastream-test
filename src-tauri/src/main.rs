@@ -5,7 +5,7 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{Cursor, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex, OnceLock,
@@ -960,14 +960,18 @@ fn install_nuvio_sidecar_dependencies(sidecar_dir: PathBuf) -> Result<(), String
         sidecar_dir.display()
     ));
 
-    let status = Command::new(npm_command())
+    let mut command = Command::new(npm_command());
+    command
         .arg("install")
         .arg("--omit=dev")
         .arg("--no-audit")
         .arg("--no-fund")
         .current_dir(&sidecar_dir)
         .env("PUPPETEER_SKIP_DOWNLOAD", "true")
-        .env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", "true")
+        .env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", "true");
+    configure_background_process(&mut command)?;
+
+    let status = command
         .status()
         .map_err(|e| format!("failed to start npm install: {e}"))?;
 
@@ -988,14 +992,18 @@ fn spawn_nuvio_sidecar(sidecar_dir: PathBuf) -> Result<Child, String> {
         NUVIO_SIDECAR_PORT
     ));
 
-    Command::new(resolve_node_binary())
+    let mut command = Command::new(resolve_node_binary());
+    command
         .arg("server.js")
         .current_dir(&sidecar_dir)
         .env("PORT", NUVIO_SIDECAR_PORT.to_string())
         .env("USE_REDIS_CACHE", "false")
         .env("USE_EXTERNAL_PROVIDERS", "false")
         .env("ENABLE_PSTREAM_API", "false")
-        .env("TMDB_API_KEY", TMDB_API_KEY)
+        .env("TMDB_API_KEY", TMDB_API_KEY);
+    configure_background_process(&mut command)?;
+
+    command
         .spawn()
         .map_err(|e| format!("failed to start Nuvio sidecar: {e}"))
 }
@@ -4738,6 +4746,39 @@ fn append_resolver_debug_log(message: &str) {
 fn log_resolver_debug(message: &str) {
     eprintln!("{message}");
     append_resolver_debug_log(message);
+}
+
+fn nuvio_sidecar_log_path() -> PathBuf {
+    env::temp_dir().join("nova-stream-nuvio-sidecar.log")
+}
+
+fn open_nuvio_sidecar_log_file() -> Result<fs::File, String> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(nuvio_sidecar_log_path())
+        .map_err(|e| format!("failed to open Nuvio sidecar log file: {e}"))
+}
+
+fn configure_background_process(command: &mut Command) -> Result<(), String> {
+    command.stdin(Stdio::null());
+
+    let stdout = open_nuvio_sidecar_log_file()?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|e| format!("failed to clone Nuvio sidecar log file handle: {e}"))?;
+    command.stdout(Stdio::from(stdout));
+    command.stderr(Stdio::from(stderr));
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.4.1
+Premium streaming desktop application (Tauri 2) - v1.4.2
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -119,7 +119,9 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Animation follows the same resolver path as movies
 - The vendored Nuvio sidecar lives in `vendor/nuvio-streams-addon`
 - Release builds now embed the Nuvio runtime and extract it to local app data on launch, so packaged apps do not depend on the repo layout
+- Release builds now also embed the vendored Nuvio sidecar dependencies, so packaged users should not hit a first-run `npm install`
 - If the extracted Nuvio runtime is deleted, the app recreates it automatically on next launch
+- Nuvio sidecar startup and any emergency dependency install path now run hidden in the background on Windows and log to `%TEMP%\nova-stream-nuvio-sidecar.log` instead of opening a visible terminal
 - Some individual titles can still fail because upstream provider links themselves are bad or non-playable; this is currently treated as a source-quality edge case, not an absorption failure
 
 ## Release Workflow
@@ -150,6 +152,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
 ## Version History
+- v1.4.2 - Embedded vendored Nuvio sidecar dependencies into packaged builds, hid Nuvio startup/install console windows behind background logging, and prepared portable releases so movie/series/animation sidecar startup behaves like an end-user runtime instead of a repo-relative dev setup
 - v1.4.1 - Embedded the Nuvio sidecar runtime into packaged builds so portable releases can launch movie/series/animation resolvers without repo-relative files, added automatic runtime re-extraction, and relaxed anime HLS startup timeout behavior after initial level load/buffer
 - v1.4.0 - Absorbed Gogoanime search/detail/server discovery into the app, removed the old anime localhost bridge from Rust, adopted a local Nuvio sidecar for movie/series/animation, added staged provider fetch and auto-fallback for movie playback, improved startup/selection behavior, and switched macOS release builds to DMG
 - v1.3.9 - Added GitHub Actions macOS test builds, upload of macOS release artifacts to GitHub Releases, macOS transparent window support via `macOSPrivateApi`, and cross-platform iframe player parent-window handling using `.parent(main_window)`
