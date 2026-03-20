@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-resolver-session-eval"
+description = "Allow evaluating JavaScript inside a resolver session window"
+commands.allow = ["resolver_session_eval"]

@@ -182,6 +182,17 @@ function createTauriLoader(base, getHeaders, getSessionId) {
   }
 }
 
+function withPromiseTimeout(promise, ms, label = 'operation') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => {
+        reject(new Error(`${label} timed out after ${ms}ms`))
+      }, ms)
+    }),
+  ])
+}
+
 export default function SharedNativePlayer({
   title,
   backdrop,
@@ -213,6 +224,7 @@ export default function SharedNativePlayer({
   resumeAt = 0,
   resumeKey = '',
 }) {
+
   const videoRef = useRef(null)
   const playerContainerRef = useRef(null)
   const progressRef = useRef(null)
@@ -403,6 +415,16 @@ export default function SharedNativePlayer({
 
   useEffect(() => {
     const video = videoRef.current
+
+    console.warn('[SharedNativePlayer] playback effect start', {
+      streamUrl,
+      streamType,
+      streamSessionId,
+      hasVideo: Boolean(video),
+      hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
+      resumeKey,
+    })
+
     if (!streamUrl || !video) {
       setMediaLoading(false)
       return undefined
@@ -410,6 +432,7 @@ export default function SharedNativePlayer({
 
     let disposed = false
     let manifestBlobUrl = ''
+    let mediaBlobUrl = ''
     const isHlsStream = streamType === 'hls' || streamUrl.includes('.m3u8')
 
     if (hlsRef.current) {
@@ -433,6 +456,16 @@ export default function SharedNativePlayer({
       notifyStreamFailure(detail)
     }
 
+    const scheduleStartupFailure = (
+      detail = 'Startup timeout while loading stream',
+      delayMs = streamSessionId ? SESSION_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS,
+    ) => {
+      clearStartupTimer()
+      startupTimerRef.current = window.setTimeout(() => {
+        handleStartupFailure(detail)
+      }, delayMs)
+    }
+
     if (isHlsStream && Hls.isSupported()) {
       const TauriLoader = createTauriLoader(
         Hls.DefaultConfig.loader,
@@ -447,16 +480,13 @@ export default function SharedNativePlayer({
         maxMaxBufferLength: 60,
         lowLatencyMode: false,
         progressive: true,
-        startLevel: -1,
+        startLevel: 0,
       })
       hlsRef.current = hls
 
       const attachSource = (sourceValue) => {
         if (disposed) return
-        clearStartupTimer()
-        startupTimerRef.current = window.setTimeout(() => {
-          handleStartupFailure()
-        }, streamSessionId ? SESSION_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS)
+        scheduleStartupFailure()
         hls.loadSource(sourceValue)
         hls.attachMedia(video)
       }
@@ -481,6 +511,12 @@ export default function SharedNativePlayer({
             ? manifestError.message
             : String(manifestError)
 
+          console.warn('[SharedNativePlayer] manifest fetch failed', {
+            streamUrl,
+            streamSessionId,
+            detail,
+          })
+
           if (streamSessionId) {
             handleStartupFailure(detail || 'Manifest fetch failed')
             return
@@ -489,7 +525,7 @@ export default function SharedNativePlayer({
           attachSource(streamUrl)
         })
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         const levels = hls.levels
           .map(level => level.height)
           .filter(Boolean)
@@ -506,9 +542,27 @@ export default function SharedNativePlayer({
         video.play().catch(() => { })
       })
 
+      hls.on(Hls.Events.LEVEL_LOADED, () => {
+        scheduleStartupFailure('Startup timeout after initial HLS level load', 15000)
+      })
+
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        scheduleStartupFailure('Startup timeout after initial HLS buffering', 15000)
+      })
+
       hls.on(Hls.Events.ERROR, (_, data) => {
         const detail = formatHlsErrorDetail(data)
+
         if (data?.fatal) {
+          console.warn('[SharedNativePlayer] fatal HLS error', {
+            type: data.type,
+            details: data.details,
+            reason: data.reason,
+            responseCode: data.response?.code,
+            url: data.url || data.frag?.url,
+            streamUrl,
+            detail,
+          })
           handleStartupFailure(detail || 'Fatal HLS playback error')
         }
       })
@@ -521,6 +575,80 @@ export default function SharedNativePlayer({
         }
         hls.destroy()
         hlsRef.current = null
+      }
+    }
+
+    const needsManagedFileFetch =
+      !isHlsStream &&
+      (
+        Boolean(streamSessionId) ||
+        Boolean(streamHeaders && Object.keys(streamHeaders).length)
+      )
+
+    console.warn('[SharedNativePlayer] managed file decision', {
+      streamUrl,
+      streamType,
+      streamSessionId,
+      hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
+      needsManagedFileFetch,
+    })
+
+    if (needsManagedFileFetch) {
+      startupTimerRef.current = window.setTimeout(() => {
+        console.warn('[SharedNativePlayer] startup timeout while loading managed file stream', {
+          streamUrl,
+          streamSessionId,
+          hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
+        })
+        handleStartupFailure('Startup timeout while loading managed file stream')
+      }, 25000)
+
+      withPromiseTimeout(
+        invoke('register_media_proxy_stream', {
+          url: streamUrl,
+          headers: streamHeaders || {},
+          sessionId: streamSessionId || null,
+        }),
+        10000,
+        'Register media proxy stream'
+      )
+        .then((proxyUrl) => {
+          if (disposed) return
+
+          console.warn('[SharedNativePlayer] managed proxy ready', {
+            streamUrl,
+            proxyUrl,
+            hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
+            sessionId: streamSessionId || null,
+          })
+
+          video.src = proxyUrl
+          video.play().catch(() => { })
+        })
+        .catch((fileError) => {
+          if (disposed) return
+          const detail = fileError instanceof Error ? fileError.message : String(fileError)
+
+          console.warn('[SharedNativePlayer] managed proxy failed', {
+            streamUrl,
+            detail,
+            hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
+            sessionId: streamSessionId || null,
+          })
+
+          handleStartupFailure(detail || 'Managed proxy failed')
+        })
+
+      return () => {
+        disposed = true
+        clearStartupTimer()
+        video.pause()
+        video.removeAttribute('src')
+        video.load()
+
+        if (mediaBlobUrl) {
+          URL.revokeObjectURL(mediaBlobUrl)
+        }
       }
     }
 
@@ -537,6 +665,10 @@ export default function SharedNativePlayer({
       video.pause()
       video.removeAttribute('src')
       video.load()
+
+      if (mediaBlobUrl) {
+        URL.revokeObjectURL(mediaBlobUrl)
+      }
     }
   }, [markStartupReady, notifyStreamFailure, resumeKey, streamHeaders, streamSessionId, streamType, streamUrl])
 

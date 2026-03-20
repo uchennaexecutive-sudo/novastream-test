@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-complete-resolver-eval"
+description = "Allow completing resolver session page eval results"
+commands.allow = ["complete_resolver_eval"]

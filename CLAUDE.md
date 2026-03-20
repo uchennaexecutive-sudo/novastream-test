@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.3.3
+Premium streaming desktop application (Tauri 2) - v1.3.9
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -41,6 +41,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Layout - sidebar (top-aligned logo, collapses to 72px, expands to 240px on hover), top bar (search), ambient orbs
 - [x] Tauri desktop - native Windows exe, `decorations: true` (native title bar - no 32px offset needed)
 - [x] Auto-update - raw GitHub feed check, resilient download retries, streamed progress, local updater logging, and restart prompt
+- [x] macOS test release artifact via GitHub Actions (`.app.zip` currently, unsigned)
 
 ## Layout Notes
 - `decorations: true` in `tauri.conf.json` -> native Windows title bar sits OUTSIDE content area
@@ -123,6 +124,10 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 > `release.ps1` automatically bumps version in all 4 files.
 > Never manually edit version numbers - just run `release.ps1`
 > **Always use `release.ps1`** - never push manually. The CI bot commits `latest.json` back to `main` after each build, causing rejections. The script handles rebase + force-tag automatically.
+- GitHub Actions now also builds a macOS test artifact and uploads it to the GitHub Release page
+- Current macOS release artifact is a zipped app bundle: `NOVA-STREAM-x.x.x-macos.app.zip`
+- Mac users should unzip `NOVA-STREAM-x.x.x-macos.app.zip`, move `NOVA STREAM.app` to Applications, then right-click -> Open on first launch because the app is currently unsigned
+- Windows release flow remains unchanged and still publishes the portable exe + `updates/latest.json`
 
 ## Anime Detail / Search Routing
 - `src/pages/Detail.jsx` now uses AniList identity state (`anilistId`, anime titles, anime year) for anime-specific detail handling
@@ -133,6 +138,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
 ## Version History
+- v1.3.9 - Added GitHub Actions macOS test builds, upload of macOS release artifacts to GitHub Releases, macOS transparent window support via `macOSPrivateApi`, and cross-platform iframe player parent-window handling using `.parent(main_window)`
 - v1.3.3 - Reworked anime playback fallback around the Railway Consumet backend, removed KickAssAnime from automatic fallback, added AnimeSaturn fallback, improved fresh retry/provider locking, preserved episode navigation after delayed recovery, and fixed direct MP4 fallback playback handling
 - v1.3.2 - Added AniList-backed anime detail/search routing, anime mapper flow for seasons and grouped extras, fixed anime search to open through TMDB-matched anime detail, improved Bleach sequel handling, and stabilized One Piece long-runner treatment
 - v1.3.1 - change release build repo and location

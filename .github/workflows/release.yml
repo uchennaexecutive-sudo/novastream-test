@@ -131,19 +131,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri app (macOS)
-        run: npx tauri build
+      - name: Build Tauri app (macOS DMG)
+        run: npx tauri build --bundles dmg
 
       - name: Get version from tag
         id: version
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Find Mac Artifact
+      - name: Find Mac DMG Artifact
         id: artifacts
         shell: bash
         run: |
-          echo "=== Looking for macOS artifacts ==="
+          echo "=== Looking for macOS DMG artifacts ==="
 
           DMG_PATH=$(find src-tauri/target/release/bundle -name "*.dmg" | head -n 1)
 
@@ -154,37 +154,20 @@ jobs:
             exit 0
           fi
 
-          echo "No DMG found, looking for .app"
-          APP_PATH=$(find src-tauri/target/release/bundle -name "*.app" | head -n 1)
-
-          if [ -n "$APP_PATH" ]; then
-            echo "Found app: $APP_PATH"
-            echo "ARTIFACT_PATH=$APP_PATH" >> $GITHUB_OUTPUT
-            echo "ARTIFACT_NAME=NOVA-STREAM-${{ steps.version.outputs.VERSION }}-macos.app" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "ERROR: No macOS artifact found"
+          echo "ERROR: No macOS DMG artifact found"
           find src-tauri/target/release/bundle -type f
           exit 1
 
-      - name: Package Mac Artifact
+      - name: Package Mac DMG Artifact
         id: package_artifact
         shell: bash
         run: |
           ARTIFACT_PATH="${{ steps.artifacts.outputs.ARTIFACT_PATH }}"
           ARTIFACT_NAME="${{ steps.artifacts.outputs.ARTIFACT_NAME }}"
+          cp "$ARTIFACT_PATH" "$ARTIFACT_NAME"
+          echo "UPLOAD_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
 
-          if [[ "$ARTIFACT_PATH" == *.app ]]; then
-            ZIP_NAME="NOVA-STREAM-${{ steps.version.outputs.VERSION }}-macos.app.zip"
-            ditto -c -k --sequesterRsrc --keepParent "$ARTIFACT_PATH" "$ZIP_NAME"
-            echo "UPLOAD_NAME=$ZIP_NAME" >> $GITHUB_OUTPUT
-          else
-            cp "$ARTIFACT_PATH" "$ARTIFACT_NAME"
-            echo "UPLOAD_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Upload Mac artifact to existing GitHub Release
+      - name: Upload Mac DMG artifact to existing GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash

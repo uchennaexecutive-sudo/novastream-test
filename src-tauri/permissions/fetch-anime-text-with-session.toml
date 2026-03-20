@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fetch-anime-text-with-session"
+description = "Allow fetch_anime_text_with_session command"
+commands.allow = ["fetch_anime_text_with_session"]

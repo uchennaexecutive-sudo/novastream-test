@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-register-media-proxy-stream"
+description = "Allow registering managed media proxy streams"
+commands.allow = ["register_media_proxy_stream"]

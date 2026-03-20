@@ -24,7 +24,6 @@ export default function BrowserFetchBridge() {
   const warmedUrlRef = useRef('')
 
   useEffect(() => {
-    invoke('browser_fetch_bridge_ready').catch(() => {})
 
     const warmPage = async (pageUrl) => {
       if (!pageUrl || warmedUrlRef.current === pageUrl) return
@@ -58,6 +57,9 @@ export default function BrowserFetchBridge() {
       const payload = event.payload || {}
       const requestId = payload.requestId
       const url = payload.url
+      const method = payload.method || 'GET'
+      const headers = payload.headers || {}
+      const body = payload.body ?? null
       const responseType = payload.responseType || 'text'
       const pageUrl = payload.pageUrl || ''
 
@@ -65,6 +67,9 @@ export default function BrowserFetchBridge() {
         await warmPage(pageUrl)
 
         const response = await fetch(url, {
+          method,
+          headers,
+          body: body ?? undefined,
           credentials: 'include',
           cache: 'no-store',
           referrer: pageUrl || undefined,
@@ -109,6 +114,8 @@ export default function BrowserFetchBridge() {
         })
       }
     })
+
+    unlistenPromise.then(() => invoke('browser_fetch_bridge_ready').catch(() => { }))
 
     return () => {
       unlistenPromise.then(unlisten => unlisten())

@@ -5,7 +5,7 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Child, Command};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex, OnceLock,
@@ -21,6 +21,18 @@ use tauri::ipc::Response;
 use tauri::webview::NewWindowResponse;
 use tauri::{Emitter, Manager, WebviewUrl};
 use tokio::sync::oneshot;
+use serde_json::Value;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use axum::{
+    body::Body,
+    extract::{Json, Path, State},
+    http::{HeaderMap as AxumHeaderMap, StatusCode},
+    routing::{get, post},
+    Router,
+};
+use futures_util::TryStreamExt;
+use tokio::net::TcpListener;
+use uuid::Uuid;
 
 const STREAM_CAPTURE_SCHEME: &str = "novastream-capture";
 const ANIME_DEBUG_LOG_FILE: &str = "nova-stream-anime-debug.log";
@@ -29,7 +41,22 @@ const ANIWATCH_BASE_URL: &str = "https://aniwatch-api-orcin-six.vercel.app";
 const ANIME_ROUGE_BASE_URL: &str = "https://api-anime-rouge.vercel.app";
 const TMDB_API_KEY: &str = "49bd672b0680fac7de50e5b9f139a98b";
 const TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
-const NUVIO_STREAMS_BASE_URL: &str = "https://nuvio-streams-addon-fawn.vercel.app";
+const NUVIO_SIDECAR_BASE_URL: &str = "http://127.0.0.1:7779";
+const NUVIO_SIDECAR_PORT: u16 = 7779;
+const NUVIO_SIDECAR_STARTUP_TIMEOUT_SECS: u64 = 45;
+const NUVIO_STREAM_FETCH_TIMEOUT_SECS: u64 = 75;
+const NUVIO_FAST_STAGE_TIMEOUT_SECS: u64 = 18;
+const NUVIO_MEDIUM_STAGE_TIMEOUT_SECS: u64 = 30;
+const MOVIE_STREAM_CACHE_VERSION: &str = "v2";
+const MOVIE_SUBTITLE_CACHE_VERSION: &str = "v2";
+const NUVIO_FAST_PROVIDER_SET_MOVIE: &str = "vixsrc,moviesmod,moviesdrive";
+const NUVIO_FAST_PROVIDER_SET_ANIMATION: &str = "moviesmod,vixsrc,moviesdrive,moviebox";
+const NUVIO_FAST_PROVIDER_SET_SERIES: &str = "vixsrc,moviesdrive,moviesmod";
+const NUVIO_PRIMARY_PROVIDER_MOVIE: &str = "vixsrc";
+const NUVIO_PRIMARY_PROVIDER_ANIMATION: &str = "moviesmod,vixsrc";
+const NUVIO_PRIMARY_PROVIDER_SERIES: &str = "vixsrc,moviesdrive";
+const MOVIE_STREAM_CACHE_TTL_SECS: u64 = 20 * 60;
+const MOVIE_SUBTITLE_CACHE_TTL_SECS: u64 = 60 * 60;
 const WYZIE_SUBTITLES_BASE_URL: &str = "https://sub.wyzie.io";
 const IFRAME_PLAYER_WINDOW_LABEL: &str = "iframe-player";
 const BROWSER_FETCH_BRIDGE_WINDOW_LABEL: &str = "browser-fetch-bridge";
@@ -60,6 +87,137 @@ const STREAM_CAPTURE_SCRIPT: &str = r#"
   ];
   let reported = false;
 
+  const dedupeTracks = (tracks) => {
+    const seen = new Set();
+    const output = [];
+
+    for (const track of tracks || []) {
+      if (!track || typeof track !== 'object') continue;
+
+      const file = String(track.file || track.src || track.url || '').trim();
+      if (!file || seen.has(file)) continue;
+      seen.add(file);
+
+      const label = String(track.label || track.lang || track.srclang || track.kind || 'Unknown').trim() || 'Unknown';
+      output.push({
+        file,
+        url: file,
+        label,
+        lang: label,
+        kind: String(track.kind || 'captions').trim() || 'captions',
+        default: Boolean(track.default)
+      });
+    }
+
+    return output;
+  };
+
+  const pushUrl = (output, value) => {
+    const url = String(value || '').trim();
+    if (!url) return;
+    output.push(url);
+  };
+
+  const extractUrlsFromPayload = (payload) => {
+    if (!payload || typeof payload !== 'object') return [];
+
+    const urls = [];
+    pushUrl(urls, payload.file);
+    pushUrl(urls, payload.url);
+    pushUrl(urls, payload.src);
+
+    if (payload.sources && typeof payload.sources === 'object' && !Array.isArray(payload.sources)) {
+      pushUrl(urls, payload.sources.file);
+      pushUrl(urls, payload.sources.url);
+      pushUrl(urls, payload.sources.src);
+    }
+
+    [
+      payload.sources,
+      payload.source,
+      payload.backup,
+      payload.backups,
+      payload.playlist,
+      payload.playlist && payload.playlist[0] && payload.playlist[0].sources
+    ].forEach((sourceList) => {
+      if (!Array.isArray(sourceList)) return;
+      sourceList.forEach((source) => {
+        if (!source || typeof source !== 'object') return;
+        pushUrl(urls, source.file);
+        pushUrl(urls, source.url);
+        pushUrl(urls, source.src);
+      });
+    });
+
+    return Array.from(new Set(urls));
+  };
+
+  const extractTracksFromPayload = (payload) => {
+    if (!payload || typeof payload !== 'object') return [];
+
+    const tracks = [];
+    [
+      payload.tracks,
+      payload.subtitles,
+      payload.captions,
+      payload.playlist && payload.playlist[0] && payload.playlist[0].tracks
+    ].forEach((trackList) => {
+      if (!Array.isArray(trackList)) return;
+      trackList.forEach((track) => tracks.push(track));
+    });
+
+    return dedupeTracks(tracks);
+  };
+
+  const collectDomTracks = () => {
+    const tracks = [];
+
+    try {
+      document.querySelectorAll('track').forEach((node) => {
+        tracks.push({
+          file: node.src || node.getAttribute('src') || '',
+          label: node.label || node.srclang || node.kind || 'Unknown',
+          kind: node.kind || 'captions',
+          default: node.default || node.hasAttribute('default')
+        });
+      });
+    } catch (_) {}
+
+    return dedupeTracks(tracks);
+  };
+
+  const collectPlayerTracks = () => {
+    const tracks = [];
+
+    try {
+      const player = typeof window.jwplayer === 'function' ? window.jwplayer() : null;
+      if (player) {
+        if (typeof player.getPlaylistItem === 'function') {
+          tracks.push(...extractTracksFromPayload(player.getPlaylistItem()));
+        }
+        if (typeof player.getConfig === 'function') {
+          tracks.push(...extractTracksFromPayload(player.getConfig()));
+        }
+        if (typeof player.getPlaylist === 'function') {
+          const playlist = player.getPlaylist();
+          if (Array.isArray(playlist) && playlist[0]) {
+            tracks.push(...extractTracksFromPayload(playlist[0]));
+          }
+        }
+      }
+    } catch (_) {}
+
+    return dedupeTracks(tracks);
+  };
+
+  const collectTracks = (extraTracks = []) => (
+    dedupeTracks([
+      ...extraTracks,
+      ...collectDomTracks(),
+      ...collectPlayerTracks()
+    ])
+  );
+
   const matches = (value) => {
     const url = String(value || '');
     return url && patterns.some((pattern) => pattern.test(url));
@@ -70,11 +228,14 @@ const STREAM_CAPTURE_SCRIPT: &str = r#"
     return url && !matches(url) && framePatterns.some((pattern) => pattern.test(url));
   };
 
-  const report = (value, kind = 'stream') => {
+  const report = (value, kind = 'stream', extraTracks = []) => {
     const url = String(value || '');
     const isValid = kind === 'frame' ? matchesFrame(url) : matches(url);
     if (!isValid || reported) return;
+
     reported = true;
+    const tracks = kind === 'stream' ? collectTracks(extraTracks) : [];
+
     window.location.replace(
       'novastream-capture://capture?kind='
       + encodeURIComponent(kind)
@@ -82,7 +243,24 @@ const STREAM_CAPTURE_SCRIPT: &str = r#"
       + encodeURIComponent(url)
       + '&page='
       + encodeURIComponent(window.location.href)
+      + '&tracks='
+      + encodeURIComponent(JSON.stringify(tracks))
     );
+  };
+
+  const inspectPayload = (payload) => {
+    const urls = extractUrlsFromPayload(payload);
+    const tracks = extractTracksFromPayload(payload);
+    urls.forEach((url) => report(url, 'stream', tracks));
+  };
+
+  const inspectTextPayload = (text) => {
+    const value = String(text || '').trim();
+    if (!value || (!value.startsWith('{') && !value.startsWith('['))) return;
+
+    try {
+      inspectPayload(JSON.parse(value));
+    } catch (_) {}
   };
 
   const scanPage = () => {
@@ -95,6 +273,18 @@ const STREAM_CAPTURE_SCRIPT: &str = r#"
         if (node.src) report(node.src);
         if (node.currentSrc) report(node.currentSrc);
       });
+    } catch (_) {}
+
+    try {
+      const player = typeof window.jwplayer === 'function' ? window.jwplayer() : null;
+      if (player) {
+        if (typeof player.getPlaylistItem === 'function') {
+          inspectPayload(player.getPlaylistItem());
+        }
+        if (typeof player.getConfig === 'function') {
+          inspectPayload(player.getConfig());
+        }
+      }
     } catch (_) {}
 
     try {
@@ -145,6 +335,72 @@ const STREAM_CAPTURE_SCRIPT: &str = r#"
     } catch (_) {}
   };
 
+  const wrapJwplayerInstance = (instance) => {
+    if (!instance || instance.__NOVA_CAPTURE_WRAPPED__) return instance;
+
+    if (typeof instance.setup === 'function') {
+      const originalSetup = instance.setup;
+      instance.setup = function(config) {
+        try {
+          inspectPayload(config);
+        } catch (_) {}
+        return originalSetup.apply(this, arguments);
+      };
+    }
+
+    if (typeof instance.on === 'function') {
+      try {
+        instance.on('ready', () => {
+          try {
+            if (typeof instance.getPlaylistItem === 'function') {
+              inspectPayload(instance.getPlaylistItem());
+            }
+            if (typeof instance.getConfig === 'function') {
+              inspectPayload(instance.getConfig());
+            }
+          } catch (_) {}
+        });
+      } catch (_) {}
+    }
+
+    instance.__NOVA_CAPTURE_WRAPPED__ = true;
+    return instance;
+  };
+
+  const wrapJwplayerFactory = (factory) => {
+    if (typeof factory !== 'function' || factory.__NOVA_CAPTURE_FACTORY__) return factory;
+
+    const wrapped = function() {
+      return wrapJwplayerInstance(factory.apply(this, arguments));
+    };
+
+    try {
+      Object.keys(factory).forEach((key) => {
+        wrapped[key] = factory[key];
+      });
+    } catch (_) {}
+
+    wrapped.__NOVA_CAPTURE_FACTORY__ = true;
+    return wrapped;
+  };
+
+  try {
+    let currentJwplayer = typeof window.jwplayer === 'function'
+      ? wrapJwplayerFactory(window.jwplayer)
+      : window.jwplayer;
+
+    Object.defineProperty(window, 'jwplayer', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return currentJwplayer;
+      },
+      set(value) {
+        currentJwplayer = wrapJwplayerFactory(value);
+      }
+    });
+  } catch (_) {}
+
   const wrapProperty = (prototype, property) => {
     try {
       const descriptor = Object.getOwnPropertyDescriptor(prototype, property);
@@ -173,6 +429,14 @@ const STREAM_CAPTURE_SCRIPT: &str = r#"
         try {
           report(response && response.url);
         } catch (_) {}
+
+        try {
+          const clone = response && typeof response.clone === 'function' ? response.clone() : null;
+          if (clone && typeof clone.text === 'function') {
+            clone.text().then((text) => inspectTextPayload(text)).catch(() => {});
+          }
+        } catch (_) {}
+
         return response;
       });
     };
@@ -182,6 +446,25 @@ const STREAM_CAPTURE_SCRIPT: &str = r#"
   XMLHttpRequest.prototype.open = function(method, url) {
     report(url);
     return originalXhrOpen.apply(this, arguments);
+  };
+
+  const originalXhrSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function() {
+    try {
+      this.addEventListener('loadend', () => {
+        try {
+          report(this.responseURL);
+        } catch (_) {}
+
+        try {
+          if (typeof this.responseText === 'string') {
+            inspectTextPayload(this.responseText);
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+
+    return originalXhrSend.apply(this, arguments);
   };
 
   const originalSetAttribute = Element.prototype.setAttribute;
@@ -241,6 +524,52 @@ fn toggle_maximize(window: tauri::Window) {
 }
 
 #[tauri::command]
+async fn fetch_anime_json(
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut header_map = HeaderMap::new();
+
+    if let Some(headers) = headers {
+        for (key, value) in headers {
+            let name = HeaderName::from_bytes(key.as_bytes()).map_err(|e| e.to_string())?;
+            let val = HeaderValue::from_str(&value).map_err(|e| e.to_string())?;
+            header_map.insert(name, val);
+        }
+    }
+
+    let method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
+
+    let request = match method.as_str() {
+        "POST" => client.post(&url).headers(header_map),
+        _ => client.get(&url).headers(header_map),
+    };
+
+    let request = if let Some(body) = body {
+        request.json(&body)
+    } else {
+        request
+    };
+
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("HTTP {} {}", status.as_u16(), text));
+    }
+
+    response.json::<Value>().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn close_window(window: tauri::Window) {
     window.close().unwrap();
 }
@@ -259,6 +588,46 @@ struct IframePlayerWindowPayload {
     duration_hint_seconds: u32,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnimeTextWithSessionResponse {
+    text: String,
+    session_id: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolverEvalRequestEvent {
+    request_id: String,
+    script: String,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolverEvalResultPayload {
+    request_id: String,
+    ok: bool,
+    value: Option<String>,
+    error: Option<String>,
+}
+
+fn pending_resolver_evals(
+) -> &'static Mutex<HashMap<String, oneshot::Sender<Result<String, String>>>> {
+    static PENDING: OnceLock<Mutex<HashMap<String, oneshot::Sender<Result<String, String>>>>> =
+        OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn generate_resolver_eval_request_id() -> String {
+    format!(
+        "resolver-eval-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    )
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum CaptureKind {
     Stream,
@@ -270,6 +639,7 @@ struct CapturedNavigation {
     url: String,
     page_url: Option<String>,
     kind: CaptureKind,
+    tracks: Vec<Value>,
 }
 
 #[derive(serde::Serialize)]
@@ -280,6 +650,7 @@ struct ResolvedEmbedStream {
     provider_host: String,
     page_url: Option<String>,
     headers: HashMap<String, String>,
+    subtitles: Vec<Value>,
     session_id: Option<String>,
 }
 
@@ -311,6 +682,12 @@ struct ResolvedMovieSubtitle {
     hearing_impaired: bool,
 }
 
+#[derive(Clone)]
+struct CachedValue<T> {
+    value: T,
+    stored_at_ms: u128,
+}
+
 struct StaticCaptureResolution {
     resolved_stream: Option<ResolvedEmbedStream>,
     next_url: String,
@@ -329,6 +706,11 @@ struct ResolverPlaybackSession {
 }
 
 static RESOLVER_SESSIONS: OnceLock<Mutex<HashMap<String, ResolverPlaybackSession>>> = OnceLock::new();
+static NUVIO_SIDECAR_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+static MOVIE_STREAM_CACHE: OnceLock<Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieStream>>>>> =
+    OnceLock::new();
+static MOVIE_SUBTITLE_CACHE: OnceLock<Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>>> =
+    OnceLock::new();
 static BROWSER_FETCH_COUNTER: AtomicU64 = AtomicU64::new(1);
 static BROWSER_FETCH_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
 static PENDING_BROWSER_FETCHES: OnceLock<
@@ -339,9 +721,267 @@ fn resolver_sessions() -> &'static Mutex<HashMap<String, ResolverPlaybackSession
     RESOLVER_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn nuvio_sidecar_child() -> &'static Mutex<Option<Child>> {
+    NUVIO_SIDECAR_CHILD.get_or_init(|| Mutex::new(None))
+}
+
+fn movie_stream_cache() -> &'static Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieStream>>>> {
+    MOVIE_STREAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn movie_subtitle_cache() -> &'static Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>> {
+    MOVIE_SUBTITLE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn pending_browser_fetches(
 ) -> &'static Mutex<HashMap<String, oneshot::Sender<Result<BrowserFetchResponse, String>>>> {
     PENDING_BROWSER_FETCHES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+fn get_cached_value<T: Clone>(
+    cache: &Mutex<HashMap<String, CachedValue<T>>>,
+    key: &str,
+    ttl_secs: u64,
+) -> Option<T> {
+    let guard = cache.lock().ok()?;
+    let entry = guard.get(key)?;
+    let age_ms = now_ms().saturating_sub(entry.stored_at_ms);
+    if age_ms > u128::from(ttl_secs) * 1000 {
+        return None;
+    }
+    Some(entry.value.clone())
+}
+
+fn set_cached_value<T: Clone>(
+    cache: &Mutex<HashMap<String, CachedValue<T>>>,
+    key: String,
+    value: T,
+) {
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(
+            key,
+            CachedValue {
+                value,
+                stored_at_ms: now_ms(),
+            },
+        );
+    }
+}
+
+fn nuvio_sidecar_dir_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(repo_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
+        candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
+    }
+
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            candidates.push(
+                exe_dir
+                    .join("resources")
+                    .join("vendor")
+                    .join("nuvio-streams-addon"),
+            );
+            candidates.push(exe_dir.join("vendor").join("nuvio-streams-addon"));
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
+}
+
+fn resolve_nuvio_sidecar_dir() -> Result<PathBuf, String> {
+    for candidate in nuvio_sidecar_dir_candidates() {
+        if candidate.join("server.js").exists() && candidate.join("package.json").exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(format!(
+        "Nuvio sidecar source not found. Checked: {:?}",
+        nuvio_sidecar_dir_candidates()
+    ))
+}
+
+fn npm_command() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "npm.cmd"
+    } else {
+        "npm"
+    }
+}
+
+fn node_command() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "node.exe"
+    } else {
+        "node"
+    }
+}
+
+fn install_nuvio_sidecar_dependencies(sidecar_dir: PathBuf) -> Result<(), String> {
+    if sidecar_dir.join("node_modules").exists() {
+        return Ok(());
+    }
+
+    log_resolver_debug(&format!(
+        "[nuvio_sidecar] installing dependencies in {}",
+        sidecar_dir.display()
+    ));
+
+    let status = Command::new(npm_command())
+        .arg("install")
+        .arg("--omit=dev")
+        .arg("--no-audit")
+        .arg("--no-fund")
+        .current_dir(&sidecar_dir)
+        .env("PUPPETEER_SKIP_DOWNLOAD", "true")
+        .env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", "true")
+        .status()
+        .map_err(|e| format!("failed to start npm install: {e}"))?;
+
+    if !status.success() {
+        return Err(format!(
+            "npm install failed for Nuvio sidecar with status {}",
+            status
+        ));
+    }
+
+    Ok(())
+}
+
+fn spawn_nuvio_sidecar(sidecar_dir: PathBuf) -> Result<Child, String> {
+    log_resolver_debug(&format!(
+        "[nuvio_sidecar] starting local addon from {} on port {}",
+        sidecar_dir.display(),
+        NUVIO_SIDECAR_PORT
+    ));
+
+    Command::new(node_command())
+        .arg("server.js")
+        .current_dir(&sidecar_dir)
+        .env("PORT", NUVIO_SIDECAR_PORT.to_string())
+        .env("USE_REDIS_CACHE", "false")
+        .env("USE_EXTERNAL_PROVIDERS", "false")
+        .env("ENABLE_PSTREAM_API", "false")
+        .env("TMDB_API_KEY", TMDB_API_KEY)
+        .spawn()
+        .map_err(|e| format!("failed to start Nuvio sidecar: {e}"))
+}
+
+async fn nuvio_sidecar_is_healthy(client: &reqwest::Client) -> bool {
+    match client
+        .get(format!("{NUVIO_SIDECAR_BASE_URL}/manifest.json"))
+        .send()
+        .await
+    {
+        Ok(response) => response.status().is_success(),
+        Err(_) => false,
+    }
+}
+
+async fn ensure_nuvio_sidecar(client: &reqwest::Client) -> Result<(), String> {
+    if nuvio_sidecar_is_healthy(client).await {
+        return Ok(());
+    }
+
+    {
+        let mut guard = nuvio_sidecar_child()
+            .lock()
+            .map_err(|_| "failed to lock Nuvio sidecar state".to_string())?;
+
+        if let Some(child) = guard.as_mut() {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    log_resolver_debug(&format!(
+                        "[nuvio_sidecar] previous process exited with status {}",
+                        status
+                    ));
+                    *guard = None;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    log_resolver_debug(&format!(
+                        "[nuvio_sidecar] failed to inspect child status: {}",
+                        error
+                    ));
+                    *guard = None;
+                }
+            }
+        }
+    }
+
+    if nuvio_sidecar_is_healthy(client).await {
+        return Ok(());
+    }
+
+    let sidecar_dir = resolve_nuvio_sidecar_dir()?;
+    let install_dir = sidecar_dir.clone();
+
+    tokio::task::spawn_blocking(move || install_nuvio_sidecar_dependencies(install_dir))
+        .await
+        .map_err(|e| format!("failed to join Nuvio dependency installer: {e}"))??;
+
+    {
+        let mut guard = nuvio_sidecar_child()
+            .lock()
+            .map_err(|_| "failed to lock Nuvio sidecar state".to_string())?;
+
+        if guard.is_none() {
+            *guard = Some(spawn_nuvio_sidecar(sidecar_dir.clone())?);
+        }
+    }
+
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(NUVIO_SIDECAR_STARTUP_TIMEOUT_SECS);
+
+    while tokio::time::Instant::now() < deadline {
+        if nuvio_sidecar_is_healthy(client).await {
+            log_resolver_debug("[nuvio_sidecar] health check passed");
+            return Ok(());
+        }
+
+        {
+            let mut guard = nuvio_sidecar_child()
+                .lock()
+                .map_err(|_| "failed to lock Nuvio sidecar state".to_string())?;
+
+            if let Some(child) = guard.as_mut() {
+                if let Ok(Some(status)) = child.try_wait() {
+                    *guard = None;
+                    return Err(format!("Nuvio sidecar exited during startup with status {status}"));
+                }
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    Err(format!(
+        "Nuvio sidecar did not become healthy within {} seconds",
+        NUVIO_SIDECAR_STARTUP_TIMEOUT_SECS
+    ))
+}
+
+fn stop_nuvio_sidecar() {
+    if let Ok(mut guard) = nuvio_sidecar_child().lock() {
+        if let Some(mut child) = guard.take() {
+            log_resolver_debug("[nuvio_sidecar] stopping local addon");
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -349,6 +989,9 @@ fn pending_browser_fetches(
 struct BrowserFetchRequestEvent {
     request_id: String,
     url: String,
+    method: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
     response_type: String,
     page_url: Option<String>,
 }
@@ -369,6 +1012,23 @@ struct BrowserFetchResponse {
     text: Option<String>,
     bytes: Option<Vec<u8>>,
     status: Option<u16>,
+}
+
+#[derive(Clone)]
+struct MediaProxyEntry {
+    url: String,
+    headers: HashMap<String, String>,
+    session_id: Option<String>,
+}
+
+fn media_proxy_entries() -> &'static Mutex<HashMap<String, MediaProxyEntry>> {
+    static ENTRIES: OnceLock<Mutex<HashMap<String, MediaProxyEntry>>> = OnceLock::new();
+    ENTRIES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn media_proxy_base_url() -> &'static OnceLock<String> {
+    static BASE_URL: OnceLock<String> = OnceLock::new();
+    &BASE_URL
 }
 
 fn build_resolver_client() -> Result<reqwest::Client, String> {
@@ -749,12 +1409,92 @@ async fn get_hianime_stream(
 }
 
 #[tauri::command]
-async fn fetch_anime_text(url: String, headers: HashMap<String, String>) -> Result<String, String> {
+async fn fetch_anime_text(
+    app: tauri::AppHandle,
+    url: String,
+    headers: HashMap<String, String>,
+    method: Option<String>,
+    body: Option<String>,
+) -> Result<String, String> {
     log_anime_debug(&format!("[fetch_anime_text] URL: {}", url));
+    log_anime_debug(&format!("[fetch_anime_text] Method: {:?}", method));
     log_anime_debug(&format!("[fetch_anime_text] Headers sent: {:?}", headers));
+    log_anime_debug(&format!(
+        "[fetch_anime_text] Body preview: {:?}",
+        body.as_deref()
+            .map(|b| b.chars().take(200).collect::<String>())
+    ));
 
-    let client = reqwest::Client::new();
-    let mut request = client.get(&url).header(
+    let http_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
+
+    let should_use_animekai_session =
+    url.contains("anikai.to/browser")
+        || url.contains("anikai.to/watch/")
+        || url.contains("anikai.to/ajax/episodes/list")
+        || url.contains("anikai.to/ajax/links/list");
+
+if should_use_animekai_session {
+    let fallback_page_url = headers
+        .get("Referer")
+        .cloned()
+        .or_else(|| Some("https://anikai.to/".to_string()));
+
+    let session_client = build_resolver_client()?;
+    let session_id = store_resolver_session(
+        session_client,
+        fallback_page_url.clone(),
+        None,
+        None,
+    )
+    .ok_or_else(|| "Failed to create AnimeKai resolver session".to_string())?;
+
+    let bridge_response = browser_fetch_via_bridge(
+        app,
+        url.clone(),
+        http_method.clone(),
+        headers.clone(),
+        body.clone(),
+        "text",
+        Some(session_id.as_str()),
+        fallback_page_url,
+    )
+    .await?;
+
+    let text = bridge_response.text.unwrap_or_default();
+    let preview: String = text.chars().take(300).collect();
+
+    log_anime_debug(&format!(
+        "[fetch_anime_text] AnimeKai session fetch status: {:?}",
+        bridge_response.status
+    ));
+    log_anime_debug(&format!(
+        "[fetch_anime_text] AnimeKai session body preview: {}",
+        preview
+    ));
+
+    let bridge_status = bridge_response.status.unwrap_or(0);
+
+    if bridge_status < 200 || bridge_status >= 300 {
+        return Err(format!(
+            "Anime text fetch failed: HTTP {} {}",
+            bridge_status,
+            preview
+        ));
+    }
+
+    return Ok(text);
+}
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut request = match http_method.as_str() {
+        "POST" => client.post(&url),
+        _ => client.get(&url),
+    }
+    .header(
         "User-Agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     );
@@ -763,25 +1503,111 @@ async fn fetch_anime_text(url: String, headers: HashMap<String, String>) -> Resu
         request = request.header(key.as_str(), value.as_str());
     }
 
+    if let Some(body) = body {
+        request = request.body(body);
+    }
+
     let response = request.send().await.map_err(|e| {
         log_anime_debug(&format!("[fetch_anime_text] Request error: {e}"));
         e.to_string()
     })?;
+
     let status = response.status();
     let body = response.text().await.map_err(|e| {
         log_anime_debug(&format!("[fetch_anime_text] Body read error: {e}"));
         e.to_string()
     })?;
+
     let preview: String = body.chars().take(300).collect();
 
     log_anime_debug(&format!("[fetch_anime_text] Status: {}", status));
     log_anime_debug(&format!("[fetch_anime_text] Body preview: {}", preview));
 
     if !status.is_success() {
-        return Err(format!("Anime text fetch failed: HTTP {}", status));
+        return Err(format!("Anime text fetch failed: HTTP {} {}", status, preview));
     }
 
     Ok(body)
+}
+
+#[tauri::command]
+async fn fetch_anime_text_with_session(
+    url: String,
+    headers: HashMap<String, String>,
+    method: Option<String>,
+    body: Option<String>,
+    session_id: Option<String>,
+) -> Result<AnimeTextWithSessionResponse, String> {
+    let http_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
+
+    let should_use_resolver_session =
+        url.contains("gogoanime.me.uk")
+            || url.contains("megaplay.buzz")
+            || url.contains("megacloud.bloggy.click")
+            || url.contains("mewcdn.online")
+            || url.contains("dotstream.buzz");
+
+    let mut effective_session_id = session_id;
+
+    if should_use_resolver_session && effective_session_id.is_none() {
+        let fallback_page_url = headers
+            .get("Referer")
+            .cloned()
+            .or_else(|| Some(url.clone()));
+
+        let session_client = build_resolver_client()?;
+        effective_session_id = store_resolver_session(
+            session_client,
+            fallback_page_url,
+            None,
+            None,
+        );
+    }
+
+    let client = if let Some(ref sid) = effective_session_id {
+        resolver_session(Some(sid))
+            .map(|session| session.client)
+            .unwrap_or(build_resolver_client()?)
+    } else {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .map_err(|e| e.to_string())?
+    };
+
+    let mut request = match http_method.as_str() {
+        "POST" => client.post(&url),
+        _ => client.get(&url),
+    }
+    .header(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    );
+
+    for (key, value) in &headers {
+        request = request.header(key.as_str(), value.as_str());
+    }
+
+    if let Some(body) = body {
+        request = request.body(body);
+    }
+
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "Anime text fetch with session failed: HTTP {} {}",
+            status,
+            text.chars().take(300).collect::<String>()
+        ));
+    }
+
+    Ok(AnimeTextWithSessionResponse {
+        text,
+        session_id: effective_session_id,
+    })
 }
 
 fn iframe_player_route(payload: &IframePlayerWindowPayload) -> Result<String, String> {
@@ -851,27 +1677,35 @@ fn ensure_browser_fetch_bridge_window(
     let data_directory = iframe_player_data_directory(app)?;
     let route = browser_fetch_bridge_route();
     let window = tauri::WebviewWindowBuilder::new(
-        app,
-        BROWSER_FETCH_BRIDGE_WINDOW_LABEL,
-        WebviewUrl::App(route.into()),
-    )
-    .title("browser-fetch-bridge")
-    .inner_size(320.0, 240.0)
-    .visible(false)
-    .focused(false)
-    .decorations(false)
-    .skip_taskbar(true)
-    .resizable(false)
-    .additional_browser_args(IFRAME_PLAYER_BROWSER_ARGS)
-    .data_directory(data_directory)
-    .build()
-    .map_err(|e| e.to_string())?;
-
+    app,
+    BROWSER_FETCH_BRIDGE_WINDOW_LABEL,
+    WebviewUrl::App(route.into()),
+)
+.title("browser-fetch-bridge")
+.inner_size(320.0, 240.0)
+.visible(false)
+.focused(false)
+.decorations(false)
+.skip_taskbar(true)
+.resizable(false)
+.additional_browser_args(IFRAME_PLAYER_BROWSER_ARGS)
+.data_directory(data_directory)
+.on_page_load(move |_window, payload| {
+    if payload.event() == tauri::webview::PageLoadEvent::Finished {
+        BROWSER_FETCH_BRIDGE_READY.store(true, Ordering::SeqCst);
+        log_resolver_debug(&format!(
+            "[browser_fetch_bridge] page loaded url={}",
+            payload.url()
+        ));
+    }
+})
+.build()
+.map_err(|e| e.to_string())?;
     Ok((window, true))
 }
 
 async fn wait_for_resolver_session_window_load(session_id: &str) -> Result<(), String> {
-    for _ in 0..120 {
+    for _ in 0..300 {
         let loaded = resolver_sessions()
             .lock()
             .map_err(|e| e.to_string())?
@@ -893,11 +1727,19 @@ fn resolver_session_page_url(
     session_id: &str,
     fallback_page_url: Option<String>,
 ) -> Result<String, String> {
+    if let Some(page_url) = fallback_page_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(page_url.to_string());
+    }
+
     if let Some(page_url) = resolver_session(Some(session_id)).and_then(|session| session.page_url) {
         return Ok(page_url);
     }
 
-    fallback_page_url.ok_or_else(|| "Resolver session has no page URL".to_string())
+    Err("Resolver session has no page URL".to_string())
 }
 
 async fn ensure_resolver_session_window(
@@ -941,17 +1783,34 @@ async fn ensure_resolver_session_window(
         .additional_browser_args(IFRAME_PLAYER_BROWSER_ARGS)
         .data_directory(data_directory)
         .on_page_load(move |_window, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Finished {
-                log_resolver_debug(&format!(
-                    "[resolver_session_window] loaded session_id={} label={} url={}",
-                    session_id_owned,
-                    label_for_load,
-                    payload.url()
-                ));
-                update_resolver_session_page_url(&session_id_owned, Some(payload.url().to_string()));
-                update_resolver_session_window(&session_id_owned, Some(label_for_load.clone()), Some(true));
-            }
-        })
+    log_resolver_debug(&format!(
+        "[resolver_session_window] page load event={:?} session_id={} label={} url={}",
+        payload.event(),
+        session_id_owned,
+        label_for_load,
+        payload.url()
+    ));
+
+    update_resolver_session_page_url(&session_id_owned, Some(payload.url().to_string()));
+
+    match payload.event() {
+        tauri::webview::PageLoadEvent::Started => {
+            update_resolver_session_window(
+                &session_id_owned,
+                Some(label_for_load.clone()),
+                Some(false),
+            );
+        }
+        tauri::webview::PageLoadEvent::Finished => {
+            update_resolver_session_window(
+                &session_id_owned,
+                Some(label_for_load.clone()),
+                Some(true),
+            );
+        }
+        _ => {}
+    }
+})
         .build()
         .map_err(|e| {
             update_resolver_session_window(session_id, None, Some(false));
@@ -964,26 +1823,131 @@ async fn ensure_resolver_session_window(
         .ok_or_else(|| "Resolver session window not found after creation".to_string())
 }
 
+async fn sync_resolver_session_window_to_page_url(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    page_url: &str,
+) -> Result<tauri::WebviewWindow, String> {
+    let window = ensure_resolver_session_window(
+        app,
+        session_id,
+        Some(page_url.to_string()),
+    )
+    .await?;
+
+    let current_page_url = resolver_session(Some(session_id))
+        .and_then(|session| session.page_url)
+        .unwrap_or_default();
+
+    if current_page_url != page_url {
+        log_resolver_debug(&format!(
+            "[browser_fetch_via_session_window] navigating session_id={} from={} to={}",
+            session_id,
+            current_page_url,
+            page_url
+        ));
+
+        update_resolver_session_window(session_id, None, Some(false));
+        window
+            .navigate(Url::parse(page_url).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+
+        wait_for_resolver_session_window_load(session_id).await?;
+    } else {
+        log_resolver_debug(&format!(
+            "[browser_fetch_via_session_window] session_id={} already on page_url={}",
+            session_id,
+            page_url
+        ));
+    }
+
+    Ok(window)
+}
+
+async fn warm_up_dotstream_session_window(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    target_url: &str,
+    return_page_url: &str,
+) -> Result<(), String> {
+    let target = Url::parse(target_url).map_err(|e| e.to_string())?;
+    let return_page = Url::parse(return_page_url).map_err(|e| e.to_string())?;
+
+    let window = ensure_resolver_session_window(
+        app,
+        session_id,
+        Some(return_page_url.to_string()),
+    )
+    .await?;
+
+    log_resolver_debug(&format!(
+        "[browser_fetch_via_session_window] dotstream warmup start session_id={} target_url={} return_page_url={}",
+        session_id,
+        target_url,
+        return_page_url
+    ));
+
+    update_resolver_session_window(session_id, None, Some(false));
+    window.navigate(target).map_err(|e| e.to_string())?;
+    wait_for_resolver_session_window_load(session_id).await?;
+
+    log_resolver_debug(&format!(
+        "[browser_fetch_via_session_window] dotstream warmup target loaded session_id={} active_page_url={}",
+        session_id,
+        resolver_session(Some(session_id))
+            .and_then(|session| session.page_url)
+            .unwrap_or_default()
+    ));
+
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    update_resolver_session_window(session_id, None, Some(false));
+    window.navigate(return_page).map_err(|e| e.to_string())?;
+    wait_for_resolver_session_window_load(session_id).await?;
+
+    log_resolver_debug(&format!(
+        "[browser_fetch_via_session_window] dotstream warmup returned session_id={} active_page_url={}",
+        session_id,
+        resolver_session(Some(session_id))
+            .and_then(|session| session.page_url)
+            .unwrap_or_default()
+    ));
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    Ok(())
+}
+
 fn browser_fetch_eval_script(
     request_id: &str,
     url: &str,
+    method: &str,
+    headers: &HashMap<String, String>,
+    body: Option<&str>,
     response_type: &str,
     page_url: &str,
+    callback_url: &str,
 ) -> Result<String, String> {
     let request_id_json = serde_json::to_string(request_id).map_err(|e| e.to_string())?;
     let url_json = serde_json::to_string(url).map_err(|e| e.to_string())?;
+    let method_json = serde_json::to_string(method).map_err(|e| e.to_string())?;
+    let headers_json = serde_json::to_string(headers).map_err(|e| e.to_string())?;
+    let body_json = serde_json::to_string(&body).map_err(|e| e.to_string())?;
     let response_type_json = serde_json::to_string(response_type).map_err(|e| e.to_string())?;
     let page_url_json = serde_json::to_string(page_url).map_err(|e| e.to_string())?;
+    let callback_url_json = serde_json::to_string(callback_url).map_err(|e| e.to_string())?;
 
-    Ok(format!(
+        Ok(format!(
         r#"
 (() => {{
   const requestId = {request_id_json};
   const url = {url_json};
+  const method = {method_json};
+  const headers = {headers_json};
+  const body = {body_json};
   const responseType = {response_type_json};
   const pageUrl = {page_url_json};
-
-  const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+  const callbackUrl = {callback_url_json};
 
   const arrayBufferToBase64 = (buffer) => {{
     const bytes = new Uint8Array(buffer);
@@ -999,16 +1963,23 @@ fn browser_fetch_eval_script(
   }};
 
   const complete = async (payload) => {{
-    if (!invoke) {{
-      throw new Error('Tauri invoke unavailable in resolver session window');
-    }}
-
-    await invoke('complete_browser_fetch', {{ payload }});
+    await fetch(callbackUrl, {{
+      method: 'POST',
+      headers: {{
+        'Content-Type': 'application/json',
+      }},
+      body: JSON.stringify(payload),
+      credentials: 'omit',
+      cache: 'no-store',
+    }});
   }};
 
   void (async () => {{
     try {{
       const response = await fetch(url, {{
+        method,
+        headers,
+        body: body ?? undefined,
         credentials: 'include',
         cache: 'no-store',
         referrer: pageUrl || undefined,
@@ -1038,80 +2009,257 @@ fn browser_fetch_eval_script(
         error: response.ok ? null : `HTTP ${{response.status}}`,
       }});
     }} catch (error) {{
-      await complete({{
-        requestId,
-        ok: false,
-        responseType,
-        error: error instanceof Error ? error.message : String(error),
-      }});
+      try {{
+        await complete({{
+          requestId,
+          ok: false,
+          responseType,
+          error: error instanceof Error ? error.message : String(error),
+        }});
+      }} catch (reportError) {{
+        console.error('Failed to report browser fetch error back to local callback endpoint', {{
+          requestId,
+          originalError: error instanceof Error ? error.message : String(error),
+          reportError: reportError instanceof Error ? reportError.message : String(reportError),
+        }});
+      }}
     }}
   }})();
 }})();
-"#
+"#,
     ))
 }
 
 async fn browser_fetch_via_session_window(
     app: tauri::AppHandle,
     url: String,
+    method: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
     response_type: &str,
     session_id: &str,
     fallback_page_url: Option<String>,
 ) -> Result<BrowserFetchResponse, String> {
     let page_url = resolver_session_page_url(session_id, fallback_page_url.clone())?;
-    let window = ensure_resolver_session_window(&app, session_id, fallback_page_url).await?;
-    let request_id = generate_browser_fetch_request_id();
-    let (tx, rx) = oneshot::channel();
-
+    let callback_base_url = ensure_media_proxy_server(app.clone()).await?;
+    let callback_url = format!("{}/browser-fetch-complete", callback_base_url);
+    let window = sync_resolver_session_window_to_page_url(&app, session_id, &page_url).await?;
     log_resolver_debug(&format!(
-        "[browser_fetch_via_session_window] queued request_id={} session_id={} response_type={} url={} page_url={}",
-        request_id,
+        "[browser_fetch_via_session_window] window synced session_id={} page_url={} callback_url={}",
         session_id,
-        response_type,
-        url,
-        page_url
+        page_url,
+        callback_url
     ));
 
-    pending_browser_fetches()
+    let active_page_url = resolver_session(Some(session_id))
+        .and_then(|session| session.page_url)
+        .unwrap_or_default();
+
+    log_resolver_debug(&format!(
+        "[browser_fetch_via_session_window] pre-eval session_id={} active_page_url={} target_url={}",
+        session_id,
+        active_page_url,
+        url
+    ));
+        async fn run_browser_fetch_eval(
+        window: &tauri::WebviewWindow,
+        request_id: String,
+        session_id: &str,
+        url: &str,
+        method: &str,
+        headers: &HashMap<String, String>,
+        body: Option<&str>,
+        response_type: &str,
+        page_url: &str,
+        callback_url: &str,
+    ) -> Result<BrowserFetchResponse, String> {
+        let (tx, rx) = oneshot::channel();
+
+        log_resolver_debug(&format!(
+            "[browser_fetch_via_session_window] queued request_id={} session_id={} response_type={} url={} page_url={}",
+            request_id,
+            session_id,
+            response_type,
+            url,
+            page_url
+        ));
+
+        pending_browser_fetches()
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(request_id.clone(), tx);
+
+        let script = browser_fetch_eval_script(
+            &request_id,
+            url,
+            method,
+            headers,
+            body,
+            response_type,
+            page_url,
+            callback_url,
+        )?;
+
+        if let Err(error) = window.eval(script.as_str()) {
+            let _ = pending_browser_fetches()
+                .lock()
+                .map(|mut pending| pending.remove(&request_id));
+            return Err(error.to_string());
+        }
+
+        match tokio::time::timeout(Duration::from_secs(30), rx).await {
+            Ok(Ok(result)) => {
+                log_resolver_debug(&format!(
+                    "[browser_fetch_via_session_window] completed request_id={} status={:?}",
+                    request_id,
+                    result.as_ref().ok().and_then(|value| value.status)
+                ));
+                result
+            }
+            Ok(Err(_)) => {
+                log_resolver_debug(&format!(
+                    "[browser_fetch_via_session_window] channel closed request_id={}",
+                    request_id
+                ));
+                Err("Browser fetch channel closed".to_string())
+            }
+            Err(_) => {
+                let _ = pending_browser_fetches()
+                    .lock()
+                    .map(|mut pending| pending.remove(&request_id));
+                log_resolver_debug(&format!(
+                    "[browser_fetch_via_session_window] timeout request_id={}",
+                    request_id
+                ));
+                Err("Browser fetch timed out".to_string())
+            }
+        }
+    }
+
+    let first_request_id = generate_browser_fetch_request_id();
+    let first_result = run_browser_fetch_eval(
+        &window,
+        first_request_id,
+        session_id,
+        &url,
+        &method,
+        &headers,
+        body.as_deref(),
+        response_type,
+        &page_url,
+        &callback_url,
+    )
+    .await?;
+
+    let first_status = first_result.status.unwrap_or(0);
+    let first_body = first_result.text.clone().unwrap_or_default();
+    let looks_like_cloudflare = first_status == 403
+        && first_body.contains("Attention Required! | Cloudflare");
+
+    if looks_like_cloudflare && url.contains("cdn.dotstream.buzz") {
+        log_resolver_debug(&format!(
+            "[browser_fetch_via_session_window] cloudflare challenge detected session_id={} url={} retrying_after_warmup=true",
+            session_id,
+            url
+        ));
+
+        warm_up_dotstream_session_window(&app, session_id, &url, &page_url).await?;
+
+        let retry_request_id = generate_browser_fetch_request_id();
+        return run_browser_fetch_eval(
+            &window,
+            retry_request_id,
+            session_id,
+            &url,
+            &method,
+            &headers,
+            body.as_deref(),
+            response_type,
+            &page_url,
+            &callback_url,
+        )
+        .await;
+    }
+
+    Ok(first_result)
+}
+
+async fn eval_in_resolver_session_window(
+    app: tauri::AppHandle,
+    session_id: &str,
+    script: String,
+    fallback_page_url: Option<String>,
+) -> Result<String, String> {
+    let window = ensure_resolver_session_window(&app, session_id, fallback_page_url).await?;
+    wait_for_resolver_session_window_load(session_id).await?;
+
+    let request_id = generate_resolver_eval_request_id();
+    let (tx, rx) = oneshot::channel();
+
+    pending_resolver_evals()
         .lock()
         .map_err(|e| e.to_string())?
         .insert(request_id.clone(), tx);
 
-    let script = browser_fetch_eval_script(&request_id, &url, response_type, &page_url)?;
-    if let Err(error) = window.eval(script.as_str()) {
-        let _ = pending_browser_fetches()
-            .lock()
-            .map(|mut pending| pending.remove(&request_id));
-        return Err(error.to_string());
-    }
+    let request_id_json = serde_json::to_string(&request_id).map_err(|e| e.to_string())?;
+    let script_json = serde_json::to_string(&script).map_err(|e| e.to_string())?;
+
+    let wrapped = format!(
+        r#"
+(() => {{
+  const requestId = {request_id_json};
+  const userScript = {script_json};
+  const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+
+  const complete = async (payload) => {{
+    if (!invoke) {{
+      throw new Error('Tauri invoke unavailable in resolver session window');
+    }}
+    await invoke('complete_resolver_eval', {{ payload }});
+  }};
+
+  void (async () => {{
+    try {{
+      const value = await (0, eval)(userScript);
+      await complete({{
+        requestId,
+        ok: true,
+        value: typeof value === 'string' ? value : JSON.stringify(value ?? null),
+      }});
+    }} catch (error) {{
+      await complete({{
+        requestId,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }});
+    }}
+  }})();
+}})();
+"#
+    );
+
+    window.eval(&wrapped).map_err(|e| e.to_string())?;
 
     match tokio::time::timeout(Duration::from_secs(30), rx).await {
-        Ok(Ok(result)) => {
-            log_resolver_debug(&format!(
-                "[browser_fetch_via_session_window] completed request_id={} status={:?}",
-                request_id,
-                result.as_ref().ok().and_then(|value| value.status)
-            ));
-            result
-        }
-        Ok(Err(_)) => {
-            log_resolver_debug(&format!(
-                "[browser_fetch_via_session_window] channel closed request_id={}",
-                request_id
-            ));
-            Err("Browser fetch channel closed".to_string())
-        }
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("Resolver eval channel closed".to_string()),
         Err(_) => {
-            let _ = pending_browser_fetches()
+            let _ = pending_resolver_evals()
                 .lock()
                 .map(|mut pending| pending.remove(&request_id));
-            log_resolver_debug(&format!(
-                "[browser_fetch_via_session_window] timeout request_id={}",
-                request_id
-            ));
-            Err("Browser fetch timed out".to_string())
+            Err("Resolver eval timed out".to_string())
         }
     }
+}
+
+#[tauri::command]
+async fn resolver_session_eval(
+    app: tauri::AppHandle,
+    session_id: String,
+    script: String,
+    fallback_page_url: Option<String>,
+) -> Result<String, String> {
+    eval_in_resolver_session_window(app, &session_id, script, fallback_page_url).await
 }
 
 #[tauri::command]
@@ -1127,6 +2275,9 @@ fn browser_fetch_bridge_ready(window: tauri::Window) -> Result<(), String> {
 async fn browser_fetch_via_bridge(
     app: tauri::AppHandle,
     url: String,
+    method: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
     response_type: &str,
     session_id: Option<&str>,
     fallback_page_url: Option<String>,
@@ -1135,6 +2286,9 @@ async fn browser_fetch_via_bridge(
         return browser_fetch_via_session_window(
             app,
             url,
+            method,
+            headers,
+            body,
             response_type,
             session_id,
             fallback_page_url,
@@ -1189,6 +2343,9 @@ async fn browser_fetch_via_bridge(
                 BrowserFetchRequestEvent {
                     request_id: request_id.clone(),
                     url,
+                    method,
+                    headers,
+                    body,
                     response_type: response_type.to_string(),
                     page_url,
                 },
@@ -1232,7 +2389,6 @@ async fn browser_fetch_via_bridge(
         }
     }
 }
-
 #[tauri::command]
 fn complete_browser_fetch(payload: BrowserFetchCompletePayload) -> Result<(), String> {
     log_resolver_debug(&format!(
@@ -1280,6 +2436,28 @@ fn complete_browser_fetch(payload: BrowserFetchCompletePayload) -> Result<(), St
         bytes,
         status: payload.status,
     }));
+
+    Ok(())
+}
+
+#[tauri::command]
+fn complete_resolver_eval(payload: ResolverEvalResultPayload) -> Result<(), String> {
+    let tx = pending_resolver_evals()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&payload.request_id);
+
+    if let Some(tx) = tx {
+        let result = if payload.ok {
+            Ok(payload.value.unwrap_or_default())
+        } else {
+            Err(payload
+                .error
+                .unwrap_or_else(|| "Resolver eval failed".to_string()))
+        };
+
+        let _ = tx.send(result);
+    }
 
     Ok(())
 }
@@ -1360,6 +2538,17 @@ fn prepare_playback_request(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     );
 
+    request = request
+        .header(
+            "Accept",
+            "application/vnd.apple.mpegurl, application/x-mpegURL, application/x-mpegurl, */*",
+        )
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .header("Connection", "keep-alive")
+        .header("Sec-Fetch-Dest", "empty")
+        .header("Sec-Fetch-Mode", "cors")
+        .header("Sec-Fetch-Site", "cross-site");
+
     for (key, value) in headers {
         request = request.header(key.as_str(), value.as_str());
     }
@@ -1409,40 +2598,55 @@ async fn fetch_hls_segment(
     log_anime_debug(&format!("[fetch_hls_segment] URL: {}", url));
     log_anime_debug(&format!("[fetch_hls_segment] Headers sent: {:?}", headers));
     log_anime_debug(&format!("[fetch_hls_segment] Session ID: {:?}", session_id));
+    let use_dotstream_bridge = session_id.is_some() && url.contains("cdn.dotstream.buzz");
+log_anime_debug(&format!(
+    "[fetch_hls_segment] DotStream bridge eligible: {}",
+    use_dotstream_bridge
+));
 
-    if should_use_browser_bridge(session_id.as_deref()) {
-        let bridge_response = browser_fetch_via_bridge(
-            app,
-            url.clone(),
-            "arrayBuffer",
-            session_id.as_deref(),
-            headers.get("Referer").cloned(),
-        )
-        .await?;
+if use_dotstream_bridge {
+    log_anime_debug("[fetch_hls_segment][bridge] Starting browser bridge fetch");
+    let bridge_response = tokio::time::timeout(
+    std::time::Duration::from_secs(20),
+    browser_fetch_via_bridge(
+        app,
+        url.clone(),
+        "GET".to_string(),
+        headers.clone(),
+        None,
+        "arrayBuffer",
+        session_id.as_deref(),
+        headers.get("Referer").cloned(),
+    ),
+)
+.await
+.map_err(|_| "Segment browser fetch bridge timed out".to_string())??;
 
-        let status = bridge_response.status.unwrap_or(200);
-        let bytes = bridge_response.bytes.unwrap_or_default();
+    let status = bridge_response.status.unwrap_or(200);
+    let bytes = bridge_response.bytes.unwrap_or_default();
 
-        log_anime_debug(&format!(
-            "[fetch_hls_segment][bridge] Status: {}",
-            status
-        ));
-        log_anime_debug(&format!(
-            "[fetch_hls_segment][bridge] Bytes: {}",
-            bytes.len()
-        ));
+    log_anime_debug(&format!(
+        "[fetch_hls_segment][bridge] Status: {}",
+        status
+    ));
+    log_anime_debug(&format!(
+        "[fetch_hls_segment][bridge] Bytes: {}",
+        bytes.len()
+    ));
 
-        if status != 200 && status != 206 {
-            return Err(format!("HLS browser fetch failed: HTTP {}", status));
-        }
-
-        return Ok(Response::new(bytes));
+    if status != 200 && status != 206 {
+        return Err(format!("HLS browser fetch failed: HTTP {}", status));
     }
 
-    let request = prepare_playback_request(&url, &headers, session_id.as_deref())?;
+    return Ok(Response::new(bytes));
+}
+
+    let mut request = prepare_playback_request(&url, &headers, session_id.as_deref())?;
+request = request.header("Accept", "*/*");
 
     let response = request.send().await.map_err(|e| {
         log_anime_debug(&format!("[fetch_hls_segment] Request error: {e}"));
+        log_anime_debug("[fetch_hls_segment] Browser-like defaults applied: User-Agent, Accept, Accept-Language, Connection, Sec-Fetch-*");
         e.to_string()
     })?;
     let status = response.status();
@@ -1525,48 +2729,66 @@ async fn fetch_hls_manifest(
 ) -> Result<String, String> {
     log_anime_debug(&format!("[fetch_hls_manifest] URL: {}", url));
     log_anime_debug(&format!("[fetch_hls_manifest] Session ID: {:?}", session_id));
+    let use_dotstream_bridge = session_id.is_some() && url.contains("cdn.dotstream.buzz");
+log_anime_debug(&format!(
+    "[fetch_hls_manifest] DotStream bridge eligible: {}",
+    use_dotstream_bridge
+));
 
-    if should_use_browser_bridge(session_id.as_deref()) {
-        let bridge_response = browser_fetch_via_bridge(
-            app,
-            url.clone(),
-            "text",
-            session_id.as_deref(),
-            headers.get("Referer").cloned(),
-        )
-        .await?;
+if use_dotstream_bridge {
+    log_anime_debug("[fetch_hls_manifest][bridge] Starting browser bridge fetch");
+    let bridge_response = tokio::time::timeout(
+    std::time::Duration::from_secs(20),
+    browser_fetch_via_bridge(
+        app,
+        url.clone(),
+        "GET".to_string(),
+        headers.clone(),
+        None,
+        "text",
+        session_id.as_deref(),
+        headers.get("Referer").cloned(),
+    ),
+)
+.await
+.map_err(|_| "Manifest browser fetch bridge timed out".to_string())??;
 
-        let status = bridge_response.status.unwrap_or(200);
-        let manifest_text = bridge_response.text.unwrap_or_default();
-        let manifest_preview: String = manifest_text.chars().take(500).collect();
+    let status = bridge_response.status.unwrap_or(200);
+    let manifest_text = bridge_response.text.unwrap_or_default();
+    let manifest_preview: String = manifest_text.chars().take(500).collect();
 
-        log_anime_debug(&format!(
-            "[fetch_hls_manifest][bridge] Status: {}",
-            status
-        ));
-        log_anime_debug(&format!(
-            "[fetch_hls_manifest][bridge] Body preview: {}",
-            manifest_preview
-        ));
+    log_anime_debug(&format!(
+        "[fetch_hls_manifest][bridge] Status: {}",
+        status
+    ));
+    log_anime_debug(&format!(
+        "[fetch_hls_manifest][bridge] Body preview: {}",
+        manifest_preview
+    ));
 
-        if !(200..300).contains(&status) {
-            return Err(format!("Manifest browser fetch failed: HTTP {}", status));
-        }
-
-        let base_url = Url::parse(&url).map_err(|e| e.to_string())?;
-        let rewritten = manifest_text
-            .lines()
-            .map(|line| rewrite_manifest_line(line, &base_url))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        return Ok(rewritten);
+    if !(200..300).contains(&status) {
+        return Err(format!("Manifest browser fetch failed: HTTP {}", status));
     }
 
-    let request = prepare_playback_request(&url, &headers, session_id.as_deref())?;
+    let base_url = Url::parse(&url).map_err(|e| e.to_string())?;
+    let rewritten = manifest_text
+        .lines()
+        .map(|line| rewrite_manifest_line(line, &base_url))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    return Ok(rewritten);
+}
+
+    let mut request = prepare_playback_request(&url, &headers, session_id.as_deref())?;
+    request = request.header(
+    "Accept",
+    "application/vnd.apple.mpegurl, application/x-mpegURL, application/x-mpegurl, */*",
+);
 
     let response = request.send().await.map_err(|e| {
         log_anime_debug(&format!("[fetch_hls_manifest] Request error: {e}"));
+        log_anime_debug("[fetch_hls_manifest] Browser-like defaults applied: User-Agent, Accept, Accept-Language, Connection, Sec-Fetch-*");
         e.to_string()
     })?;
     let status = response.status();
@@ -1597,6 +2819,153 @@ async fn fetch_hls_manifest(
         .join("\n");
 
     Ok(rewritten)
+}
+
+async fn media_proxy_handler(
+    State(_app): State<tauri::AppHandle>,
+    Path(id): Path<String>,
+    request_headers: AxumHeaderMap,
+) -> Result<http::Response<Body>, (StatusCode, String)> {
+    let entry = media_proxy_entries()
+        .lock()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Media proxy entry not found".to_string()))?;
+
+    let client = if let Some(session_id) = entry.session_id.clone() {
+        resolver_session(Some(&session_id))
+            .map(|session| session.client)
+            .unwrap_or(build_resolver_client().map_err(|e| {
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            })?)
+    } else {
+        build_resolver_client().map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?
+    };
+
+    let mut upstream_request = client.get(&entry.url);
+
+    for (key, value) in &entry.headers {
+        upstream_request = upstream_request.header(key.as_str(), value.as_str());
+    }
+
+    if let Some(range_value) = request_headers.get("range") {
+        if let Ok(range_str) = range_value.to_str() {
+            upstream_request = upstream_request.header("Range", range_str);
+        }
+    }
+
+    let upstream_response = upstream_request.send().await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Media proxy upstream request failed: {e}"),
+        )
+    })?;
+
+    let status = upstream_response.status();
+    let upstream_headers = upstream_response.headers().clone();
+
+    let stream = upstream_response
+        .bytes_stream()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+
+   let mut response = http::Response::builder().status(status);
+
+    for (key, value) in upstream_headers.iter() {
+        if let Ok(value_str) = value.to_str() {
+            response = response.header(key.as_str(), value_str);
+        }
+    }
+
+    response
+        .body(Body::from_stream(stream))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn browser_fetch_complete_http(
+    Json(payload): Json<BrowserFetchCompletePayload>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let tx = pending_browser_fetches()
+        .lock()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .remove(&payload.request_id);
+
+    if let Some(tx) = tx {
+        let result = Ok(BrowserFetchResponse {
+            text: payload.text,
+            bytes: payload
+                .data_base64
+                .as_deref()
+                .map(|value| base64::engine::general_purpose::STANDARD.decode(value))
+                .transpose()
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?,
+            status: payload.status,
+        });
+
+        let _ = tx.send(result);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn ensure_media_proxy_server(app: tauri::AppHandle) -> Result<String, String> {
+    if let Some(base_url) = media_proxy_base_url().get() {
+        return Ok(base_url.clone());
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("Failed to bind media proxy server: {e}"))?;
+
+    let addr = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to read media proxy address: {e}"))?;
+
+    let base_url = format!("http://127.0.0.1:{}", addr.port());
+
+    let router = Router::new()
+    .route("/media/:id", get(media_proxy_handler))
+    .route("/browser-fetch-complete", post(browser_fetch_complete_http))
+    .with_state(app.clone());
+
+    let _ = media_proxy_base_url().set(base_url.clone());
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = axum::serve(listener, router).await {
+            log_anime_debug(&format!("[media_proxy] server error: {error}"));
+        }
+    });
+
+    log_anime_debug(&format!("[media_proxy] started at {}", base_url));
+
+    Ok(base_url)
+}
+
+#[tauri::command]
+async fn register_media_proxy_stream(
+    app: tauri::AppHandle,
+    url: String,
+    headers: HashMap<String, String>,
+    session_id: Option<String>,
+) -> Result<String, String> {
+    let base_url = ensure_media_proxy_server(app).await?;
+    let id = Uuid::new_v4().to_string();
+
+    media_proxy_entries()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(
+            id.clone(),
+            MediaProxyEntry {
+                url,
+                headers,
+                session_id,
+            },
+        );
+
+    Ok(format!("{}/media/{}", base_url, id))
 }
 
 #[tauri::command]
@@ -1782,7 +3151,8 @@ async fn probe_movie_stream_inner(
             }
         }
     } else {
-        status.is_success() || status.as_u16() == 206
+        (status.is_success() || status.as_u16() == 206)
+            && is_media_like_content_type(content_type.as_deref())
     };
 
     let error = if ok {
@@ -1790,6 +3160,13 @@ async fn probe_movie_stream_inner(
     } else {
         Some(if normalized_stream_type == "hls" && status.is_success() {
             "Movie stream probe failed: manifest was not a playable HLS playlist".to_string()
+        } else if normalized_stream_type != "hls"
+            && (status.is_success() || status.as_u16() == 206)
+        {
+            format!(
+                "Movie stream probe failed: non-media content type {:?}",
+                content_type
+            )
         } else {
             format!("Movie stream probe failed: HTTP {}", status)
         })
@@ -1812,6 +3189,34 @@ fn movie_quality_score(value: &str) -> i32 {
         "720p" => 2,
         "auto" => 1,
         _ => 0,
+    }
+}
+
+fn movie_stream_type_score(value: &str) -> i32 {
+    match value {
+        "hls" => 3,
+        "mp4" => 1,
+        _ => 0,
+    }
+}
+
+fn movie_provider_preference_score(provider: &str) -> i32 {
+    let normalized = provider.to_ascii_lowercase();
+
+    if normalized.contains("vixsrc") {
+        5
+    } else if normalized.contains("moviesmod") {
+        4
+    } else if normalized.contains("uhdmovies") {
+        3
+    } else if normalized.contains("moviesdrive") || normalized.contains("moviebox") {
+        3
+    } else if normalized.contains("auto") {
+        1
+    } else if normalized.contains("4khdhub") {
+        -12
+    } else {
+        0
     }
 }
 
@@ -1838,7 +3243,43 @@ fn is_base64_like_token(value: &str) -> bool {
 
 fn is_direct_playable_movie_url(value: &str) -> bool {
     let candidate = value.trim();
-    candidate.starts_with("https://") && !is_base64_like_token(candidate)
+    if !candidate.starts_with("https://") || is_base64_like_token(candidate) {
+        return false;
+    }
+
+    let lower = candidate.to_ascii_lowercase();
+    if lower.contains("github.com/")
+        || lower.contains("githubusercontent.com/")
+        || lower.contains("raw.githubusercontent.com/")
+        || lower.contains("youtube.com/")
+        || lower.contains("youtu.be/")
+        || lower.ends_with(".html")
+        || lower.contains("/blob/")
+        || lower.contains("/tree/")
+    {
+        return false;
+    }
+
+    true
+}
+
+fn is_media_like_content_type(content_type: Option<&str>) -> bool {
+    let normalized = content_type
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    if normalized.is_empty() {
+        return false;
+    }
+
+    normalized.starts_with("video/")
+        || normalized.starts_with("audio/")
+        || normalized.contains("application/octet-stream")
+        || normalized.contains("binary/octet-stream")
+        || normalized.contains("application/mp4")
+        || normalized.contains("application/vnd.apple.mpegurl")
+        || normalized.contains("application/x-mpegurl")
 }
 
 fn looks_like_valid_hls_manifest(body: &str) -> bool {
@@ -1887,6 +3328,63 @@ async fn fetch_json_value(client: &reqwest::Client, url: &str) -> Result<serde_j
     }
 
     response.json::<serde_json::Value>().await.map_err(|e| e.to_string())
+}
+
+async fn fetch_json_value_with_timeout(
+    client: &reqwest::Client,
+    url: &str,
+    timeout_secs: u64,
+) -> Result<serde_json::Value, String> {
+    match tokio::time::timeout(
+        Duration::from_secs(timeout_secs),
+        fetch_json_value(client, url),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(format!("timeout after {}s", timeout_secs)),
+    }
+}
+
+fn build_nuvio_stream_urls(
+    imdb_id: &str,
+    content_type: &str,
+    season: Option<u32>,
+    episode: Option<u32>,
+) -> Vec<(String, &'static str, u64)> {
+    let (primary_provider_set, fast_provider_set) = match content_type {
+        "series" => (NUVIO_PRIMARY_PROVIDER_SERIES, NUVIO_FAST_PROVIDER_SET_SERIES),
+        "animation" => (
+            NUVIO_PRIMARY_PROVIDER_ANIMATION,
+            NUVIO_FAST_PROVIDER_SET_ANIMATION,
+        ),
+        _ => (NUVIO_PRIMARY_PROVIDER_MOVIE, NUVIO_FAST_PROVIDER_SET_MOVIE),
+    };
+
+    let base_path = if content_type == "series" {
+        format!(
+            "{NUVIO_SIDECAR_BASE_URL}/stream/series/{}:{}:{}.json",
+            imdb_id,
+            season.unwrap_or(1),
+            episode.unwrap_or(1)
+        )
+    } else {
+        format!("{NUVIO_SIDECAR_BASE_URL}/stream/movie/{}.json", imdb_id)
+    };
+
+    vec![
+        (
+            format!("{base_path}?providers={primary_provider_set}"),
+            "primary-provider",
+            NUVIO_FAST_STAGE_TIMEOUT_SECS,
+        ),
+        (
+            format!("{base_path}?providers={fast_provider_set}"),
+            "fast-providers",
+            NUVIO_MEDIUM_STAGE_TIMEOUT_SECS,
+        ),
+        (base_path, "full-fallback", NUVIO_STREAM_FETCH_TIMEOUT_SECS),
+    ]
 }
 
 fn normalize_nuvio_streams(value: &serde_json::Value) -> Vec<ResolvedMovieStream> {
@@ -2008,13 +3506,52 @@ fn normalize_wyzie_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubti
         .collect::<Vec<_>>();
 
     subtitles.sort_by(|a, b| {
-        a.hearing_impaired
-            .cmp(&b.hearing_impaired)
+        subtitle_preference_score(b)
+            .cmp(&subtitle_preference_score(a))
+            .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
             .then_with(|| a.label.cmp(&b.label))
             .then_with(|| a.url.cmp(&b.url))
     });
     subtitles.dedup_by(|left, right| left.url == right.url);
     subtitles
+}
+
+fn subtitle_preference_score(subtitle: &ResolvedMovieSubtitle) -> i32 {
+    let label = subtitle.label.to_ascii_lowercase();
+    let url = subtitle.url.to_ascii_lowercase();
+    let source = subtitle.source.to_ascii_lowercase();
+
+    let mut score = 0;
+
+    if !subtitle.hearing_impaired {
+        score += 40;
+    }
+
+    if label.contains("english") {
+        score += 20;
+    }
+
+    if label.contains("cc") {
+        score -= 8;
+    }
+
+    if source.contains("opensubtitles") {
+        score += 5;
+    }
+
+    if url.contains("web") || url.contains("webrip") || url.contains("web-dl") {
+        score += 25;
+    }
+
+    if url.contains("bluray") || url.contains("bdrip") {
+        score += 8;
+    }
+
+    if url.contains("hdts") || url.contains("cam") || url.contains("chew edition") {
+        score -= 40;
+    }
+
+    score
 }
 
 #[tauri::command]
@@ -2027,16 +3564,44 @@ async fn fetch_movie_subtitles(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let normalized_content_type = if payload.content_type == "series" {
-        "series".to_string()
+    let normalized_content_type = match payload.content_type.as_str() {
+        "series" => "series".to_string(),
+        "animation" => "animation".to_string(),
+        _ => "movie".to_string(),
+    };
+    let imdb_lookup_content_type = if normalized_content_type == "series" {
+        "series"
     } else {
-        "movie".to_string()
+        "movie"
     };
 
     let imdb_id = match payload.imdb_id.clone() {
         Some(imdb_id) if !imdb_id.trim().is_empty() => imdb_id,
-        _ => resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, &normalized_content_type).await?,
+        _ => resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, imdb_lookup_content_type).await?,
     };
+
+    let cache_key = format!(
+        "{}:{}:{}:{}:{}",
+        MOVIE_SUBTITLE_CACHE_VERSION,
+        imdb_id,
+        normalized_content_type,
+        payload.season.unwrap_or(1),
+        payload.episode.unwrap_or(1)
+    );
+
+    if let Some(cached) = get_cached_value(
+        movie_subtitle_cache(),
+        &cache_key,
+        MOVIE_SUBTITLE_CACHE_TTL_SECS,
+    ) {
+        log_resolver_debug(&format!(
+            "[fetch_movie_subtitles] cache_hit tmdbId={} imdbId={} subtitle_count={}",
+            payload.tmdb_id,
+            imdb_id,
+            cached.len()
+        ));
+        return Ok(cached);
+    }
 
     let mut url = Url::parse(&format!("{WYZIE_SUBTITLES_BASE_URL}/search")).map_err(|e| e.to_string())?;
     {
@@ -2075,6 +3640,8 @@ async fn fetch_movie_subtitles(
 
     let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let subtitles = normalize_wyzie_subtitles(&value);
+
+    set_cached_value(movie_subtitle_cache(), cache_key, subtitles.clone());
 
     log_resolver_debug(&format!(
         "[fetch_movie_subtitles] subtitle_count={} tmdbId={} imdbId={}",
@@ -2117,32 +3684,66 @@ async fn fetch_movie_resolver_streams(
 ) -> Result<Vec<ResolvedMovieStream>, String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
-        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(NUVIO_STREAM_FETCH_TIMEOUT_SECS))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let normalized_content_type = if payload.content_type == "series" {
-        "series".to_string()
+    let normalized_content_type = match payload.content_type.as_str() {
+        "series" => "series".to_string(),
+        "animation" => "animation".to_string(),
+        _ => "movie".to_string(),
+    };
+    let imdb_lookup_content_type = if normalized_content_type == "series" {
+        "series"
     } else {
-        "movie".to_string()
+        "movie"
     };
 
     let resolved_imdb_id = match payload.imdb_id.clone() {
         Some(imdb_id) if !imdb_id.trim().is_empty() => Ok(imdb_id),
-        _ => resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, &normalized_content_type).await,
+        _ => {
+            resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, imdb_lookup_content_type).await
+        }
     };
 
-    let nuvio_url = resolved_imdb_id.as_ref().ok().map(|imdb_id| {
-        if normalized_content_type == "series" {
-            format!(
-                "{NUVIO_STREAMS_BASE_URL}/stream/series/{}:{}:{}.json",
-                imdb_id,
-                payload.season.unwrap_or(1),
-                payload.episode.unwrap_or(1)
-            )
-        } else {
-            format!("{NUVIO_STREAMS_BASE_URL}/stream/movie/{}.json", imdb_id)
+    let cache_key = resolved_imdb_id.as_ref().ok().map(|imdb_id| {
+        format!(
+            "{}:{}:{}:{}:{}",
+            MOVIE_STREAM_CACHE_VERSION,
+            imdb_id,
+            normalized_content_type,
+            payload.season.unwrap_or(1),
+            payload.episode.unwrap_or(1)
+        )
+    });
+
+    if let Some(cache_key) = cache_key.as_ref() {
+        if let Some(cached) = get_cached_value(
+            movie_stream_cache(),
+            cache_key,
+            MOVIE_STREAM_CACHE_TTL_SECS,
+        ) {
+            log_resolver_debug(&format!(
+                "[fetch_movie_resolver_streams] cache_hit tmdbId={} imdbId={:?} stream_count={}",
+                payload.tmdb_id,
+                resolved_imdb_id,
+                cached.len()
+            ));
+            return Ok(cached);
         }
+    }
+
+    ensure_nuvio_sidecar(&client)
+        .await
+        .map_err(|error| format!("Local Nuvio sidecar unavailable: {error}"))?;
+
+    let nuvio_urls = resolved_imdb_id.as_ref().ok().map(|imdb_id| {
+        build_nuvio_stream_urls(
+            imdb_id,
+            &normalized_content_type,
+            payload.season,
+            payload.episode,
+        )
     });
 
     log_resolver_debug(&format!(
@@ -2150,77 +3751,136 @@ async fn fetch_movie_resolver_streams(
         payload.tmdb_id, normalized_content_type, resolved_imdb_id
     ));
 
-    let nuvio_future = async {
-        match nuvio_url.as_ref() {
-            Some(url) => fetch_json_value(&client, url).await,
-            None => Err(resolved_imdb_id
-                .as_ref()
-                .err()
-                .cloned()
-                .unwrap_or_else(|| "No IMDb ID available for Nuvio".to_string())),
+    let mut validated_streams = Vec::new();
+    let mut last_nuvio_error = None;
+
+    match nuvio_urls.as_ref() {
+        Some(urls) => {
+            for (url, strategy, timeout_secs) in urls.iter() {
+                log_resolver_debug(&format!(
+                    "[fetch_movie_resolver_streams] fetching Nuvio strategy={} tmdbId={} timeout={}s url={}",
+                    strategy, payload.tmdb_id, timeout_secs, url
+                ));
+
+                match fetch_json_value_with_timeout(&client, url, *timeout_secs).await {
+                    Ok(data) => {
+                        let mut candidate_streams = normalize_nuvio_streams(&data);
+                        log_resolver_debug(&format!(
+                            "[fetch_movie_resolver_streams] Nuvio strategy={} stream_count={} tmdbId={}",
+                            strategy,
+                            candidate_streams.len(),
+                            payload.tmdb_id
+                        ));
+
+                        if candidate_streams.is_empty() {
+                            continue;
+                        }
+
+                        candidate_streams.sort_by(|a, b| {
+                            movie_stream_type_score(&b.stream_type)
+                                .cmp(&movie_stream_type_score(&a.stream_type))
+                                .then_with(|| {
+                                    movie_provider_preference_score(&b.provider)
+                                        .cmp(&movie_provider_preference_score(&a.provider))
+                                })
+                                .then_with(|| {
+                                    movie_quality_score(&b.quality).cmp(&movie_quality_score(&a.quality))
+                                })
+                                .then_with(|| a.provider.cmp(&b.provider))
+                                .then_with(|| a.url.cmp(&b.url))
+                        });
+                        candidate_streams.dedup_by(|left, right| left.url == right.url);
+
+                        let mut stage_validated_streams = Vec::new();
+                        for stream in candidate_streams {
+                            let probe_result = probe_movie_stream_inner(
+                                stream.url.clone(),
+                                stream.headers.clone(),
+                                Some(stream.stream_type.clone()),
+                            )
+                            .await;
+
+                            if probe_result.ok {
+                                let validated_stream = ResolvedMovieStream {
+                                    url: probe_result.final_url.unwrap_or_else(|| stream.url.clone()),
+                                    ..stream
+                                };
+                                log_resolver_debug(&format!(
+                                    "[fetch_movie_resolver_streams] accepted stream provider={} source={} streamType={} quality={} url={}",
+                                    validated_stream.provider,
+                                    validated_stream.source,
+                                    validated_stream.stream_type,
+                                    validated_stream.quality,
+                                    validated_stream.url
+                                ));
+                                stage_validated_streams.push(validated_stream);
+                            } else {
+                                log_resolver_debug(&format!(
+                                    "[fetch_movie_resolver_streams] rejected stream provider={} source={} url={} error={}",
+                                    stream.provider,
+                                    stream.source,
+                                    stream.url,
+                                    probe_result.error.unwrap_or_else(|| "validation failed".to_string())
+                                ));
+                            }
+                        }
+
+                        if !stage_validated_streams.is_empty() {
+                            let mut provider_summary = stage_validated_streams
+                                .iter()
+                                .map(|stream| stream.provider.clone())
+                                .collect::<Vec<_>>();
+                            provider_summary.sort();
+                            provider_summary.dedup();
+                            log_resolver_debug(&format!(
+                                "[fetch_movie_resolver_streams] strategy={} validated_count={} tmdbId={} providers={:?}",
+                                strategy,
+                                stage_validated_streams.len(),
+                                payload.tmdb_id,
+                                provider_summary
+                            ));
+                            validated_streams = stage_validated_streams;
+                            break;
+                        }
+
+                        log_resolver_debug(&format!(
+                            "[fetch_movie_resolver_streams] strategy={} produced no validated streams tmdbId={}, continuing fallback",
+                            strategy,
+                            payload.tmdb_id
+                        ));
+                    }
+                    Err(error) => {
+                        log_resolver_debug(&format!(
+                            "[fetch_movie_resolver_streams] Nuvio failed strategy={} tmdbId={} error={}",
+                            strategy, payload.tmdb_id, error
+                        ));
+                        last_nuvio_error = Some(error);
+                    }
+                }
+            }
         }
-    };
-
-    let nuvio_result = nuvio_future.await;
-    if let Err(error) = &nuvio_result {
-        log_resolver_debug(&format!(
-            "[fetch_movie_resolver_streams] Nuvio failed tmdbId={} error={}",
-            payload.tmdb_id, error
-        ));
+        None => {
+            last_nuvio_error = Some(
+                resolved_imdb_id
+                    .as_ref()
+                    .err()
+                    .cloned()
+                    .unwrap_or_else(|| "No IMDb ID available for Nuvio".to_string()),
+            );
+        }
     }
 
-    let mut merged_streams = Vec::new();
-    if let Ok(data) = nuvio_result {
-        merged_streams.extend(normalize_nuvio_streams(&data));
-    }
-
-    if merged_streams.is_empty() {
+    if validated_streams.is_empty() {
+        if let Some(error) = last_nuvio_error {
+            log_resolver_debug(&format!(
+                "[fetch_movie_resolver_streams] final Nuvio error tmdbId={} error={}",
+                payload.tmdb_id, error
+            ));
+        }
         return Err(format!(
-            "No direct playable streams available for this {}",
+            "No validated playable streams available for this {}",
             if normalized_content_type == "series" { "episode" } else { "movie" }
         ));
-    }
-
-    merged_streams.sort_by(|a, b| {
-        movie_quality_score(&b.quality)
-            .cmp(&movie_quality_score(&a.quality))
-            .then_with(|| a.provider.cmp(&b.provider))
-            .then_with(|| a.url.cmp(&b.url))
-    });
-    merged_streams.dedup_by(|left, right| left.url == right.url);
-
-    let mut validated_streams = Vec::new();
-    for stream in merged_streams {
-        let probe_result = probe_movie_stream_inner(
-            stream.url.clone(),
-            stream.headers.clone(),
-            Some(stream.stream_type.clone()),
-        )
-        .await;
-
-        if probe_result.ok {
-            let validated_stream = ResolvedMovieStream {
-                url: probe_result.final_url.unwrap_or_else(|| stream.url.clone()),
-                ..stream
-            };
-            log_resolver_debug(&format!(
-                "[fetch_movie_resolver_streams] accepted stream provider={} source={} streamType={} quality={} url={}",
-                validated_stream.provider,
-                validated_stream.source,
-                validated_stream.stream_type,
-                validated_stream.quality,
-                validated_stream.url
-            ));
-            validated_streams.push(validated_stream);
-        } else {
-            log_resolver_debug(&format!(
-                "[fetch_movie_resolver_streams] rejected stream provider={} source={} url={} error={}",
-                stream.provider,
-                stream.source,
-                stream.url,
-                probe_result.error.unwrap_or_else(|| "validation failed".to_string())
-            ));
-        }
     }
 
     if validated_streams.is_empty() {
@@ -2231,10 +3891,18 @@ async fn fetch_movie_resolver_streams(
     }
 
     log_resolver_debug(&format!(
-        "[fetch_movie_resolver_streams] validated_count={} tmdbId={}",
+        "[fetch_movie_resolver_streams] validated_count={} tmdbId={} top_provider={}",
         validated_streams.len(),
-        payload.tmdb_id
+        payload.tmdb_id,
+        validated_streams
+            .first()
+            .map(|stream| stream.provider.as_str())
+            .unwrap_or("unknown")
     ));
+
+    if let Some(cache_key) = cache_key {
+        set_cached_value(movie_stream_cache(), cache_key, validated_streams.clone());
+    }
 
     Ok(validated_streams)
 }
@@ -2258,6 +3926,12 @@ fn parse_captured_navigation(url: &reqwest::Url) -> Option<CapturedNavigation> {
         .find(|(key, _)| key == "page")
         .map(|(_, value)| value.into_owned())
         .filter(|value| !value.trim().is_empty());
+    let tracks = url
+        .query_pairs()
+        .find(|(key, _)| key == "tracks")
+        .map(|(_, value)| value.into_owned())
+        .and_then(|value| serde_json::from_str::<Vec<Value>>(&value).ok())
+        .unwrap_or_default();
 
     Some(CapturedNavigation {
         url: captured_url,
@@ -2267,6 +3941,7 @@ fn parse_captured_navigation(url: &reqwest::Url) -> Option<CapturedNavigation> {
         } else {
             CaptureKind::Stream
         },
+        tracks,
     })
 }
 
@@ -2341,6 +4016,7 @@ fn to_resolved_embed_stream(captured: CapturedNavigation, session_id: Option<Str
         headers: build_stream_headers(&captured.url, page_url.as_deref()),
         stream_url: captured.url,
         page_url,
+        subtitles: captured.tracks,
         session_id,
     }
 }
@@ -2550,6 +4226,7 @@ async fn resolve_embed_stream_static(
                     provider_host: resolve_provider_host(final_url.as_str(), Some(final_url.as_str())),
                     page_url: Some(final_url.to_string()),
                     headers: build_stream_headers(final_url.as_str(), Some(final_url.as_str())),
+                    subtitles: Vec::new(),
                     session_id: None,
                 }),
                 next_url: final_url.to_string(),
@@ -2586,6 +4263,7 @@ async fn resolve_embed_stream_static(
                     provider_host: resolve_provider_host(&stream_url, Some(final_url.as_str())),
                     page_url: Some(final_url.to_string()),
                     headers: build_stream_headers(&stream_url, Some(final_url.as_str())),
+                    subtitles: Vec::new(),
                     session_id: None,
                 }),
                 next_url: final_url.to_string(),
@@ -3140,9 +4818,36 @@ async fn apply_update() -> Result<(), String> {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .setup(|_app| {
+            tauri::async_runtime::spawn(async move {
+                let client = match reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::limited(5))
+                    .timeout(Duration::from_secs(5))
+                    .build()
+                {
+                    Ok(client) => client,
+                    Err(error) => {
+                        log_resolver_debug(&format!(
+                            "[nuvio_sidecar] failed to build warmup client: {}",
+                            error
+                        ));
+                        return;
+                    }
+                };
+
+                if let Err(error) = ensure_nuvio_sidecar(&client).await {
+                    log_resolver_debug(&format!(
+                        "[nuvio_sidecar] warmup failed: {}",
+                        error
+                    ));
+                }
+            });
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             minimize_window,
             toggle_maximize,
@@ -3155,20 +4860,34 @@ fn main() {
             get_anime_debug_log_path,
             browser_fetch_bridge_ready,
             complete_browser_fetch,
+            complete_resolver_eval,
+            resolver_session_eval,
             fetch_hls_segment,
             fetch_hls_manifest,
+            register_media_proxy_stream,
+            fetch_anime_text_with_session,
             fetch_movie_segment,
             fetch_movie_manifest,
             fetch_movie_subtitles,
             fetch_movie_text,
             fetch_movie_resolver_streams,
+            fetch_anime_json,
             probe_movie_stream,
             capture_stream,
             resolve_embed_stream,
             download_update,
             apply_update
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_app_handle, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+        ) {
+            stop_nuvio_sidecar();
+        }
+    });
 }
 

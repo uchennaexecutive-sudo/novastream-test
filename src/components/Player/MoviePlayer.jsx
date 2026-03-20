@@ -95,6 +95,50 @@ const inferStreamType = (stream) => {
     : 'mp4'
 }
 
+const getMovieProviderPreferenceScore = (provider, contentType) => {
+  const normalized = String(provider || '').toLowerCase()
+
+  if (contentType === 'animation') {
+    if (normalized.includes('uhdmovies')) return 6
+    if (normalized.includes('moviesmod')) return 5
+    if (normalized.includes('vixsrc')) return 4
+    if (normalized.includes('moviesdrive') || normalized.includes('moviebox')) return 3
+  } else {
+    if (normalized.includes('vixsrc')) return 5
+    if (normalized.includes('moviesmod')) return 4
+    if (normalized.includes('uhdmovies')) return 3
+    if (normalized.includes('moviesdrive') || normalized.includes('moviebox')) return 3
+  }
+
+  if (normalized.includes('auto')) return 1
+  if (normalized.includes('4khdhub')) return contentType === 'animation' ? -20 : -12
+  return 0
+}
+
+const getMovieQualityPreferenceScore = (quality) => {
+  const normalized = String(quality || '').toLowerCase()
+  if (normalized.includes('1080')) return 4
+  if (normalized.includes('4k') || normalized.includes('2160')) return 3
+  if (normalized.includes('720')) return 2
+  if (normalized.includes('auto')) return 1
+  return 0
+}
+
+const sortStreamsByPreference = (items, contentType) => [...items].sort((left, right) => {
+  const leftType = inferStreamType(left)
+  const rightType = inferStreamType(right)
+  const leftTypeScore = leftType === 'hls' ? 3 : leftType === 'mp4' ? 1 : 0
+  const rightTypeScore = rightType === 'hls' ? 3 : rightType === 'mp4' ? 1 : 0
+
+  return rightTypeScore - leftTypeScore
+    || getMovieProviderPreferenceScore(right.provider, contentType)
+      - getMovieProviderPreferenceScore(left.provider, contentType)
+    || getMovieQualityPreferenceScore(right.quality)
+      - getMovieQualityPreferenceScore(left.quality)
+    || String(left.provider || '').localeCompare(String(right.provider || ''))
+    || String(left.url || '').localeCompare(String(right.url || ''))
+})
+
 const normalizeBinaryPayload = (data) => {
   if (data instanceof ArrayBuffer) return data
   if (data instanceof Uint8Array) {
@@ -239,6 +283,7 @@ export default function MoviePlayer({
   const startupTimerRef = useRef(null)
   const resumeAppliedRef = useRef(false)
   const mp4BlobUrlRef = useRef('')
+  const handledFailureKeyRef = useRef('')
   const lastProgressRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
     durationSeconds: 0,
@@ -307,6 +352,8 @@ export default function MoviePlayer({
 
   const markStartupReady = useCallback(() => {
     clearStartupTimer()
+    setError('')
+    setErrorDetail('')
     setMediaLoading(false)
   }, [])
 
@@ -361,6 +408,7 @@ export default function MoviePlayer({
       setError('')
       setErrorDetail('')
       setLoading(false)
+      setMediaLoading(true)
       setLoadingStage('Loading player...')
       return
     }
@@ -371,11 +419,29 @@ export default function MoviePlayer({
   }, [streamIndex, streams.length])
 
   const handleStreamFailure = useCallback((detail) => {
+    const failureKey = `${streamIndex}:${stream?.url || ''}`
+    if (handledFailureKeyRef.current === failureKey) {
+      return
+    }
+    handledFailureKeyRef.current = failureKey
     clearStartupTimer()
+    if (streamIndex < streams.length - 1) {
+      console.warn('[MoviePlayer] stream failed, trying next candidate', {
+        provider: stream?.provider,
+        quality: stream?.quality,
+        streamType,
+        detail: detail || '',
+        index: streamIndex,
+        nextProvider: streams[streamIndex + 1]?.provider || null,
+      })
+      moveToNextStream()
+      return
+    }
+
     setMediaLoading(false)
     setError('Could not load stream')
     setErrorDetail(detail || '')
-  }, [])
+  }, [moveToNextStream, stream, streamIndex, streamType, streams])
 
   const retryCurrentState = useCallback(() => {
     if (error && streamIndex < streams.length - 1) {
@@ -559,8 +625,9 @@ export default function MoviePlayer({
 
         if (cancelled) return
 
-        console.log('[MoviePlayer] resolved streams', nextStreams)
-        setStreams(nextStreams)
+        const orderedStreams = sortStreamsByPreference(nextStreams, contentType)
+        console.log('[MoviePlayer] resolved streams', orderedStreams)
+        setStreams(orderedStreams)
         setLoading(false)
         setLoadingStage('Loading player...')
       } catch (streamError) {
@@ -580,6 +647,7 @@ export default function MoviePlayer({
   }, [contentType, currentEpisode, currentSeason, imdbId, retryNonce, tmdbId])
 
   useEffect(() => {
+    handledFailureKeyRef.current = ''
     resumeAppliedRef.current = false
     setCurrentTime(0)
     setDuration(0)
@@ -725,6 +793,17 @@ export default function MoviePlayer({
         }
 
         video.play().catch(() => {})
+      })
+
+      hls.on(Hls.Events.LEVEL_LOADED, () => {
+        clearStartupTimer()
+        startupTimerRef.current = window.setTimeout(() => {
+          handleStartupFailure('Startup timeout after initial HLS level load')
+        }, 15000)
+      })
+
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        markStartupReady()
       })
 
       hls.on(Hls.Events.ERROR, (_, data) => {
