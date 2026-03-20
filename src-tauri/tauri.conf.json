@@ -1,6 +1,6 @@
 {
   "productName": "NOVA STREAM",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "identifier": "com.novastream.app",
   "build": {
     "beforeDevCommand": "npm run dev",

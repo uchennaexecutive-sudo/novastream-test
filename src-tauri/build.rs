@@ -86,6 +86,11 @@ fn zip_directory(
             continue;
         }
 
+        if entry.file_type().is_symlink() {
+            println!("cargo:warning=skipping symlink in embedded runtime archive: {}", path.display());
+            continue;
+        }
+
         let archive_path = format!(
             "{}/{}",
             archive_root.trim_end_matches('/'),
@@ -100,11 +105,32 @@ fn zip_directory(
 
         zip.start_file(archive_path.clone(), options)
             .map_err(|error| format!("failed to add file {} to runtime archive: {error}", path.display()))?;
-        let mut file = File::open(path)
-            .map_err(|error| format!("failed to open {}: {error}", path.display()))?;
+        let mut file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                println!(
+                    "cargo:warning=skipping unreadable embedded runtime file {}: {}",
+                    path.display(),
+                    error
+                );
+                continue;
+            }
+            Err(error) => {
+                return Err(format!("failed to open {}: {error}", path.display()).into());
+            }
+        };
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)
-            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        if let Err(error) = file.read_to_end(&mut buffer) {
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                println!(
+                    "cargo:warning=skipping unreadable embedded runtime file {}: {}",
+                    path.display(),
+                    error
+                );
+                continue;
+            }
+            return Err(format!("failed to read {}: {error}", path.display()).into());
+        }
         zip.write_all(&buffer)
             .map_err(|error| format!("failed to write {} into runtime archive: {error}", path.display()))?;
     }
