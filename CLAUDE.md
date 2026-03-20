@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.4.3
+Premium streaming desktop application (Tauri 2) - v1.4.4
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -152,6 +152,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
 ## Version History
+- v1.4.4 - Hardened the embedded Nuvio runtime build step on Windows CI by preferring a readable system Node binary over the hosted toolcache path and added better archive-build error context for future packaging failures
 - v1.4.3 - Fixed GitHub Actions Nuvio sidecar dependency installation so packaged releases can embed vendored sidecar dependencies without relying on an untracked sidecar lockfile
 - v1.4.2 - Embedded vendored Nuvio sidecar dependencies into packaged builds, hid Nuvio startup/install console windows behind background logging, and prepared portable releases so movie/series/animation sidecar startup behaves like an end-user runtime instead of a repo-relative dev setup
 - v1.4.1 - Embedded the Nuvio sidecar runtime into packaged builds so portable releases can launch movie/series/animation resolvers without repo-relative files, added automatic runtime re-extraction, and relaxed anime HLS startup timeout behavior after initial level load/buffer

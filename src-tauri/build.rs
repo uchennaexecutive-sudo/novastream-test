@@ -16,6 +16,26 @@ fn node_binary_name() -> &'static str {
     }
 }
 
+fn resolve_node_binary() -> Result<PathBuf, Box<dyn Error>> {
+    if let Some(explicit_path) = env::var_os("NOVA_STREAM_NODE_BINARY") {
+        let candidate = PathBuf::from(explicit_path);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let candidate = PathBuf::from(r"C:\Program Files\nodejs").join(node_binary_name());
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    find_binary_in_path(node_binary_name())
+        .ok_or_else(|| format!("{} not found in PATH during build", node_binary_name()).into())
+}
+
 fn find_binary_in_path(name: &str) -> Option<PathBuf> {
     let path_var = env::var_os("PATH")?;
 
@@ -39,10 +59,13 @@ fn zip_file(
         .unix_permissions(0o755);
 
     zip.start_file(archive_path.replace('\\', "/"), options)?;
-    let mut file = File::open(source_path)?;
+    let mut file = File::open(source_path)
+        .map_err(|error| format!("failed to open {}: {error}", source_path.display()))?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-    zip.write_all(&buffer)?;
+    file.read_to_end(&mut buffer)
+        .map_err(|error| format!("failed to read {}: {error}", source_path.display()))?;
+    zip.write_all(&buffer)
+        .map_err(|error| format!("failed to write {} into runtime archive: {error}", archive_path))?;
     Ok(())
 }
 
@@ -56,7 +79,7 @@ fn zip_directory(
         .unix_permissions(0o755);
 
     for entry in WalkDir::new(source_dir) {
-        let entry = entry?;
+        let entry = entry.map_err(|error| format!("failed to walk {}: {error}", source_dir.display()))?;
         let path = entry.path();
         let relative = path.strip_prefix(source_dir)?;
         if relative.as_os_str().is_empty() {
@@ -70,15 +93,20 @@ fn zip_directory(
         );
 
         if entry.file_type().is_dir() {
-            zip.add_directory(format!("{archive_path}/"), options)?;
+            zip.add_directory(format!("{archive_path}/"), options)
+                .map_err(|error| format!("failed to add directory {} to runtime archive: {error}", path.display()))?;
             continue;
         }
 
-        zip.start_file(archive_path, options)?;
-        let mut file = File::open(path)?;
+        zip.start_file(archive_path.clone(), options)
+            .map_err(|error| format!("failed to add file {} to runtime archive: {error}", path.display()))?;
+        let mut file = File::open(path)
+            .map_err(|error| format!("failed to open {}: {error}", path.display()))?;
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-        zip.write_all(&buffer)?;
+        file.read_to_end(&mut buffer)
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        zip.write_all(&buffer)
+            .map_err(|error| format!("failed to write {} into runtime archive: {error}", path.display()))?;
     }
 
     Ok(())
@@ -90,8 +118,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let repo_root = manifest_dir.parent().ok_or("missing repo root")?;
     let sidecar_dir = repo_root.join("vendor").join("nuvio-streams-addon");
-    let node_path = find_binary_in_path(node_binary_name())
-        .ok_or_else(|| format!("{} not found in PATH during build", node_binary_name()))?;
+    let node_path = resolve_node_binary()?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let archive_path = out_dir.join("nuvio-runtime.zip");
 
