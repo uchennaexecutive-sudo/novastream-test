@@ -15,14 +15,6 @@ Local test builds go to `C:\Users\uchen\OneDrive\Documents\ANTIGRAVITY\APPLICATI
 ## Repository
 GitHub: `uchennaexecutive-sudo/novastream-test`
 
-## API Keys
-- **TMDB:** `49bd672b0680fac7de50e5b9f139a98b` - Base: `https://api.themoviedb.org/3`
-- **Supabase URL:** `https://owymezptcmwmrlkeuxcg.supabase.co`
-- **Supabase Anon Key:** `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93eW1lenB0Y213bXJsa2V1eGNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMTM2NjEsImV4cCI6MjA4ODU4OTY2MX0.4OZvH_afMKK-CCEgSrW4ga7oC2y0Hqh3uz5ZeRVtvPQ`
-- **AniList GraphQL:** `https://graphql.anilist.co` (no key needed)
-- **Aniwatch API:** `https://aniwatch-api-orcin-six.vercel.app`
-- **Streaming Resolvers:** In-project Gogoanime primary resolver plus in-project AnimePahe fallback for anime, embedded local Nuvio sidecar runtime for movie/series/animation native streams
-
 ## Completed Features
 - [x] Home page - hero carousel (5 trending, 8s auto-advance) + 9 content rows
 - [x] Detail page - backdrop, poster, metadata, cast, trailer, episode selector, similar titles
