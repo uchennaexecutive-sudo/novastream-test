@@ -124,10 +124,15 @@ function createTauriLoader(base, getHeaders, getSessionId) {
         lowerUrl.includes('.jpeg') ||
         lowerUrl.includes('.png') ||
         lowerUrl.includes('.webp')
+      const isFragmentContext =
+        context?.type === 'fragment' ||
+        context?.type === 'main' ||
+        context?.frag != null
       const isSegment = lowerUrl.includes('.ts')
         || lowerUrl.includes('.m4s')
         || lowerUrl.includes('.aac')
         || lowerUrl.includes('.mp4')
+        || (isImageTrack && isFragmentContext)
       const isKey = lowerUrl.includes('.key') || context.type === 'key'
 
       const headers = getHeaders() || {}
@@ -149,7 +154,7 @@ function createTauriLoader(base, getHeaders, getSessionId) {
         return
       }
 
-      if (isImageTrack) {
+      if (isImageTrack && !isFragmentContext) {
         const startTime = performance.now()
         callbacks.onSuccess(
           { data: new Uint8Array(0).buffer, url },

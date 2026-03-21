@@ -1660,6 +1660,7 @@ if should_use_animekai_session {
 
 #[tauri::command]
 async fn fetch_anime_text_with_session(
+    app: tauri::AppHandle,
     url: String,
     headers: HashMap<String, String>,
     method: Option<String>,
@@ -1667,13 +1668,16 @@ async fn fetch_anime_text_with_session(
     session_id: Option<String>,
 ) -> Result<AnimeTextWithSessionResponse, String> {
     let http_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
+    let should_use_animepahe_browser_session =
+        url.contains("animepahe.si") || url.contains("pahe.win") || url.contains("kwik.");
 
     let should_use_resolver_session =
         url.contains("gogoanime.me.uk")
             || url.contains("megaplay.buzz")
             || url.contains("megacloud.bloggy.click")
             || url.contains("mewcdn.online")
-            || url.contains("dotstream.buzz");
+            || url.contains("dotstream.buzz")
+            || should_use_animepahe_browser_session;
 
     let mut effective_session_id = session_id;
 
@@ -1690,6 +1694,55 @@ async fn fetch_anime_text_with_session(
             None,
             None,
         );
+    }
+
+    if should_use_animepahe_browser_session {
+        let fallback_page_url = if url.contains("kwik.") || url.contains("pahe.win") {
+            Some(url.clone())
+        } else {
+            headers
+                .get("Referer")
+                .cloned()
+                .or_else(|| Some(url.clone()))
+        };
+
+        let bridge_response = browser_fetch_via_bridge(
+            app,
+            url.clone(),
+            http_method.clone(),
+            headers.clone(),
+            body.clone(),
+            "text",
+            effective_session_id.as_deref(),
+            fallback_page_url,
+        )
+        .await?;
+
+        let text = bridge_response.text.unwrap_or_default();
+        let preview: String = text.chars().take(300).collect();
+        let bridge_status = bridge_response.status.unwrap_or(0);
+
+        log_anime_debug(&format!(
+            "[fetch_anime_text_with_session] AnimePahe browser session status: {:?}",
+            bridge_response.status
+        ));
+        log_anime_debug(&format!(
+            "[fetch_anime_text_with_session] AnimePahe browser session body preview: {}",
+            preview
+        ));
+
+        if bridge_status < 200 || bridge_status >= 300 {
+            return Err(format!(
+                "Anime text fetch with session failed: HTTP {} {}",
+                bridge_status,
+                preview
+            ));
+        }
+
+        return Ok(AnimeTextWithSessionResponse {
+            text,
+            session_id: effective_session_id,
+        });
     }
 
     let client = if let Some(ref sid) = effective_session_id {

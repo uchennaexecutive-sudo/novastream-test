@@ -231,6 +231,8 @@ export async function resolveAnimeProviderStates({
             const searchAnimeTimeoutMs =
                 provider?.id === 'gogoanime'
                     ? 45000
+                    : provider?.id === 'animepahe'
+                        ? 40000
                     : 12000
 
             const matches = await withTimeout(
@@ -253,6 +255,8 @@ export async function resolveAnimeProviderStates({
             const buildProviderStateTimeoutMs =
                 provider?.id === 'gogoanime'
                     ? 90000
+                    : provider?.id === 'animepahe'
+                        ? 90000
                     : 15000
 
             const state = await withTimeout(
@@ -297,6 +301,8 @@ export async function resolveEpisodeStreamCandidates({
                 const getStreamsTimeoutMs =
                     state.providerId === 'gogoanime'
                         ? 45000
+                        : state.providerId === 'animepahe'
+                            ? 35000
                         : state.providerId === 'animesaturn'
                             ? 12000
                             : 8000

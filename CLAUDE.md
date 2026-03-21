@@ -21,7 +21,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - **Supabase Anon Key:** `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93eW1lenB0Y213bXJsa2V1eGNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMTM2NjEsImV4cCI6MjA4ODU4OTY2MX0.4OZvH_afMKK-CCEgSrW4ga7oC2y0Hqh3uz5ZeRVtvPQ`
 - **AniList GraphQL:** `https://graphql.anilist.co` (no key needed)
 - **Aniwatch API:** `https://aniwatch-api-orcin-six.vercel.app`
-- **Streaming Resolvers:** In-project Gogoanime resolver for anime, embedded local Nuvio sidecar runtime for movie/series/animation native streams
+- **Streaming Resolvers:** In-project Gogoanime primary resolver plus in-project AnimePahe fallback for anime, embedded local Nuvio sidecar runtime for movie/series/animation native streams
 
 ## Completed Features
 - [x] Home page - hero carousel (5 trending, 8s auto-advance) + 9 content rows
@@ -29,7 +29,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Movies browse - genre filters, paginated grid
 - [x] Series browse - genre filters, paginated grid
 - [x] Anime browse - AniList-powered, tabs (Trending/Popular/Top Rated), genre filters, infinite scroll
-- [x] Anime player - premium popup with native playback via in-project Gogoanime resolution, Rust-backed manifest/segment/session fetching, subtitles, seekbar, keyboard shortcuts, and episode navigation
+- [x] Anime player - premium popup with native playback via in-project Gogoanime primary resolution plus AnimePahe fallback, Rust-backed manifest/segment/session fetching, subtitles, seekbar, keyboard shortcuts, and episode navigation
 - [x] Animation browse - grid layout
 - [x] Search overlay - debounced TMDB multi-search + AniList anime search, keyboard navigation, grouped Movies / Series / Anime results, and anime search routing through TMDB-matched anime detail flow
 - [x] Movie / Series / Animation player - native custom player using Nuvio resolver streams, Rust-backed manifest/segment fetching, custom controls, English subtitle toggle via Wyzie, and series episode navigation
@@ -66,18 +66,26 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - `src/lib/animeAddons/resolveAnimeStreams.js`
   - `src/lib/animeAddons/providers/gogoanime.js`
   - `src/lib/animeAddons/providers/gogoanimeScraper.js`
+  - `src/lib/animeAddons/providers/animepahe.js`
 - Anime detail pages carry AniList title identity into playback for stronger provider matching
-- Current active anime provider is `gogoanime`
+- Current provider order is `gogoanime` primary and `animepahe` fallback
 - Gogoanime search, anime detail, and server discovery are now self-contained in-project; the old localhost Rust bridge has been removed
 - Current Gogo flow:
   1. AniList/TMDB identity reaches `AnimePlayer.jsx`
   2. `gogoanimeScraper.js` resolves search match, anime detail, and episode server URLs
   3. `gogoanime.js` resolves wrapper pages / embed pages / dynamic stream capture
   4. Rust handles session-aware fetch, HLS manifest/segment fetching, and native playback transport
+- Current AnimePahe fallback flow:
+  1. AniList/TMDB identity reaches `AnimePlayer.jsx`
+  2. `animepahe.js` resolves AnimePahe search, release episode lists, and play-page resolution options through provider-scoped browser sessions
+  3. AnimePahe prefers a direct MP4-style handoff derived from resolved Kwik stream URLs and falls back to direct embed/runtime capture when needed
+  4. Rust still handles session-aware fetch, embed capture, and native playback transport for the selected candidate
 - DotStream is deprioritized and rejected where possible; the working path is the non-DotStream dynamic capture/native playback flow
 - Dynamic subtitle tracks captured from the live embed/runtime are forwarded into the native player
 - Gogo source-quality guardrails reject obvious CAM / bad wrapper cases when they are detected
-- Anime next-episode behavior is faster because provider state and episode resolution are cached/reused across episode switches
+- Anime fallback changes must remain provider-scoped; do not use shared timeout/path tweaks that weaken Gogoanime because AnimePahe exists as fallback
+- Anime next-episode behavior now resets provider stickiness on episode change so each episode starts with Gogoanime as fresh primary and only falls through to AnimePahe when that specific episode fails on Gogo
+- AnimePahe fallback now works for episodes Gogoanime cannot play, but AnimePahe startup is still best improved through provider-specific optimization rather than shared resolver shortcuts
 - Anime browse/detail/search architecture remains:
   - AniList-powered browse in `src/pages/Anime.jsx`
   - AniList identity handling in `src/lib/anilist.js`
@@ -86,9 +94,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - anime search section in `src/components/Search/SearchOverlay.jsx`
 - Anime search results open through TMDB-matched anime detail rather than using AniList/MAL ids as TMDB ids
 - Standard seasonal anime and long-running anime still use the existing mapper structure; do not casually rewrite anime browse/detail grouping logic
-- Future fallback path under consideration:
-  - `animekai` as the first absorbed fallback
-  - `animepahe` as a later optional fallback
+- AnimeKai fallback experiments were dropped from the active path; do not reintroduce AnimeKai changes into the working anime stack unless they are rebuilt cleanly and isolated from Gogoanime
 
 ## Movie / Series / Animation Streaming
 - Native playback now uses `src/components/Player/MoviePlayer.jsx`
@@ -152,6 +158,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
 ## Version History
+- v1.4.6 - Added in-project AnimePahe fallback behind Gogoanime, normalized AnimePahe episode numbering for mapped seasons, preferred direct MP4-style AnimePahe handoff, and reset provider stickiness so each episode starts fresh with Gogoanime as primary
 - v1.4.5 - Fixed Windows release packaging again by installing vendored Nuvio sidecar dependencies from inside the sidecar directory and skipping unreadable/symlinked package-manager artifacts during embedded runtime archiving
 - v1.4.4 - Hardened the embedded Nuvio runtime build step on Windows CI by preferring a readable system Node binary over the hosted toolcache path and added better archive-build error context for future packaging failures
 - v1.4.3 - Fixed GitHub Actions Nuvio sidecar dependency installation so packaged releases can embed vendored sidecar dependencies without relying on an untracked sidecar lockfile

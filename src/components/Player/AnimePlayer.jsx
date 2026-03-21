@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { ANIWATCH_BASE_URL, clearAnimePlaybackCache } from '../../lib/consumet'
+import { getEnabledAnimeAddonProviders } from '../../lib/animeAddons'
 import {
   resolveAnimeProviderStates,
   resolveEpisodeStreamCandidates,
@@ -331,8 +332,9 @@ export default function AnimePlayer({
     lastPlaybackRef.current = { progressSeconds: 0, durationSeconds: 0 }
     setResumePosition(0)
     resetPlaybackState()
-    lockedProviderIdRef.current = successfulProviderIdRef.current || ''
-    lockedEpisodeRef.current = Number(nextEpisode)
+    successfulProviderIdRef.current = ''
+    lockedProviderIdRef.current = ''
+    lockedEpisodeRef.current = null
     setCurrentEpisode(Number(nextEpisode))
     setLoading(true)
     setLoadingStage('Fetching stream...')
@@ -346,6 +348,9 @@ export default function AnimePlayer({
     candidateIndexRef.current = 0
     candidateListRef.current = []
     failedUrlsByEpisodeRef.current = {}
+    successfulProviderIdRef.current = ''
+    lockedProviderIdRef.current = ''
+    lockedEpisodeRef.current = null
     lastPlaybackRef.current = {
       progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
       durationSeconds: 0,
@@ -396,6 +401,18 @@ export default function AnimePlayer({
         Array.isArray(prefetchedAnime?.episodes) &&
         prefetchedAnime.episodes.length
       ) {
+        const enabledProviderIds = new Set(
+          getEnabledAnimeAddonProviders().map((provider) => provider?.id).filter(Boolean)
+        )
+
+        if (!enabledProviderIds.has(prefetchedAnime.providerId)) {
+          console.info('[AnimePlayer] skipping prefetched anime override', {
+            providerId: prefetchedAnime.providerId,
+            animeId: prefetchedAnime.animeId,
+            episodeCount: prefetchedAnime.episodes.length,
+            reason: 'prefetched provider is not enabled in anime addons',
+          })
+        } else {
         nextStateMap[prefetchedAnime.providerId] = {
           providerId: prefetchedAnime.providerId,
           animeId: prefetchedAnime.animeId,
@@ -404,6 +421,7 @@ export default function AnimePlayer({
           episodes: prefetchedAnime.episodes,
           streamCandidatesByEpisode:
             nextStateMap[prefetchedAnime.providerId]?.streamCandidatesByEpisode || {},
+        }
         }
       }
 
