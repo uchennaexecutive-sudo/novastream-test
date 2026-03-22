@@ -135,9 +135,9 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Release workflow now publishes `updates/latest.json` after GitHub release creation. Do not add extra asset polling steps unless they are verified on `windows-latest`.
 - macOS CI now builds and uploads a real DMG via `npx tauri build --bundles dmg`
 
-> `release.ps1` automatically bumps version in all 4 files.
+> `release.ps1` automatically bumps and verifies the runtime version in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src/main.jsx`, and also keeps `package-lock.json` in sync.
 > Never manually edit version numbers - just run `release.ps1`
-> **Always use `release.ps1`** - never push manually. The CI bot commits `latest.json` back to `main` after each build, causing rejections. The script handles rebase + force-tag automatically.
+> **Always use `release.ps1`** - never push manually. The CI bot commits `latest.json` back to `main` after each build, causing rejections. The script handles rebase + force-tag automatically, while GitHub Actions rewrites `updates/latest.json` after the tagged build publishes the release asset.
 - GitHub Actions now also builds a macOS DMG and uploads it to the GitHub Release page
 - Current macOS release artifact is `NOVA-STREAM-x.x.x-macos.dmg`
 - The app is still unsigned, so macOS trust warnings may still require manual open/allow steps until signing/notarization is added
