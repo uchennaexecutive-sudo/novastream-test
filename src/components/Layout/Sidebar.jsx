@@ -1,7 +1,9 @@
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState } from 'react'
-import { Home, Film, Tv2, Swords, Palette, Bookmark, History, Settings } from 'lucide-react'
+import { Home, Film, Tv2, Swords, Palette, Bookmark, History, Settings, LogIn } from 'lucide-react'
+import useAuthStore from '../../store/useAuthStore'
+import { dicebearUrl } from '../../lib/supabaseClient'
 
 const TOPBAR_HEIGHT = 56 // must match TopBar.jsx height
 
@@ -22,6 +24,12 @@ const bottomItems = [
 export default function Sidebar() {
   const [hovered, setHovered] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
+  const { user, profile, setAuthModalOpen } = useAuthStore()
+
+  const avatarStyle = profile?.avatar_style || 'bottts'
+  const avatarSeed = profile?.avatar_seed || (user?.id || 'nova')
+  const displayName = profile?.username || user?.email?.split('@')[0] || 'Account'
 
   return (
     <motion.nav
@@ -90,13 +98,86 @@ export default function Sidebar() {
       <div className="mx-4 my-2 h-px" style={{ background: 'var(--border)' }} />
 
       {/* Bottom Nav */}
-      <div className="flex flex-col gap-0.5 w-full px-2.5 pb-4">
+      <div className="flex flex-col gap-0.5 w-full px-2.5 pb-3">
         {bottomItems.map((item) => {
           const isActive = location.pathname.startsWith(item.path)
           return (
             <SidebarLink key={item.path} item={item} isActive={isActive} hovered={hovered} />
           )
         })}
+      </div>
+
+      {/* Divider */}
+      <div className="mx-4 mb-2 h-px" style={{ background: 'var(--border)' }} />
+
+      {/* Profile / Sign In widget */}
+      <div className="px-2.5 pb-4">
+        {user ? (
+          <motion.button
+            onClick={() => navigate('/profile')}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl overflow-hidden whitespace-nowrap cursor-pointer group relative"
+            style={{
+              background: location.pathname === '/profile' ? 'var(--bg-elevated)' : 'transparent',
+              color: location.pathname === '/profile' ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+            whileHover={{ color: 'var(--text-primary)' }}
+          >
+            {/* Avatar */}
+            <div className="w-6 h-6 rounded-lg overflow-hidden flex-shrink-0" style={{ border: '1.5px solid rgba(255,255,255,0.12)' }}>
+              <img src={dicebearUrl(avatarStyle, avatarSeed)} alt="Avatar" className="w-full h-full" />
+            </div>
+
+            <AnimatePresence>
+              {hovered && (
+                <motion.span
+                  className="text-sm font-medium truncate min-w-0"
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -4 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  {displayName}
+                </motion.span>
+              )}
+            </AnimatePresence>
+
+            {/* Hover highlight */}
+            {location.pathname !== '/profile' && (
+              <div
+                className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 -z-10"
+                style={{ background: 'var(--bg-surface)' }}
+              />
+            )}
+          </motion.button>
+        ) : (
+          <motion.button
+            onClick={() => setAuthModalOpen(true)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl overflow-hidden whitespace-nowrap cursor-pointer group relative"
+            style={{ color: 'var(--text-muted)' }}
+            whileHover={{ color: 'var(--text-secondary)' }}
+          >
+            <span className="w-6 flex items-center justify-center flex-shrink-0">
+              <LogIn size={18} strokeWidth={1.75} />
+            </span>
+            <AnimatePresence>
+              {hovered && (
+                <motion.span
+                  className="text-sm font-medium"
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -4 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  Sign in
+                </motion.span>
+              )}
+            </AnimatePresence>
+            <div
+              className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 -z-10"
+              style={{ background: 'var(--bg-surface)' }}
+            />
+          </motion.button>
+        )}
       </div>
     </motion.nav>
   )

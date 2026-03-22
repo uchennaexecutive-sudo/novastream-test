@@ -19,7 +19,9 @@
       "Bash(uipro init:*)",
       "Bash(python3:*)",
       "Bash(npm install:*)",
-      "Bash(powershell -ExecutionPolicy Bypass -File release.ps1:*)"
+      "Bash(powershell -ExecutionPolicy Bypass -File release.ps1:*)",
+      "Bash(python:*)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File release.ps1 1.4.8 \"Add optional Supabase account system with sign up, sign in, DiceBear avatar picker, profile page, and full cross-device sync for watchlist, history, playback position, theme, and preferences\")"
     ]
   }
 }

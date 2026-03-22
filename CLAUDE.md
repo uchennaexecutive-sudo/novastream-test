@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.4.7
+Premium streaming desktop application (Tauri 2) - v1.4.8
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -151,7 +151,29 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - `src/components/Search/SearchOverlay.jsx` now supports AniList anime results in addition to TMDB Movies / Series results
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
+## Auth + Profile System
+- Optional Supabase account system — sign up / sign in / forgot password, frictionless (no email verification)
+- First-time onboarding flow: splash → auth page (sign up / sign in / skip) → avatar picker → home; shown once, never repeated unless app reinstalled
+- Sidebar bottom: signed-in users see avatar + username (→ `/profile`); skipped users see "Sign in" ghost button (→ auth overlay)
+- Auth overlay (`authModalOpen` in useAuthStore) can be triggered at any time from sidebar without routing
+- DiceBear avatar picker: 6 styles (bottts, pixel-art, adventurer, lorelei, thumbs, micah) × 10 seeds via HTTP API (`https://api.dicebear.com/9.x/{style}/svg?seed={seed}`)
+- Profile page (`/profile`): large avatar, inline username edit, watch stats (titles, hours), avatar picker sheet, change password modal, sign out, delete account (with confirmation)
+- `src/lib/supabaseClient.js` — shared Supabase client + `dicebearUrl()` helper
+- `src/store/useAuthStore.js` — auth state: user, session, profile, authLoading, authModalOpen; methods: init, signUp, signIn, signOut, resetPassword, updateProfile, deleteAccount
+- `src/pages/Auth.jsx` — immersive full-screen auth with animated cinematic background, glass card, AnimatePresence view transitions
+- `src/pages/Profile.jsx` — full profile page with avatar picker sheet, modals, and stats
+
+## Cross-Device Sync (Supabase)
+- Supabase tables: `profiles` (avatar_style, avatar_seed, username, theme, preferences), `watchlist`, `watch_history`, `watch_progress` — all with RLS
+- `syncFromCloud()` in `src/lib/supabase.js` — pulls watchlist, history, and watch_progress from cloud on sign-in/session-restore; merges with local (cloud wins on conflicts)
+- Write-through sync: every `addToWatchlist`, `removeFromWatchlist`, `addToHistory`, `saveProgress` call also syncs to Supabase when signed in
+- Theme + preferences sync: `setTheme` / `setPreference` in `useAppStore.js` call `syncProfileSetting()` to update `profiles` row; restored via `applyProfileSettings()` in useAuthStore on session boot
+- Watch progress (`src/lib/progress.js`): uses shared Supabase client, switched from `device_id` to `user_id`; guests get localStorage-only (cloud skipped gracefully)
+- Supabase auto-trigger `handle_new_user` creates `profiles` row with username + avatar_seed on sign-up
+- Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
+
 ## Version History
+- v1.4.8 - Add optional Supabase account system with sign up, sign in, DiceBear avatar picker, profile page, and full cross-device sync for watchlist, history, playback position, theme, and preferences
 - v1.4.7 - Fix window controls with correct Tauri 2 `core:window:*` capability grants, add custom overlay title bar (TitleBar.jsx), extend TopBar to full viewport width so hero images show through the glass blur, and add in-memory session cache for instant page navigation
 - v1.4.6 - Added in-project AnimePahe fallback behind Gogoanime, normalized AnimePahe episode numbering for mapped seasons, preferred direct MP4-style AnimePahe handoff, and reset provider stickiness so each episode starts fresh with Gogoanime as primary
 - v1.4.5 - Fixed Windows release packaging again by installing vendored Nuvio sidecar dependencies from inside the sidecar directory and skipping unreadable/symlinked package-manager artifacts during embedded runtime archiving

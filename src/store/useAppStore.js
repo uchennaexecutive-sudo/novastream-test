@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { syncProfileSetting } from '../lib/supabase'
 
 const useAppStore = create((set, get) => ({
   theme: localStorage.getItem('nova-theme') || 'nova-dark',
@@ -6,6 +7,7 @@ const useAppStore = create((set, get) => ({
     document.documentElement.setAttribute('data-theme', id)
     localStorage.setItem('nova-theme', id)
     set({ theme: id })
+    syncProfileSetting({ theme: id })
   },
 
   preferences: (() => {
@@ -17,6 +19,7 @@ const useAppStore = create((set, get) => ({
     const prefs = { ...get().preferences, [key]: value }
     localStorage.setItem('nova-preferences', JSON.stringify(prefs))
     set({ preferences: prefs })
+    syncProfileSetting({ preferences: prefs })
   },
 
   searchOpen: false,

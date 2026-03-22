@@ -1,11 +1,7 @@
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from './supabaseClient'
 
-const SUPABASE_URL = 'https://owymezptcmwmrlkeuxcg.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93eW1lenB0Y213bXJsa2V1eGNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMTM2NjEsImV4cCI6MjA4ODU4OTY2MX0.4OZvH_afMKK-CCEgSrW4ga7oC2y0Hqh3uz5ZeRVtvPQ'
 const DEVICE_ID_STORAGE_KEY = 'nova_device_id'
 const LOCAL_PROGRESS_STORAGE_KEY = 'nova_watch_progress'
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 const hasLocalStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 
@@ -13,7 +9,6 @@ const createDeviceId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
-
   return `nova-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
@@ -48,7 +43,6 @@ const sortByUpdatedAtDesc = (items) => [...items].sort((a, b) => getUpdatedAtVal
 
 const normalizeRow = (row) => {
   if (!row) return null
-
   return {
     ...row,
     content_id: String(row.content_id),
@@ -62,7 +56,6 @@ const normalizeRow = (row) => {
 
 const readLocalRows = () => {
   if (!hasLocalStorage()) return []
-
   try {
     const parsed = JSON.parse(window.localStorage.getItem(LOCAL_PROGRESS_STORAGE_KEY) || '[]')
     return Array.isArray(parsed) ? parsed.map(normalizeRow).filter(Boolean) : []
@@ -78,17 +71,14 @@ const writeLocalRows = (rows) => {
 
 const mergeRows = (...collections) => {
   const map = new Map()
-
   collections.flat().filter(Boolean).forEach((row) => {
     const normalized = normalizeRow(row)
     const key = buildProgressKey(normalized.content_id, normalized.season, normalized.episode)
     const existing = map.get(key)
-
     if (!existing || getUpdatedAtValue(normalized) >= getUpdatedAtValue(existing)) {
       map.set(key, normalized)
     }
   })
-
   return sortByUpdatedAtDesc(Array.from(map.values()))
 }
 
@@ -96,8 +86,6 @@ const upsertLocalRow = (row) => {
   const rows = readLocalRows()
   const key = buildProgressKey(row.content_id, row.season, row.episode)
   const nextRows = mergeRows([{ ...row, updated_at: row.updated_at || new Date().toISOString() }], rows)
-    .filter(item => item.device_id === getDeviceId())
-
   writeLocalRows(nextRows)
   return nextRows.find(item => buildProgressKey(item.content_id, item.season, item.episode) === key) || normalizeRow(row)
 }
@@ -108,28 +96,32 @@ const filterExactRow = (rows, contentId, season, episode) => rows.find((row) => 
   && row.episode === episode
 )) || null
 
+// Get signed-in user ID (no React hooks required)
+async function getUserId() {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    return user?.id || null
+  } catch {
+    return null
+  }
+}
+
 async function fetchRemoteRows({ contentId = null, season = undefined, episode = undefined } = {}) {
+  const userId = await getUserId()
+  if (!userId) return [] // guests: localStorage only
+
   try {
     let query = supabase
       .from('watch_progress')
       .select('*')
-      .eq('device_id', getDeviceId())
+      .eq('user_id', userId)
 
-    if (contentId !== null) {
-      query = query.eq('content_id', String(contentId))
-    }
-
-    if (season !== undefined) {
-      query = season === null ? query.is('season', null) : query.eq('season', season)
-    }
-
-    if (episode !== undefined) {
-      query = episode === null ? query.is('episode', null) : query.eq('episode', episode)
-    }
+    if (contentId !== null) query = query.eq('content_id', String(contentId))
+    if (season !== undefined) query = season === null ? query.is('season', null) : query.eq('season', season)
+    if (episode !== undefined) query = episode === null ? query.is('episode', null) : query.eq('episode', episode)
 
     const { data, error } = await query
     if (error) throw error
-
     return (data || []).map(normalizeRow).filter(Boolean)
   } catch (error) {
     console.error('[progress] remote fetch failed', error)
@@ -137,29 +129,21 @@ async function fetchRemoteRows({ contentId = null, season = undefined, episode =
   }
 }
 
-async function findExistingRemoteRow(deviceId, contentId, season, episode) {
-  const rows = await fetchRemoteRows({ contentId, season, episode })
-  return rows.find(row => row.device_id === deviceId) || null
-}
-
 async function getMergedRowsForContent(contentId) {
   const [remoteRows, localRows] = await Promise.all([
     fetchRemoteRows({ contentId }),
     Promise.resolve(readLocalRows().filter(row => row.content_id === String(contentId))),
   ])
-
   return mergeRows(remoteRows, localRows)
 }
 
 export function getDeviceId() {
   if (!hasLocalStorage()) return 'nova-device'
-
   let id = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY)
   if (!id) {
     id = createDeviceId()
     window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, id)
   }
-
   return id
 }
 
@@ -170,16 +154,14 @@ export function getProgressPercent(item) {
 
 export function isResumableProgress(item) {
   if (!item?.progress_seconds) return false
-
   if (item.duration_seconds > 0) {
     const percent = getProgressPercent(item)
     return percent > 0 && percent < 0.98
   }
-
   return item.progress_seconds > 15
 }
 
-function buildPayload(item) {
+function buildPayload(item, userId) {
   const season = toNullableInteger(item.season)
   const episode = toNullableInteger(item.episode)
   const durationSeconds = normalizeProgressNumber(item.durationSeconds || item.durationHintSeconds)
@@ -188,7 +170,7 @@ function buildPayload(item) {
     : normalizeProgressNumber(item.progressSeconds)
 
   return {
-    device_id: getDeviceId(),
+    user_id: userId || null,
     content_id: String(item.contentId),
     content_type: item.contentType,
     title: item.title || null,
@@ -205,41 +187,23 @@ function buildPayload(item) {
 export async function saveProgress(item) {
   if (!item?.contentId || !item?.contentType) return null
 
-  const payload = buildPayload(item)
+  const userId = await getUserId()
+  const payload = buildPayload(item, userId)
   const localRow = upsertLocalRow(payload)
 
+  // Only sync to cloud when signed in
+  if (!userId) return localRow
+
   try {
-    const existing = await findExistingRemoteRow(
-      payload.device_id,
-      payload.content_id,
-      payload.season,
-      payload.episode
-    )
-
-    if (existing?.id) {
-      const { data, error } = await supabase
-        .from('watch_progress')
-        .update(payload)
-        .eq('id', existing.id)
-        .select()
-        .maybeSingle()
-
-      if (error) throw error
-      return normalizeRow(data) || localRow
-    }
-
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('watch_progress')
-      .insert(payload)
-      .select()
-      .maybeSingle()
-
+      .upsert(payload, { onConflict: 'user_id,content_id,season,episode' })
     if (error) throw error
-    return normalizeRow(data) || localRow
   } catch (error) {
-    console.error('[progress] save failed', error)
-    return localRow
+    console.error('[progress] cloud save failed', error)
   }
+
+  return localRow
 }
 
 export async function getContinueWatching() {
@@ -249,7 +213,6 @@ export async function getContinueWatching() {
   ])
 
   const seen = new Set()
-
   return mergeRows(remoteRows, localRows)
     .filter(item => item.progress_seconds > 0)
     .filter(isResumableProgress)
@@ -264,26 +227,21 @@ export async function getContinueWatching() {
 
 export async function getProgress(contentId, season, episode) {
   if (!contentId) return null
-
   const normalizedSeason = toNullableInteger(season)
   const normalizedEpisode = toNullableInteger(episode)
   const rows = await getMergedRowsForContent(contentId)
-
   return filterExactRow(rows, contentId, normalizedSeason, normalizedEpisode)
 }
 
 export async function getLatestProgress(contentId) {
   if (!contentId) return null
-
   const rows = await getMergedRowsForContent(contentId)
   return rows[0] || null
 }
 
 export async function getContentProgressMap(contentId) {
   if (!contentId) return {}
-
   const rows = await getMergedRowsForContent(contentId)
-
   return rows.reduce((accumulator, row) => {
     accumulator[buildEpisodeKey(row.season, row.episode)] = {
       ...row,
@@ -298,7 +256,6 @@ export async function getAllProgressRows() {
     fetchRemoteRows(),
     Promise.resolve(readLocalRows()),
   ])
-
   return mergeRows(remoteRows, localRows)
 }
 
