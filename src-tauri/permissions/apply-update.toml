@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-apply-update"
+description = "Allows the app to apply a downloaded update and restart through the Rust command."
+commands.allow = ["apply_update"]

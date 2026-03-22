@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-download-update"
+description = "Allows the app to download an update exe through the Rust command."
+commands.allow = ["download_update"]
