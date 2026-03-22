@@ -17,8 +17,8 @@ import UpdateToast from './components/UI/UpdateToast'
 import useAppStore from './store/useAppStore'
 
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-const APP_VERSION = '1.4.8'
-const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream/main/updates/latest.json'
+const APP_VERSION = '1.5.0'
+const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream-test/main/updates/latest.json'
 const UPDATE_CHECK_TIMEOUT_MS = 15000
 const UPDATE_INITIAL_DELAY_MS = 5000
 const UPDATE_RETRY_DELAYS_MS = [10000, 20000, 45000, 90000, 180000]
@@ -157,9 +157,9 @@ function Root() {
 
         const downloadUrl = data.platforms?.['windows-x86_64']?.url
         if (!downloadUrl) {
-          console.error(`[updater] missing windows-x86_64 download URL for v${data.version}`)
-          setUpdateState('error')
-          scheduleCheck(UPDATE_RETRY_DELAYS_MS[0])
+          // No Windows download URL — not on a supported update platform, treat as up-to-date
+          setUpdateState('up-to-date')
+          scheduleCheck(UPDATE_REFRESH_INTERVAL_MS)
           return
         }
 

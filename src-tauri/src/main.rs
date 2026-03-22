@@ -20,6 +20,7 @@ use reqwest::Url;
 use tauri::ipc::Response;
 use tauri::webview::NewWindowResponse;
 use tauri::{Emitter, Manager, WebviewUrl};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::oneshot;
 use serde_json::Value;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -4883,11 +4884,16 @@ async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, S
         total
     ));
     let mut downloaded: u64 = 0;
-    let mut file_bytes: Vec<u8> = if total > 0 {
-        Vec::with_capacity(total as usize)
-    } else {
-        Vec::new()
-    };
+
+    let mut file = tokio::fs::File::create(&temp_update_path)
+        .await
+        .map_err(|e| {
+            append_updater_log(&format!(
+                "download create file failed path={} error={e}",
+                temp_update_path.display()
+            ));
+            e.to_string()
+        })?;
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
@@ -4899,13 +4905,29 @@ async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, S
             e.to_string()
         })?;
         downloaded += chunk.len() as u64;
-        file_bytes.extend_from_slice(&chunk);
+
+        file.write_all(&chunk).await.map_err(|e| {
+            append_updater_log(&format!(
+                "download write chunk failed path={} error={e}",
+                temp_update_path.display()
+            ));
+            e.to_string()
+        })?;
 
         if total > 0 {
             let percent = (downloaded * 100 / total) as u8;
             let _ = app.emit("download-progress", percent);
         }
     }
+
+    file.flush().await.map_err(|e| {
+        append_updater_log(&format!(
+            "download flush failed path={} error={e}",
+            temp_update_path.display()
+        ));
+        e.to_string()
+    })?;
+    drop(file);
 
     if total > 0 && downloaded != total {
         append_updater_log(&format!(
@@ -4924,16 +4946,6 @@ async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, S
     }
 
     let _ = app.emit("download-progress", 100u8);
-
-    tokio::fs::write(&temp_update_path, &file_bytes)
-        .await
-        .map_err(|e| {
-            append_updater_log(&format!(
-                "download write failed path={} error={e}",
-                temp_update_path.display()
-            ));
-            e.to_string()
-        })?;
 
     if update_path.exists() {
         let _ = fs::remove_file(&update_path);
@@ -5033,7 +5045,6 @@ async fn apply_update() -> Result<(), String> {
 
 fn main() {
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|_app| {
             tauri::async_runtime::spawn(async move {

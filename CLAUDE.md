@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.4.8
+Premium streaming desktop application (Tauri 2) - v1.5.0
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -45,8 +45,8 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Home hero: `<div className="-mt-14">` cancels the paddingTop so the hero extends behind the TopBar
 
 ## Update System
-- Check: `raw.githubusercontent.com/uchennaexecutive-sudo/novastream/main/updates/latest.json`
-- Rust `download_update`: streams chunks -> emits `download-progress` (0-100) events -> verifies file size -> writes `_update/nova-stream.exe` via `.part` temp file -> logs to `%TEMP%\nova-stream-updater.log`
+- Check: `raw.githubusercontent.com/uchennaexecutive-sudo/novastream-test/main/updates/latest.json`
+- Rust `download_update`: streams chunks directly to disk (`.part` temp file) -> emits `download-progress` (0-100) events -> verifies file size -> renames to `_update/nova-stream.exe` -> logs to `%TEMP%\nova-stream-updater.log`
 - Rust `apply_update`: launches `_update.bat` and appends copy/restart progress to `%TEMP%\nova-stream-updater.log`
 - Frontend: listens via `@tauri-apps/api/event`, retries failed downloads with backoff, and re-checks on a longer interval after failures or up-to-date checks
 - Store: `updateState`, `updateVersion`, `downloadProgress` in Zustand
@@ -173,6 +173,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.5.0 - Fix auto-update system: correct GitHub repository URL so checks reach the right repo, stream update download directly to disk instead of buffering in RAM, remove unused Tauri updater plugin, and prevent error-loop on non-Windows platforms
 - v1.4.8 - Add optional Supabase account system with sign up, sign in, DiceBear avatar picker, profile page, and full cross-device sync for watchlist, history, playback position, theme, and preferences
 - v1.4.7 - Fix window controls with correct Tauri 2 `core:window:*` capability grants, add custom overlay title bar (TitleBar.jsx), extend TopBar to full viewport width so hero images show through the glass blur, and add in-memory session cache for instant page navigation
 - v1.4.6 - Added in-project AnimePahe fallback behind Gogoanime, normalized AnimePahe episode numbering for mapped seasons, preferred direct MP4-style AnimePahe handoff, and reset provider stickiness so each episode starts fresh with Gogoanime as primary

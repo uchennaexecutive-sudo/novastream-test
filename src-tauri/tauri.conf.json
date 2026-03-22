@@ -1,6 +1,6 @@
 {
   "productName": "NOVA STREAM",
-  "version": "1.4.8",
+  "version": "1.5.0",
   "identifier": "com.novastream.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -38,13 +38,5 @@
     "icon": [
       "icons/icon.png"
     ]
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMyMTNGMDhDNzc2MjkyNTEKUldSUmttSjNqUEFUd3F5QXc4THBXa1MyamRXaFkrNzU2SXNsMS9zcTZYdnVYWW9DYldZcjRGbG0K",
-      "endpoints": [
-        "https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream/main/updates/latest.json"
-      ]
-    }
   }
 }
