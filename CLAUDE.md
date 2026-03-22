@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.4.5
+Premium streaming desktop application (Tauri 2) - v1.4.7
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -15,14 +15,6 @@ Local test builds go to `C:\Users\uchen\OneDrive\Documents\ANTIGRAVITY\APPLICATI
 ## Repository
 GitHub: `uchennaexecutive-sudo/novastream-test`
 
-<<<<<<< Updated upstream
-=======
-## Local Secrets
-- Local API keys and sensitive service endpoints now live in `LOCAL-API-KEYS.md` (gitignored and kept out of releases)
-- **AniList GraphQL:** `https://graphql.anilist.co` (no key needed)
-- **Streaming Resolvers:** In-project Gogoanime primary resolver plus in-project AnimePahe fallback for anime, embedded local Nuvio sidecar runtime for movie/series/animation native streams
-
->>>>>>> Stashed changes
 ## Completed Features
 - [x] Home page - hero carousel (5 trending, 8s auto-advance) + 9 content rows
 - [x] Detail page - backdrop, poster, metadata, cast, trailer, episode selector, similar titles
@@ -44,11 +36,13 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] macOS release artifact via GitHub Actions (`.dmg`, unsigned)
 
 ## Layout Notes
-- `decorations: true` in `tauri.conf.json` -> native Windows title bar sits OUTSIDE content area
+- `decorations: false` in `tauri.conf.json` -> custom overlay title bar (TitleBar.jsx, z:60, top-right 138px)
 - Sidebar and TopBar BOTH start at `top: 0` - NO isTauri offset
-- TopBar: `top:0, left:72px, height:56px`
-- Sidebar logo section: `top:0, height:56px, paddingLeft:16px` - aligned with TopBar
-- Main content: `paddingTop: 56px`
+- TopBar: `top:0, left:72px, right:0, height:56px` — extends full viewport width, drag region inside
+- Sidebar: `left:0, top:0`, collapses to 72px, expands to 240px on hover
+- Main: `ml-[72px], height:100vh` (no marginTop — content flows behind TopBar for glass blur)
+- Motion wrapper inside main: `paddingTop: 56px` — offsets all pages below TopBar
+- Home hero: `<div className="-mt-14">` cancels the paddingTop so the hero extends behind the TopBar
 
 ## Update System
 - Check: `raw.githubusercontent.com/uchennaexecutive-sudo/novastream/main/updates/latest.json`
@@ -158,6 +152,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
 ## Version History
+- v1.4.7 - Fix window controls with correct Tauri 2 `core:window:*` capability grants, add custom overlay title bar (TitleBar.jsx), extend TopBar to full viewport width so hero images show through the glass blur, and add in-memory session cache for instant page navigation
 - v1.4.6 - Added in-project AnimePahe fallback behind Gogoanime, normalized AnimePahe episode numbering for mapped seasons, preferred direct MP4-style AnimePahe handoff, and reset provider stickiness so each episode starts fresh with Gogoanime as primary
 - v1.4.5 - Fixed Windows release packaging again by installing vendored Nuvio sidecar dependencies from inside the sidecar directory and skipping unreadable/symlinked package-manager artifacts during embedded runtime archiving
 - v1.4.4 - Hardened the embedded Nuvio runtime build step on Windows CI by preferring a readable system Node binary over the hosted toolcache path and added better archive-build error context for future packaging failures
