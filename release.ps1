@@ -27,6 +27,16 @@ if ($TargetVersion -notmatch '^\d+\.\d+\.\d+$') {
   throw "Version must use semver format X.Y.Z. Received: $TargetVersion"
 }
 
+function Write-Utf8NoBomFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Content
+  )
+
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText((Resolve-Path $Path), $Content, $utf8NoBom)
+}
+
 function Update-FileText {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
@@ -48,12 +58,51 @@ function Update-FileText {
     throw "Expected pattern not found in $Path"
   }
 
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText((Resolve-Path $Path), $updated, $utf8NoBom)
+  Write-Utf8NoBomFile -Path $Path -Content $updated
 
   $verified = Get-Content -Raw -Path $Path
   if ($verified -notmatch [System.Text.RegularExpressions.Regex]::Escape($VerificationText)) {
     throw "Verification failed for $Path. Expected to find: $VerificationText"
+  }
+}
+
+function Update-PackageLockVersion {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Version
+  )
+
+  $content = Get-Content -Raw -Path $Path
+  $topLevelPattern = '(?s)\A(\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*")([^"]+)(")'
+  $rootPackagePattern = '(?s)("packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*")([^"]+)(")'
+
+  $updatedTop = [System.Text.RegularExpressions.Regex]::Replace($content, $topLevelPattern, ('${1}{0}${3}' -f $Version), 1)
+  if ($updatedTop -eq $content) {
+    if ($content -match ('(?s)\A\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*"' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '"')) {
+      $updatedTop = $content
+    } else {
+      throw "Failed to update top-level version in $Path"
+    }
+  }
+
+  $updatedRoot = [System.Text.RegularExpressions.Regex]::Replace($updatedTop, $rootPackagePattern, ('${1}{0}${3}' -f $Version), 1)
+  if ($updatedRoot -eq $updatedTop) {
+    if ($updatedTop -match ('(?s)"packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*"' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '"')) {
+      $updatedRoot = $updatedTop
+    } else {
+      throw "Failed to update root package version in $Path"
+    }
+  }
+
+  Write-Utf8NoBomFile -Path $Path -Content $updatedRoot
+
+  $verified = Get-Content -Raw -Path $Path
+  if ($verified -notmatch ('(?s)\A\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*"' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '"')) {
+    throw "Verification failed for top-level version in $Path"
+  }
+
+  if ($verified -notmatch ('(?s)"packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*"' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '"')) {
+    throw "Verification failed for root package version in $Path"
   }
 }
 
@@ -71,10 +120,7 @@ Update-FileText -Path 'package.json' `
   -Replacement ('"version": "{0}"' -f $TargetVersion) `
   -VerificationText ('"version": "{0}"' -f $TargetVersion)
 
-Update-FileText -Path 'package-lock.json' `
-  -Pattern '"version":\s*".*?"' `
-  -Replacement ('"version": "{0}"' -f $TargetVersion) `
-  -VerificationText ('"version": "{0}"' -f $TargetVersion)
+Update-PackageLockVersion -Path 'package-lock.json' -Version $TargetVersion
 
 Update-FileText -Path 'src-tauri/tauri.conf.json' `
   -Pattern '"version":\s*".*?"' `
