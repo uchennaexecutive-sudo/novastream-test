@@ -79,9 +79,14 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Update latest.json
+      - name: Commit updated latest.json
         shell: bash
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          
           VERSION="${{ steps.version.outputs.VERSION }}"
           PORTABLE_NAME="${{ steps.artifacts.outputs.PORTABLE_NAME }}"
 
@@ -98,13 +103,6 @@ jobs:
           }
           EOF
 
-      - name: Commit updated latest.json
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout -B main origin/main
           git add updates/latest.json
           git commit -m "chore: update latest.json for v${{ steps.version.outputs.VERSION }}" || true
           git push origin main
