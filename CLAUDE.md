@@ -15,6 +15,14 @@ Local test builds go to `C:\Users\uchen\OneDrive\Documents\ANTIGRAVITY\APPLICATI
 ## Repository
 GitHub: `uchennaexecutive-sudo/novastream-test`
 
+<<<<<<< Updated upstream
+=======
+## Local Secrets
+- Local API keys and sensitive service endpoints now live in `LOCAL-API-KEYS.md` (gitignored and kept out of releases)
+- **AniList GraphQL:** `https://graphql.anilist.co` (no key needed)
+- **Streaming Resolvers:** In-project Gogoanime primary resolver plus in-project AnimePahe fallback for anime, embedded local Nuvio sidecar runtime for movie/series/animation native streams
+
+>>>>>>> Stashed changes
 ## Completed Features
 - [x] Home page - hero carousel (5 trending, 8s auto-advance) + 9 content rows
 - [x] Detail page - backdrop, poster, metadata, cast, trailer, episode selector, similar titles

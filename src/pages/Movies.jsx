@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { discoverMovies } from '../lib/tmdb'
 import MediaCard from '../components/Cards/MediaCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
+import { saveData, getData, hasData } from '../lib/sessionCache'
 
 const GENRES = [
   { id: 0, name: 'All' }, { id: 28, name: 'Action' }, { id: 35, name: 'Comedy' },
@@ -42,13 +43,23 @@ export default function Movies() {
   const observer = useRef(null)
 
   const fetchMovies = useCallback((p, g, s, append = false) => {
+    const cacheKey = `movies-p${p}-g${g || 0}-s${s}`
+    if (!append && hasData(cacheKey)) {
+      const { results, hasMore: cachedHasMore } = getData(cacheKey)
+      setMovies(results)
+      setHasMore(cachedHasMore)
+      setLoading(false)
+      return
+    }
     const params = { page: p, sort_by: s, 'vote_count.gte': s === 'vote_average.desc' ? 200 : 0 }
     if (g) params.with_genres = g
     setLoading(true)
     discoverMovies(params).then(data => {
       setMovies(prev => append ? [...prev, ...data.results] : data.results)
-      setHasMore(data.page < data.total_pages)
+      const more = data.page < data.total_pages
+      setHasMore(more)
       setLoading(false)
+      if (!append) saveData(cacheKey, { results: data.results, hasMore: more })
     })
   }, [])
 

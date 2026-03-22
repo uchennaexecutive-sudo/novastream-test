@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { discoverTV } from '../lib/tmdb'
 import MediaCard from '../components/Cards/MediaCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
+import { saveData, getData, hasData } from '../lib/sessionCache'
 
 const GENRES = [
   { id: 0, name: 'All' }, { id: 10759, name: 'Action' }, { id: 35, name: 'Comedy' },
@@ -42,14 +43,24 @@ export default function Series() {
   const observer = useRef(null)
 
   const fetchSeries = useCallback((p, g, n, append = false) => {
+    const cacheKey = `series-p${p}-g${g || 0}-n${n || 0}`
+    if (!append && hasData(cacheKey)) {
+      const { results, hasMore: cachedHasMore } = getData(cacheKey)
+      setSeries(results)
+      setHasMore(cachedHasMore)
+      setLoading(false)
+      return
+    }
     const params = { page: p, sort_by: 'popularity.desc' }
     if (g) params.with_genres = g
     if (n) params.with_networks = n
     setLoading(true)
     discoverTV(params).then(data => {
       setSeries(prev => append ? [...prev, ...data.results] : data.results)
-      setHasMore(data.page < data.total_pages)
+      const more = data.page < data.total_pages
+      setHasMore(more)
       setLoading(false)
+      if (!append) saveData(cacheKey, { results: data.results, hasMore: more })
     })
   }, [])
 

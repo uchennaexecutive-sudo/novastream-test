@@ -209,6 +209,31 @@ export default function Settings() {
         </div>
       </section>
 
+      {/* Accessibility */}
+      <section className="mb-10">
+        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          ♿ Accessibility
+        </h2>
+        <div
+          className="rounded-2xl p-5"
+          style={{
+            background: 'var(--bg-glass)',
+            border: '1px solid var(--border)',
+            backdropFilter: 'blur(20px)',
+            boxShadow: 'var(--card-shadow), var(--inner-glow)',
+          }}
+        >
+          <Toggle
+            label="Reduce Animations"
+            value={preferences.reduceAnimations}
+            onChange={v => setPreference('reduceAnimations', v)}
+          />
+          <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+            Disables background orbs, page transitions, and CSS animations. Overrides the system motion setting.
+          </p>
+        </div>
+      </section>
+
       {/* About */}
       <section>
         <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
@@ -244,6 +269,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.4.7 - Fix window controls with correct Tauri 2 capability grants, add custom overlay title bar, extend TopBar to full width so hero images show through the glass blur, and add in-memory session cache for instant page navigation</p>
             <p>v1.2.0 - Native movie, series, and animation playback via Nuvio-backed resolver streams, custom controls, and deduplicated continue watching for episodic titles</p>
             <p>v1.1.6 - Fix anime streaming - dynamic AniWatch headers and Rust manifest rewrite for protected HLS playback</p>
             <p>v1.1.5 - Fix anime streaming - Rust segment fetcher bypasses HiAnime header restrictions</p>

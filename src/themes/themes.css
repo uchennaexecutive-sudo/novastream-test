@@ -38,8 +38,8 @@
   --accent-glow: rgba(91,79,232,0.2);
   --accent-glow-strong: rgba(91,79,232,0.4);
   --text-primary: #0D0D1A;
-  --text-secondary: rgba(13,13,26,0.6);
-  --text-muted: rgba(13,13,26,0.35);
+  --text-secondary: rgba(13,13,26,0.72);
+  --text-muted: rgba(13,13,26,0.5);
   --border: rgba(0,0,0,0.08);
   --border-hover: rgba(91,79,232,0.3);
   --glass-blur: blur(20px);

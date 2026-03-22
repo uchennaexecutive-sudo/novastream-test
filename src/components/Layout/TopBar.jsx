@@ -6,33 +6,42 @@ export default function TopBar() {
 
   return (
     <div
-      className="fixed right-0 flex items-center justify-end px-6"
+      className="fixed flex items-center justify-end"
       style={{
         top: 0,
         left: 72,
+        right: 0,
         height: 56,
-        paddingRight: 24,
-        background: 'linear-gradient(180deg, rgba(15,15,21,0.68) 0%, rgba(15,15,21,0.46) 58%, rgba(15,15,21,0.18) 100%)',
-        backdropFilter: 'blur(34px) saturate(145%)',
-        WebkitBackdropFilter: 'blur(34px) saturate(145%)',
-        boxShadow: '0 12px 40px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.06), var(--inner-glow)',
+        paddingRight: 145,
+        background: 'linear-gradient(180deg, rgba(8,8,14,0.22) 0%, rgba(8,8,14,0.12) 60%, transparent 100%)',
+        backdropFilter: 'blur(48px) saturate(200%)',
+        WebkitBackdropFilter: 'blur(48px) saturate(200%)',
+        boxShadow: '0 1px 0 rgba(255,255,255,0.05)',
         zIndex: 40,
+        position: 'fixed',
       }}
     >
+      {/* Drag region — covers left empty portion, stops before search button */}
+      <div
+        data-tauri-drag-region
+        style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 310, pointerEvents: 'auto' }}
+      />
+
       <motion.button
         onClick={() => setSearchOpen(true)}
-        className="flex items-center gap-3 px-4 py-2 rounded-xl text-sm"
+        className="relative flex items-center gap-3 px-4 py-2 rounded-xl text-sm cursor-pointer"
         style={{
-          background: 'rgba(14, 14, 20, 0.55)',
+          background: 'rgba(14, 14, 20, 0.5)',
           color: 'var(--text-muted)',
           border: '1px solid rgba(255,255,255,0.08)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          boxShadow: '0 10px 28px rgba(0,0,0,0.18)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.16)',
+          zIndex: 1,
         }}
         whileHover={{
           borderColor: 'rgba(255,255,255,0.18)',
-          boxShadow: '0 0 20px var(--accent-glow), 0 10px 28px rgba(0,0,0,0.18)',
+          boxShadow: '0 0 20px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.16)',
         }}
         whileTap={{ scale: 0.97 }}
       >

@@ -1,7 +1,8 @@
-import '@fontsource/dm-sans/400.css'
-import '@fontsource/dm-sans/500.css'
-import '@fontsource/dm-sans/600.css'
-import '@fontsource/dm-sans/700.css'
+import '@fontsource/poppins/300.css'
+import '@fontsource/poppins/400.css'
+import '@fontsource/poppins/500.css'
+import '@fontsource/poppins/600.css'
+import '@fontsource/poppins/700.css'
 import '@fontsource-variable/jetbrains-mono'
 import './themes/themes.css'
 import './index.css'
@@ -16,7 +17,7 @@ import UpdateToast from './components/UI/UpdateToast'
 import useAppStore from './store/useAppStore'
 
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-const APP_VERSION = '1.4.6'
+const APP_VERSION = '1.4.7'
 const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream/main/updates/latest.json'
 const UPDATE_CHECK_TIMEOUT_MS = 15000
 const UPDATE_INITIAL_DELAY_MS = 5000
@@ -43,6 +44,12 @@ function Root() {
       window.location.pathname.startsWith('/player-window')
       || window.location.pathname.startsWith('/fetch-bridge')
     )
+  const reduceAnimations = useAppStore(s => s.preferences.reduceAnimations)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-reduce-motion', reduceAnimations ? 'true' : 'false')
+  }, [reduceAnimations])
+
   const setUpdateState = useAppStore(s => s.setUpdateState)
   const setUpdateInfo = useAppStore(s => s.setUpdateInfo)
   const setDownloadProgress = useAppStore(s => s.setDownloadProgress)

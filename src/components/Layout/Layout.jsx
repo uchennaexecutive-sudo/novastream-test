@@ -1,16 +1,17 @@
 import { Outlet, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect, useRef } from 'react'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import BackgroundOrbs from './BackgroundOrbs'
 import Sidebar from './Sidebar'
 import TitleBar from './TitleBar'
 import TopBar from './TopBar'
 import useAppStore from '../../store/useAppStore'
+import { saveScroll, getScroll, hasScroll } from '../../lib/sessionCache'
 
 const pageVariants = {
   initial: { opacity: 0, y: 20, filter: 'blur(4px)' },
-  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-  exit: { opacity: 0, y: -10, filter: 'blur(4px)' },
+  animate: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] } },
+  exit: { opacity: 0, y: -10, filter: 'blur(4px)', transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } },
 }
 
 const pageTransition = {
@@ -21,7 +22,39 @@ const TOPBAR_HEIGHT = 56
 
 export default function Layout() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
+  const appReducedMotion = useAppStore(s => s.preferences.reduceAnimations)
   const location = useLocation()
+  const sysReducedMotion = useReducedMotion()
+  const reducedMotion = sysReducedMotion || appReducedMotion
+  const mainRef = useRef(null)
+  const prevPathRef = useRef(location.pathname)
+
+  // Save/restore scroll positions across navigation (in-memory, cleared on restart)
+  useEffect(() => {
+    const prev = prevPathRef.current
+    const curr = location.pathname
+    if (prev === curr) return
+
+    if (mainRef.current) {
+      saveScroll(prev, mainRef.current.scrollTop)
+    }
+
+    prevPathRef.current = curr
+
+    // First attempt: immediate (works when page data is cached / renders instantly)
+    requestAnimationFrame(() => {
+      if (mainRef.current && hasScroll(curr)) {
+        mainRef.current.scrollTop = getScroll(curr)
+      }
+    })
+    // Second attempt: fallback after content has had time to render
+    const timer = setTimeout(() => {
+      if (mainRef.current && hasScroll(curr)) {
+        mainRef.current.scrollTop = getScroll(curr)
+      }
+    }, 120)
+    return () => clearTimeout(timer)
+  }, [location.pathname])
 
   useEffect(() => {
     const handler = (e) => {
@@ -44,21 +77,22 @@ export default function Layout() {
       <TopBar />
       <Sidebar />
       <main
+        ref={mainRef}
         className="relative ml-[72px] overflow-y-auto overflow-x-hidden"
         style={{
           zIndex: 1,
-          marginTop: TOPBAR_HEIGHT,
-          height: `calc(100vh - ${TOPBAR_HEIGHT}px)`,
+          height: '100vh',
         }}
       >
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
-            variants={pageVariants}
-            initial="initial"
+            variants={reducedMotion ? {} : pageVariants}
+            initial={reducedMotion ? false : 'initial'}
             animate="animate"
-            exit="exit"
+            exit={reducedMotion ? {} : 'exit'}
             transition={pageTransition}
+            style={{ paddingTop: TOPBAR_HEIGHT }}
           >
             <Outlet />
           </motion.div>

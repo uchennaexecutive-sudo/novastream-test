@@ -15,7 +15,7 @@ html {
 
 body {
   height: 100%;
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Poppins', sans-serif;
   background-color: var(--bg-base);
   color: var(--text-primary);
   overflow: hidden;
@@ -52,7 +52,7 @@ body {
 
 /* ─── Font Utility Classes ─── */
 .font-display {
-  font-family: 'Clash Display', sans-serif;
+  font-family: 'Righteous', sans-serif;
 }
 .font-mono {
   font-family: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
@@ -129,6 +129,30 @@ div, section, nav, main, aside, header, footer, button, a, span, p, h1, h2, h3, 
 ::selection {
   background: var(--accent-glow);
   color: var(--text-primary);
+}
+
+/* ─── Reduced Motion (system preference or in-app toggle) ─── */
+@media (prefers-reduced-motion: reduce),
+       (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .shimmer, .accent-pulse, .glow-dot {
+    animation: none;
+  }
+}
+
+[data-reduce-motion="true"] *, [data-reduce-motion="true"] *::before, [data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+[data-reduce-motion="true"] .shimmer,
+[data-reduce-motion="true"] .accent-pulse,
+[data-reduce-motion="true"] .glow-dot {
+  animation: none;
 }
 
 /* ─── Filter Chip Active State ─── */

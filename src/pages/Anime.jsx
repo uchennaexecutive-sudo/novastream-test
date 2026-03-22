@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { getTrendingAnime, getPopularAnime, getTopRatedAnime } from '../lib/anilist'
 import { searchAnimeOnTMDB } from '../lib/tmdb'
+import { saveData, getData, hasData } from '../lib/sessionCache'
 
 const TABS = ['Trending', 'Popular', 'Top Rated']
 const GENRES = ['Action', 'Romance', 'Comedy', 'Horror', 'Fantasy', 'Sci-Fi', 'Slice of Life', 'Sports']
@@ -191,8 +192,21 @@ export default function Anime() {
   }, [])
 
   const fetchPage = useCallback(async (pageNum, append = false) => {
-    const fetchId = ++fetchIdRef.current
     const isFirst = pageNum === 1
+
+    // Serve page 1 from cache instantly if available
+    if (isFirst && !append) {
+      const cacheKey = `anime-${tab}-page1`
+      if (hasData(cacheKey)) {
+        const { items, hasMore: cachedHasMore } = getData(cacheKey)
+        setAllAnime(items)
+        setHasMore(cachedHasMore)
+        setLoading(false)
+        return
+      }
+    }
+
+    const fetchId = ++fetchIdRef.current
     if (isFirst) setLoading(true)
     else setLoadingMore(true)
 
@@ -213,7 +227,13 @@ export default function Anime() {
       if (fetchId !== fetchIdRef.current) return
 
       setAllAnime((prev) => (append ? [...prev, ...resolved] : resolved))
-      setHasMore(results.length >= PER_PAGE)
+      const more = results.length >= PER_PAGE
+      setHasMore(more)
+
+      // Cache page 1 results for instant return visits
+      if (isFirst && !append) {
+        saveData(`anime-${tab}-page1`, { items: resolved, hasMore: more })
+      }
     } catch (err) {
       console.error('[Anime] Fetch error:', err)
       if (!append) setAllAnime([])

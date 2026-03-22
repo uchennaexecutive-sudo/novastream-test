@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { ChevronLeft } from 'lucide-react'
 import ReactPlayer from 'react-player'
 import { getDetails, imgOriginal, imgW500 } from '../lib/tmdb'
 import { preloadAnimePlayback } from '../lib/consumet'
@@ -39,6 +40,7 @@ export default function Detail() {
   const { type, id } = useParams()
   const isMovieLike = isMovieLikeMediaType(type)
   const location = useLocation()
+  const navigate = useNavigate()
 
   const requestedResumeAt = Math.max(0, Math.floor(Number(location.state?.resumeAt) || 0))
   const requestedResumeSeason = Number(location.state?.resumeSeason) || null
@@ -372,6 +374,35 @@ export default function Detail() {
           className="absolute inset-0"
           style={{ background: 'linear-gradient(to top, var(--bg-base) 0%, transparent 70%)' }}
         />
+
+        {/* Back button */}
+        <motion.button
+          onClick={() => navigate(-1)}
+          className="absolute flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium cursor-pointer"
+          style={{
+            top: 76,
+            left: 20,
+            zIndex: 20,
+            background: 'rgba(10,10,16,0.65)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: 'rgba(255,255,255,0.85)',
+          }}
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.15, duration: 0.3 }}
+          whileHover={{
+            background: 'rgba(10,10,16,0.88)',
+            borderColor: 'var(--border-hover)',
+            boxShadow: '0 0 16px var(--accent-glow)',
+            color: '#fff',
+          }}
+          whileTap={{ scale: 0.96 }}
+        >
+          <ChevronLeft size={15} strokeWidth={2} />
+          Back
+        </motion.button>
       </div>
 
       <div className="relative z-10 w-full" style={{ marginTop: -120, padding: '0 64px 64px 64px' }}>

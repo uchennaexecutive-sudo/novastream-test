@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo view:*)",
+      "Bash(powershell.exe -Command \"winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements\")",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" --version)",
+      "Bash(\"/c/Program Files \\(x86\\)/GitHub CLI/gh.exe\" --version)",
+      "Bash(powershell.exe -Command \"Invoke-WebRequest -Uri ''https://github.com/cli/cli/releases/download/v2.88.1/gh_2.88.1_windows_amd64.zip'' -OutFile ''C:\\\\Users\\\\uchen\\\\gh.zip''; Expand-Archive -Path ''C:\\\\Users\\\\uchen\\\\gh.zip'' -DestinationPath ''C:\\\\Users\\\\uchen\\\\gh-cli'' -Force\")",
+      "Bash(powershell.exe -Command \"Expand-Archive -Path ''C:\\\\Users\\\\uchen\\\\gh.zip'' -DestinationPath ''C:\\\\Users\\\\uchen\\\\gh-cli'' -Force\")",
+      "Bash(curl:*)",
+      "Bash(powershell.exe -Command \"Expand-Archive -Path ''C:\\\\Users\\\\uchen\\\\gh2.zip'' -DestinationPath ''C:\\\\Users\\\\uchen\\\\gh-cli'' -Force\")",
+      "Bash(powershell.exe -Command \"Expand-Archive -Path ''C:\\\\Users\\\\uchen\\\\gh4.zip'' -DestinationPath ''C:\\\\Users\\\\uchen\\\\gh-cli'' -Force\")",
+      "Bash(/c/Users/uchen/gh-cli/bin/gh.exe:*)",
+      "Bash(ls:*)",
+      "Bash(git -C /c/Users/uchen/nova-stream-dev-test remote:*)",
+      "Bash(printf:*)",
+      "Bash(git credential-manager:*)",
+      "Bash(export:*)",
+      "Bash(uipro init:*)",
+      "Bash(python3:*)",
+      "Bash(npm install:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File release.ps1:*)"
+    ]
+  }
+}

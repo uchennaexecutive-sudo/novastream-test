@@ -1,21 +1,22 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState } from 'react'
+import { Home, Film, Tv2, Swords, Palette, Bookmark, History, Settings } from 'lucide-react'
 
 const TOPBAR_HEIGHT = 56 // must match TopBar.jsx height
 
 const navItems = [
-  { path: '/', label: 'Home', icon: '⌂' },
-  { path: '/movies', label: 'Movies', icon: '🎬' },
-  { path: '/series', label: 'Series', icon: '📺' },
-  { path: '/anime', label: 'Anime', icon: '⚔' },
-  { path: '/animation', label: 'Animation', icon: '🎨' },
+  { path: '/', label: 'Home', Icon: Home },
+  { path: '/movies', label: 'Movies', Icon: Film },
+  { path: '/series', label: 'Series', Icon: Tv2 },
+  { path: '/anime', label: 'Anime', Icon: Swords },
+  { path: '/animation', label: 'Animation', Icon: Palette },
 ]
 
 const bottomItems = [
-  { path: '/watchlist', label: 'Watchlist', icon: '★' },
-  { path: '/history', label: 'History', icon: '⏱' },
-  { path: '/settings', label: 'Settings', icon: '⚙' },
+  { path: '/watchlist', label: 'Watchlist', Icon: Bookmark },
+  { path: '/history', label: 'History', Icon: History },
+  { path: '/settings', label: 'Settings', Icon: Settings },
 ]
 
 export default function Sidebar() {
@@ -27,9 +28,9 @@ export default function Sidebar() {
       className="fixed left-0 bottom-0 flex flex-col"
       style={{
         top: 0,
-        background: 'linear-gradient(180deg, rgba(11,11,16,0.52) 0%, rgba(11,11,16,0.3) 60%, rgba(11,11,16,0.14) 100%)',
-        backdropFilter: 'blur(28px)',
-        WebkitBackdropFilter: 'blur(28px)',
+        background: 'linear-gradient(180deg, rgba(8,8,14,0.20) 0%, rgba(8,8,14,0.10) 60%, rgba(8,8,14,0.04) 100%)',
+        backdropFilter: 'blur(48px) saturate(200%)',
+        WebkitBackdropFilter: 'blur(48px) saturate(200%)',
         boxShadow: 'var(--inner-glow)',
         zIndex: 50,
         overflow: 'hidden',
@@ -102,6 +103,7 @@ export default function Sidebar() {
 }
 
 function SidebarLink({ item, isActive, hovered }) {
+  const Icon = item.Icon
   return (
     <NavLink
       to={item.path}
@@ -124,8 +126,8 @@ function SidebarLink({ item, isActive, hovered }) {
         />
       )}
 
-      <span className="text-lg w-6 text-center flex-shrink-0 transition-transform duration-200 group-hover:scale-110">
-        {item.icon}
+      <span className="w-6 flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-110">
+        <Icon size={18} strokeWidth={isActive ? 2.5 : 1.75} />
       </span>
 
       <AnimatePresence>

@@ -17,6 +17,7 @@ import HeroSlide from '../components/Cards/HeroSlide'
 import MediaCard from '../components/Cards/MediaCard'
 import ContinueCard from '../components/Cards/ContinueCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
+import { saveData, getData, hasData } from '../lib/sessionCache'
 
 function ContentRow({ title, icon, items, loading, type, renderItem, skeletonCount = 8 }) {
   const scrollRef = useRef(null)
@@ -108,17 +109,53 @@ export default function Home() {
   const [watchRowsLoading, setWatchRowsLoading] = useState(true)
 
   useEffect(() => {
+    const CACHE_KEY = 'home-rows'
+    if (hasData(CACHE_KEY)) {
+      const c = getData(CACHE_KEY)
+      setTrending(c.trending)
+      setPopularMovies(c.popularMovies)
+      setTopRated(c.topRated)
+      setPopularSeries(c.popularSeries)
+      setNowPlaying(c.nowPlaying)
+      setOnAir(c.onAir)
+      setNetflix(c.netflix)
+      setAnime(c.anime)
+      setAnimation(c.animation)
+      setLoading(false)
+      return
+    }
     Promise.all([
-      getTrending().then(setTrending),
-      getPopularMovies().then(data => setPopularMovies(data.results)),
-      getTopRatedMovies().then(data => setTopRated(data.results)),
-      getPopularSeries().then(data => setPopularSeries(data.results)),
-      getNowPlaying().then(setNowPlaying),
-      getOnAir().then(setOnAir),
-      getSeriesByNetwork(213).then(data => setNetflix(data.results)),
-      getAnimeSeries().then(data => setAnime(data.results)),
-      getAnimationMovies().then(data => setAnimation(data.results)),
-    ]).finally(() => setLoading(false))
+      getTrending(),
+      getPopularMovies(),
+      getTopRatedMovies(),
+      getPopularSeries(),
+      getNowPlaying(),
+      getOnAir(),
+      getSeriesByNetwork(213),
+      getAnimeSeries(),
+      getAnimationMovies(),
+    ]).then(([trendData, popMovies, topRatedData, popSeries, nowPlayData, onAirData, netflixData, animeData, animData]) => {
+      setTrending(trendData)
+      setPopularMovies(popMovies.results)
+      setTopRated(topRatedData.results)
+      setPopularSeries(popSeries.results)
+      setNowPlaying(nowPlayData)
+      setOnAir(onAirData)
+      setNetflix(netflixData.results)
+      setAnime(animeData.results)
+      setAnimation(animData.results)
+      saveData(CACHE_KEY, {
+        trending: trendData,
+        popularMovies: popMovies.results,
+        topRated: topRatedData.results,
+        popularSeries: popSeries.results,
+        nowPlaying: nowPlayData,
+        onAir: onAirData,
+        netflix: netflixData.results,
+        anime: animeData.results,
+        animation: animData.results,
+      })
+    }).finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {

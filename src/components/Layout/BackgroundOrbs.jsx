@@ -1,4 +1,5 @@
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
+import useAppStore from '../../store/useAppStore'
 
 const orbs = [
   {
@@ -6,7 +7,7 @@ const orbs = [
     size: 900,
     x: [-50, 70, -50],
     y: [0, -60, 0],
-    dur: 20,
+    dur: 75,
     left: '5%',
     top: '5%',
     opacity: 0.5,
@@ -16,7 +17,7 @@ const orbs = [
     size: 800,
     x: [40, -60, 40],
     y: [-40, 50, -40],
-    dur: 25,
+    dur: 90,
     left: '55%',
     top: '0%',
     opacity: 0.45,
@@ -26,7 +27,7 @@ const orbs = [
     size: 750,
     x: [-30, 50, -30],
     y: [30, -70, 30],
-    dur: 18,
+    dur: 65,
     left: '25%',
     top: '45%',
     opacity: 0.4,
@@ -36,7 +37,7 @@ const orbs = [
     size: 1000,
     x: [60, -40, 60],
     y: [-25, 40, -25],
-    dur: 22,
+    dur: 80,
     left: '65%',
     top: '55%',
     opacity: 0.35,
@@ -44,6 +45,10 @@ const orbs = [
 ]
 
 export default function BackgroundOrbs() {
+  const sysReducedMotion = useReducedMotion()
+  const appReducedMotion = useAppStore(s => s.preferences.reduceAnimations)
+  const reducedMotion = sysReducedMotion || appReducedMotion
+
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 0 }}>
       {orbs.map((orb, i) => (
@@ -58,9 +63,9 @@ export default function BackgroundOrbs() {
             opacity: orb.opacity,
             left: orb.left,
             top: orb.top,
-            willChange: 'transform',
+            willChange: reducedMotion ? 'auto' : 'transform',
           }}
-          animate={{
+          animate={reducedMotion ? {} : {
             x: orb.x,
             y: orb.y,
             scale: [1, 1.1, 0.95, 1],

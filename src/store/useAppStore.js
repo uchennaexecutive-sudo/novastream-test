@@ -8,11 +8,11 @@ const useAppStore = create((set, get) => ({
     set({ theme: id })
   },
 
-  preferences: JSON.parse(localStorage.getItem('nova-preferences') || JSON.stringify({
-    defaultEmbed: 'vidsrc',
-    autoplayNext: true,
-    rememberPosition: true,
-  })),
+  preferences: (() => {
+    const defaults = { defaultEmbed: 'vidsrc', autoplayNext: true, rememberPosition: true, reduceAnimations: false }
+    const saved = JSON.parse(localStorage.getItem('nova-preferences') || '{}')
+    return { ...defaults, ...saved }
+  })(),
   setPreference: (key, value) => {
     const prefs = { ...get().preferences, [key]: value }
     localStorage.setItem('nova-preferences', JSON.stringify(prefs))
