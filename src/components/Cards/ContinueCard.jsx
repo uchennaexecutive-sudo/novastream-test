@@ -1,9 +1,10 @@
+import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { imgW500 } from '../../lib/tmdb'
 import { getProgressPercent } from '../../lib/progress'
 
-export default function ContinueCard({ item }) {
+function ContinueCard({ item }) {
   const navigate = useNavigate()
   const contentType = item.content_type || item.media_type || 'movie'
   const contentId = item.content_id || item.tmdb_id || item.id
@@ -90,3 +91,5 @@ export default function ContinueCard({ item }) {
     </motion.div>
   )
 }
+
+export default memo(ContinueCard)

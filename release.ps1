@@ -76,7 +76,10 @@ function Update-PackageLockVersion {
   $topLevelPattern = '(?s)\A(\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*")([^"]+)(")'
   $rootPackagePattern = '(?s)("packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*")([^"]+)(")'
 
-  $updatedTop = [System.Text.RegularExpressions.Regex]::Replace($content, $topLevelPattern, ('${1}{0}${3}' -f $Version), 1)
+  $topLevelReplacement = '${1}' + $Version + '${3}'
+  $rootPackageReplacement = '${1}' + $Version + '${3}'
+
+  $updatedTop = [System.Text.RegularExpressions.Regex]::Replace($content, $topLevelPattern, $topLevelReplacement, 1)
   if ($updatedTop -eq $content) {
     if ($content -match ('(?s)\A\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*"' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '"')) {
       $updatedTop = $content
@@ -85,7 +88,7 @@ function Update-PackageLockVersion {
     }
   }
 
-  $updatedRoot = [System.Text.RegularExpressions.Regex]::Replace($updatedTop, $rootPackagePattern, ('${1}{0}${3}' -f $Version), 1)
+  $updatedRoot = [System.Text.RegularExpressions.Regex]::Replace($updatedTop, $rootPackagePattern, $rootPackageReplacement, 1)
   if ($updatedRoot -eq $updatedTop) {
     if ($updatedTop -match ('(?s)"packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"version"\s*:\s*"' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '"')) {
       $updatedRoot = $updatedTop
@@ -146,6 +149,10 @@ Write-Host " - The GitHub Actions release workflow rewrites updates/latest.json 
 Write-Host " - That manifest is what installed builds fetch to detect v$TargetVersion."
 Write-Host ""
 
+$blockedReleasePaths = @(
+  '.claude/settings.local.json'
+)
+
 # 1. Pull latest remote (CI bot may have committed latest.json)
 Write-Host "Pulling latest remote..." -ForegroundColor Yellow
 git pull --rebase --autostash origin main
@@ -153,7 +160,43 @@ if ($LASTEXITCODE -ne 0) { throw 'Pull/rebase failed' }
 
 # 2. Commit staged changes
 Write-Host "`nCommitting..." -ForegroundColor Yellow
-git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src/main.jsx
+git add -A
+
+$stagedFiles = git diff --cached --name-only
+if ($LASTEXITCODE -ne 0) { throw 'Failed to inspect staged files' }
+
+if (-not $stagedFiles) {
+  Write-Host "Nothing staged for release." -ForegroundColor DarkYellow
+} else {
+  Write-Host "Staged files for release:" -ForegroundColor Yellow
+  $stagedFiles | ForEach-Object { Write-Host " - $_" }
+}
+
+$blockedMatches = @($stagedFiles | Where-Object { $blockedReleasePaths -contains $_ })
+if ($blockedMatches.Count -gt 0) {
+  Write-Host ""
+  Write-Host "Blocked local-only files were staged and will be excluded automatically:" -ForegroundColor Yellow
+  $blockedMatches | ForEach-Object { Write-Host " - $_" -ForegroundColor Yellow }
+  Write-Host ""
+  foreach ($path in $blockedMatches) {
+    git restore --staged -- "$path"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to unstage blocked file: $path" }
+
+    git restore -- "$path"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to restore blocked file: $path" }
+  }
+
+  $stagedFiles = git diff --cached --name-only
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to inspect staged files after excluding blocked files' }
+
+  Write-Host "Final staged files for release after exclusions:" -ForegroundColor Yellow
+  if (-not $stagedFiles) {
+    Write-Host " - none" -ForegroundColor DarkYellow
+  } else {
+    $stagedFiles | ForEach-Object { Write-Host " - $_" }
+  }
+}
+
 git commit -m "v${TargetVersion}: $Notes"
 if ($LASTEXITCODE -ne 0) {
   Write-Host "Nothing new to commit (already clean)" -ForegroundColor DarkYellow

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { searchAnime as searchAniListAnime } from '../../lib/anilist'
 import useAppStore from '../../store/useAppStore'
 import { searchMulti, searchAnimeOnTMDB, imgW500 } from '../../lib/tmdb'
+import { buildDetailNavigationForTmdbItem } from '../../lib/animeClassification'
 
 export default function SearchOverlay() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
@@ -47,9 +48,9 @@ export default function SearchOverlay() {
     return () => clearTimeout(timerRef.current)
   }, [query, doSearch])
 
-  const openTmdbItem = (item) => {
-    const type = item.media_type || (item.title ? 'movie' : 'tv')
-    navigate(`/detail/${type}/${item.id}`)
+  const openTmdbItem = async (item) => {
+    const target = await buildDetailNavigationForTmdbItem(item)
+    navigate(target.path, target.state ? { state: target.state } : undefined)
     setSearchOpen(false)
   }
 

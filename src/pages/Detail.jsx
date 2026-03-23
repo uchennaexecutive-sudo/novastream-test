@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronLeft } from 'lucide-react'
@@ -17,13 +17,15 @@ import RatingBadge from '../components/UI/RatingBadge'
 import GlassBadge from '../components/UI/GlassBadge'
 import MediaCard from '../components/Cards/MediaCard'
 import EpisodeSelector from '../components/Player/EpisodeSelector'
-import AnimePlayer from '../components/Player/AnimePlayer'
-import MoviePlayer from '../components/Player/MoviePlayer'
 import { addToWatchlist, isInWatchlist } from '../lib/supabase'
 import {
   buildAnimeCanonicalFromAniList,
   buildAnimeEpisodesFromAniListEntry,
+  resolveAnimeCanonicalRoot,
 } from '../lib/animeMapper'
+
+const AnimePlayer = lazy(() => import('../components/Player/AnimePlayer'))
+const MoviePlayer = lazy(() => import('../components/Player/MoviePlayer'))
 
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
@@ -75,6 +77,7 @@ export default function Detail() {
   const animeAltTitle =
     location.state?.animeAltTitle || data?.original_name || data?.original_title || ''
   const anilistId = Number(location.state?.anilistId) || null
+  const canonicalAnilistId = Number(location.state?.canonicalAnilistId) || null
 
   useEffect(() => {
     setLoading(true)
@@ -156,16 +159,25 @@ export default function Detail() {
   }, [id, isMovieLike, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, type])
 
   useEffect(() => {
-    if (!isAnime || !anilistId) return undefined
+    const animeIdentityId = canonicalAnilistId || anilistId
+    if (!isAnime || !animeIdentityId) return undefined
 
     let cancelled = false
     setCanonicalLoading(true)
 
-    getAnimeById(anilistId)
-      .then((media) => {
+    getAnimeById(animeIdentityId)
+      .then(async (media) => {
         if (cancelled) return
 
-        const result = buildAnimeCanonicalFromAniList(media)
+        const canonicalRoot = resolveAnimeCanonicalRoot(media) || media
+        let rootMedia = media
+
+        if (canonicalRoot?.id && canonicalRoot.id !== media.id) {
+          rootMedia = await getAnimeById(canonicalRoot.id) || canonicalRoot
+          if (cancelled) return
+        }
+
+        const result = buildAnimeCanonicalFromAniList(rootMedia)
         setCanonicalAnime(result || null)
 
         if (result?.entries?.length) {
@@ -193,7 +205,7 @@ export default function Detail() {
     return () => {
       cancelled = true
     }
-  }, [anilistId, isAnime, location.state?.resumeSeason, resumeProgress?.season])
+  }, [anilistId, canonicalAnilistId, isAnime, location.state?.resumeSeason, resumeProgress?.season])
 
   const selectedCanonicalEntry = canonicalAnime?.entries?.[selectedEntryIndex] || null
 
@@ -351,6 +363,32 @@ export default function Detail() {
     })
     setInWatchlist(true)
   }
+
+  const playerFallback = (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        background: 'rgba(0,0,0,0.82)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <div
+          className="w-10 h-10 rounded-full border-2 border-t-transparent animate-spin"
+          style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
+        />
+        <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, fontFamily: 'monospace' }}>
+          Loading player...
+        </span>
+      </div>
+    </div>
+  )
 
   return (
     <div>
@@ -796,8 +834,8 @@ export default function Detail() {
         )}
       </div>
 
-      {!isAnime &&
-        (playerOpen ? (
+      {!isAnime && playerOpen && (
+        <Suspense fallback={playerFallback}>
           <MoviePlayer
             tmdbId={data.id}
             imdbId={data.imdb_id || null}
@@ -810,21 +848,24 @@ export default function Detail() {
             resumeAt={playerResumeAt}
             onClose={() => setPlayerOpen(false)}
           />
-        ) : null)}
+        </Suspense>
+      )}
 
       {isAnime && animePlayerOpen && (
-        <AnimePlayer
-          animeTitle={animePlayTitle || playbackAnimeTitle || animeTitle}
-          animeAltTitle={animePlayAltTitle || animeAltTitle}
-          contentId={data.id}
-          season={playSeason}
-          episode={playEpisode}
-          poster={poster}
-          backdrop={backdrop}
-          resumeAt={playerResumeAt}
-          prefetchedAnime={animePrefetchRef.current.get(prefetchedAnimeIdRef.current) || null}
-          onClose={() => setAnimePlayerOpen(false)}
-        />
+        <Suspense fallback={playerFallback}>
+          <AnimePlayer
+            animeTitle={animePlayTitle || playbackAnimeTitle || animeTitle}
+            animeAltTitle={animePlayAltTitle || animeAltTitle}
+            contentId={data.id}
+            season={playSeason}
+            episode={playEpisode}
+            poster={poster}
+            backdrop={backdrop}
+            resumeAt={playerResumeAt}
+            prefetchedAnime={animePrefetchRef.current.get(prefetchedAnimeIdRef.current) || null}
+            onClose={() => setAnimePlayerOpen(false)}
+          />
+        </Suspense>
       )}
     </div>
   )

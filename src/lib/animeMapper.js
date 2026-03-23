@@ -20,6 +20,13 @@ const getTitle = (item) =>
 const getYear = (item) =>
     item?.seasonYear || item?.startDate?.year || 0
 
+const getEpisodeCount = (item) => {
+    const explicitEpisodes = Number(item?.episodes || 0)
+    const nextEpisodeNumber = Number(item?.nextAiringEpisode?.episode || 0)
+    const airedEpisodes = nextEpisodeNumber > 1 ? nextEpisodeNumber - 1 : 0
+    return Math.max(explicitEpisodes, airedEpisodes, 0)
+}
+
 const getKind = (item) => {
     const format = String(item?.format || '').toUpperCase()
     if (format === 'TV' || format === 'TV_SHORT') return 'season'
@@ -56,6 +63,39 @@ const isLongRunner = (media) => {
         title === 'pokemon'
     )
 }
+
+const hasSequelMarker = (item) => {
+    const titles = [
+        item?.title?.english,
+        item?.title?.romaji,
+        item?.title?.native,
+        ...(Array.isArray(item?.synonyms) ? item.synonyms : []),
+    ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase())
+
+    return titles.some((title) => (
+        /\bseason\s+[2-9]\d*\b/.test(title) ||
+        /\b[2-9]\d*(st|nd|rd|th)\s+season\b/.test(title) ||
+        /\bpart\s+[2-9]\d*\b/.test(title) ||
+        /\bcour\s+[2-9]\d*\b/.test(title) ||
+        /\bfinal\s+season\b/.test(title)
+    ))
+}
+
+const hasPrequelRelation = (item) =>
+    Array.isArray(item?.relations?.edges) &&
+    item.relations.edges.some((edge) => {
+        const relationType = String(edge?.relationType || '').toUpperCase()
+        const nodeFormat = String(edge?.node?.format || '').toUpperCase()
+        return relationType === 'PREQUEL' && (nodeFormat === 'TV' || nodeFormat === 'TV_SHORT' || nodeFormat === 'ONA')
+    })
+
+const isEpisodicOnaSeries = (item) =>
+    String(item?.format || '').toUpperCase() === 'ONA' && getEpisodeCount(item) > 1
+
+const isSeasonLike = (item) =>
+    getKind(item) === 'season' || isEpisodicOnaSeries(item)
 
 function collectRelatedAnime(root) {
     const baseTitle = getTitle(root)
@@ -120,6 +160,53 @@ function sortSeasons(items, rootId) {
     })
 }
 
+export function resolveAnimeCanonicalRoot(media) {
+    if (!media?.id) return null
+
+    const related = collectRelatedAnime(media)
+    const seasonCandidates = related.filter(isSeasonLike)
+
+    if (!seasonCandidates.length) return media
+
+    const best = [...seasonCandidates].sort((a, b) => {
+        const aTitle = normalizeTitle(getTitle(a))
+        const bTitle = normalizeTitle(getTitle(b))
+        const aLongRunner = isLongRunner(a)
+        const bLongRunner = isLongRunner(b)
+
+        if (aLongRunner && !bLongRunner) return -1
+        if (!aLongRunner && bLongRunner) return 1
+
+        const aFormat = String(a?.format || '').toUpperCase()
+        const bFormat = String(b?.format || '').toUpperCase()
+        const aTvLike = aFormat === 'TV' || aFormat === 'TV_SHORT'
+        const bTvLike = bFormat === 'TV' || bFormat === 'TV_SHORT'
+
+        if (aTvLike && !bTvLike) return -1
+        if (!aTvLike && bTvLike) return 1
+
+        const aPrimary = !hasSequelMarker(a) && !hasPrequelRelation(a)
+        const bPrimary = !hasSequelMarker(b) && !hasPrequelRelation(b)
+
+        if (aPrimary && !bPrimary) return -1
+        if (!aPrimary && bPrimary) return 1
+
+        const aRoot = a.id === media.id
+        const bRoot = b.id === media.id
+        if (aRoot && !bRoot && aPrimary) return -1
+        if (!aRoot && bRoot && bPrimary) return 1
+
+        const yearDiff = Number(getYear(a) || 0) - Number(getYear(b) || 0)
+        if (yearDiff !== 0) return yearDiff
+
+        if (aTitle !== bTitle) return aTitle.localeCompare(bTitle)
+
+        return Number(a.id || 0) - Number(b.id || 0)
+    })[0]
+
+    return best || media
+}
+
 function makeGroup(kind, label, items) {
     if (!items.length) return null
 
@@ -158,10 +245,10 @@ export function buildAnimeCanonicalFromAniList(media) {
     const related = collectRelatedAnime(media)
     const longRunner = isLongRunner(media)
 
-    const seasonsRaw = related.filter((item) => getKind(item) === 'season')
+    const seasonsRaw = related.filter(isSeasonLike)
     const moviesRaw = related.filter((item) => getKind(item) === 'movie')
     const ovaRaw = related.filter((item) => getKind(item) === 'ova')
-    const onaRaw = related.filter((item) => getKind(item) === 'ona')
+    const onaRaw = related.filter((item) => getKind(item) === 'ona' && !isEpisodicOnaSeries(item))
     const specialsRaw = related.filter((item) => getKind(item) === 'special')
 
     const baseTitle = normalizeTitle(getTitle(media))
@@ -174,7 +261,7 @@ export function buildAnimeCanonicalFromAniList(media) {
                 title: getTitle(media),
                 label: 'Season 1',
                 seasonNumber: 1,
-                episodesCount: Math.max(1, Number(media?.episodes || 1)),
+                episodesCount: Math.max(1, getEpisodeCount(media)),
                 image: media?.coverImage?.extraLarge || media?.coverImage?.large || '',
                 bannerImage: media?.bannerImage || '',
                 year: getYear(media),
@@ -189,7 +276,7 @@ export function buildAnimeCanonicalFromAniList(media) {
                     title: getTitle(media),
                     label: 'Season 1',
                     seasonNumber: 1,
-                    episodesCount: Math.max(1, Number(media?.episodes || 1)),
+                    episodesCount: Math.max(1, getEpisodeCount(media)),
                     image: media?.coverImage?.extraLarge || media?.coverImage?.large || '',
                     bannerImage: media?.bannerImage || '',
                     year: getYear(media),
@@ -202,7 +289,7 @@ export function buildAnimeCanonicalFromAniList(media) {
                 title: getTitle(item),
                 label: `Season ${index + 1}`,
                 seasonNumber: index + 1,
-                episodesCount: Math.max(1, Number(item?.episodes || 1)),
+                episodesCount: Math.max(1, getEpisodeCount(item)),
                 image: item?.coverImage?.extraLarge || item?.coverImage?.large || '',
                 bannerImage: item?.bannerImage || '',
                 year: getYear(item),

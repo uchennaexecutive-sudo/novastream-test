@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { getTrendingAnime, getPopularAnime, getTopRatedAnime } from '../lib/anilist'
 import { searchAnimeOnTMDB } from '../lib/tmdb'
 import { saveData, getData, hasData } from '../lib/sessionCache'
+import { getAnnFeed, fetchOgImages, getCachedImages, saveCachedImages } from '../lib/annFeed'
 
 const TABS = ['Trending', 'Popular', 'Top Rated']
 const GENRES = ['Action', 'Romance', 'Comedy', 'Horror', 'Fantasy', 'Sci-Fi', 'Slice of Life', 'Sports']
@@ -136,6 +137,9 @@ export default function Anime() {
   const [hasMore, setHasMore] = useState(true)
   const [notAvailable, setNotAvailable] = useState(null)
   const [searching, setSearching] = useState(false)
+  const [annNews, setAnnNews] = useState([])
+  const [newsImages, setNewsImages] = useState(() => getCachedImages())
+  const [newsPage, setNewsPage] = useState(0)
 
   const navigate = useNavigate()
   const observer = useRef(null)
@@ -199,10 +203,12 @@ export default function Anime() {
       const cacheKey = `anime-${tab}-page1`
       if (hasData(cacheKey)) {
         const { items, hasMore: cachedHasMore } = getData(cacheKey)
-        setAllAnime(items)
-        setHasMore(cachedHasMore)
-        setLoading(false)
-        return
+        if (Array.isArray(items) && items.length > 0) {
+          setAllAnime(items)
+          setHasMore(cachedHasMore)
+          setLoading(false)
+          return
+        }
       }
     }
 
@@ -214,25 +220,15 @@ export default function Anime() {
       const fetcher = getFetcher()
       const results = await fetcher(pageNum, PER_PAGE)
       console.log(`[Anime] ${tab} page ${pageNum}:`, results.length, 'results')
-
-      const resolved = await Promise.all(
-        results.map(async (item) => {
-          const match = await resolveTmdbMatch(item)
-          return {
-            ...item,
-            _tmdbMatch: match,
-          }
-        })
-      )
       if (fetchId !== fetchIdRef.current) return
 
-      setAllAnime((prev) => (append ? [...prev, ...resolved] : resolved))
+      setAllAnime((prev) => (append ? [...prev, ...results] : results))
       const more = results.length >= PER_PAGE
       setHasMore(more)
 
       // Cache page 1 results for instant return visits
-      if (isFirst && !append) {
-        saveData(`anime-${tab}-page1`, { items: resolved, hasMore: more })
+      if (isFirst && !append && results.length > 0) {
+        saveData(`anime-${tab}-page1`, { items: results, hasMore: more })
       }
     } catch (err) {
       console.error('[Anime] Fetch error:', err)
@@ -250,6 +246,33 @@ export default function Anime() {
     setHasMore(true)
     fetchPage(1, false)
   }, [tab, fetchPage])
+
+  useEffect(() => {
+    getAnnFeed().then(setAnnNews).catch(() => {})
+  }, [])
+
+  // Auto-advance news carousel every 6 seconds
+  useEffect(() => {
+    if (annNews.length === 0) return
+    const totalPages = Math.ceil(annNews.length / 2)
+    const timer = setInterval(() => {
+      setNewsPage(p => (p + 1) % totalPages)
+    }, 6000)
+    return () => clearInterval(timer)
+  }, [annNews.length])
+
+  // Fetch OG images for all articles as soon as the feed loads
+  useEffect(() => {
+    if (annNews.length === 0) return
+    const toFetch = annNews.filter(i => !newsImages[i.link])
+    if (toFetch.length === 0) return
+    fetchOgImages(toFetch).then(imgs => {
+      if (Object.keys(imgs).length > 0) {
+        setNewsImages(prev => ({ ...prev, ...imgs }))
+        saveCachedImages(imgs)
+      }
+    })
+  }, [annNews])
 
   const lastCardRef = useCallback(node => {
     if (loading || loadingMore) return
@@ -319,7 +342,7 @@ export default function Anime() {
     setNotAvailable(null)
 
     try {
-      const match = item._tmdbMatch || await resolveTmdbMatch(item)
+      const match = await resolveTmdbMatch(item)
 
       if (match) {
         navigate(`/detail/${match.mediaType}/${match.tmdbId}`, {
@@ -418,9 +441,179 @@ export default function Anime() {
       <h1 className="font-display font-bold text-3xl mb-1" style={{ color: 'var(--text-primary)' }}>
         ⚔ Anime
       </h1>
-      <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
-        Grouped by TMDB match
+      <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+        Discover anime titles
       </p>
+
+      {annNews.length > 0 && (() => {
+        const NEWS_PER_PAGE = 2
+        const totalPages = Math.ceil(annNews.length / NEWS_PER_PAGE)
+        const pageItems = annNews.slice(newsPage * NEWS_PER_PAGE, (newsPage + 1) * NEWS_PER_PAGE)
+        const CAT_STYLES = {
+          'Manga':       { bg: 'linear-gradient(135deg, #1a0040 0%, #3b0070 50%, #220055 100%)', accent: '#9b59b6' },
+          'Anime':       { bg: 'linear-gradient(135deg, #001a40 0%, #003380 50%, #001a55 100%)', accent: '#3b82f6' },
+          'Industry':    { bg: 'linear-gradient(135deg, #1a1000 0%, #3d2800 50%, #251800 100%)', accent: '#f59e0b' },
+          'Live-Action': { bg: 'linear-gradient(135deg, #001a10 0%, #00401f 50%, #001a12 100%)', accent: '#10b981' },
+          'Game':        { bg: 'linear-gradient(135deg, #001a1a 0%, #003d3d 50%, #001a20 100%)', accent: '#06b6d4' },
+        }
+        const getStyle = (cat) => CAT_STYLES[cat] || { bg: 'linear-gradient(135deg, #0d0d1a 0%, #1a1a3a 50%, #0d0d20 100%)', accent: 'var(--accent)' }
+
+        return (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Latest News
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setNewsPage(p => Math.max(0, p - 1))}
+                  disabled={newsPage === 0}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs transition-opacity"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)', opacity: newsPage === 0 ? 0.3 : 1 }}
+                >{'<'}</button>
+                <button
+                  onClick={() => setNewsPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={newsPage === totalPages - 1}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs transition-opacity"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)', opacity: newsPage === totalPages - 1 ? 0.3 : 1 }}
+                >{'>'}</button>
+              </div>
+            </div>
+
+            {/* Cards — overflow visible so hover lift isn't clipped */}
+            <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <AnimatePresence mode="wait">
+                {pageItems.map((item, i) => {
+                  const s = getStyle(item.category)
+                  return (
+                    <motion.a
+                      key={`${newsPage}-${i}`}
+                      href={item.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.22, delay: i * 0.06 }}
+                      className="rounded-2xl relative overflow-hidden"
+                      style={{
+                        height: 180,
+                        textDecoration: 'none',
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--border)',
+                        boxShadow: 'var(--card-shadow)',
+                        transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.transform = 'translateY(-6px)'
+                        e.currentTarget.style.borderColor = s.accent
+                        e.currentTarget.style.boxShadow = `0 0 28px ${s.accent}55, 0 20px 48px rgba(0,0,0,0.5)`
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.transform = 'translateY(0)'
+                        e.currentTarget.style.borderColor = 'var(--border)'
+                        e.currentTarget.style.boxShadow = 'var(--card-shadow)'
+                      }}
+                    >
+                      {/* Background image (lazily fetched OG image) */}
+                      {newsImages[item.link] && (
+                        <img
+                          src={newsImages[item.link]}
+                          alt=""
+                          draggable={false}
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover/card:scale-105"
+                        />
+                      )}
+                      {/* Overlay — dark gradient when image present, themed gradient when not */}
+                      <div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                          background: newsImages[item.link]
+                            ? 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0.15) 100%)'
+                            : s.bg,
+                        }}
+                      />
+                      {/* Decorative orb (only when no image) */}
+                      {!newsImages[item.link] && (
+                        <div
+                          className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20 blur-2xl pointer-events-none"
+                          style={{ background: s.accent }}
+                        />
+                      )}
+                      {/* Category badge */}
+                      {item.category && (
+                        <span
+                          className="absolute top-3 left-3 font-mono text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider"
+                          style={{ background: `${s.accent}22`, color: s.accent, border: `1px solid ${s.accent}44` }}
+                        >
+                          {item.category}
+                        </span>
+                      )}
+                      {/* Time badge */}
+                      <span
+                        className="absolute top-3 right-3 font-mono text-[10px] px-2 py-0.5 rounded-full"
+                        style={{ background: 'rgba(0,0,0,0.4)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.08)' }}
+                      >
+                        {item.time}
+                      </span>
+                      {/* Content at bottom */}
+                      <div className="absolute inset-x-0 bottom-0 p-4">
+                        <p
+                          className="font-display font-semibold text-sm leading-snug text-white"
+                          style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            textShadow: '0 1px 6px rgba(0,0,0,0.6)',
+                            marginBottom: 6,
+                          }}
+                        >
+                          {item.title}
+                        </p>
+                        {item.desc && (
+                          <p
+                            className="text-[11px] leading-relaxed"
+                            style={{
+                              color: 'rgba(255,255,255,0.45)',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 1,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {item.desc}
+                          </p>
+                        )}
+                      </div>
+                    </motion.a>
+                  )
+                })}
+              </AnimatePresence>
+            </div>
+
+            {/* Dot indicators */}
+            <div className="flex justify-center gap-2 mt-3">
+              {Array.from({ length: totalPages }).map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setNewsPage(i)}
+                  style={{
+                    width: i === newsPage ? 24 : 6,
+                    height: 6,
+                    borderRadius: 99,
+                    background: i === newsPage ? 'var(--accent)' : 'var(--border)',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    transition: 'width 0.25s ease, background 0.2s ease',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       <div className="flex gap-2 mb-4">
         {TABS.map(t => (

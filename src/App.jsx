@@ -1,23 +1,35 @@
-import { useState, useEffect } from 'react'
+import { lazy, Suspense, useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
 import Home from './pages/Home'
-import Movies from './pages/Movies'
-import Series from './pages/Series'
-import Anime from './pages/Anime'
-import Animation from './pages/Animation'
-import Detail from './pages/Detail'
-import IframePlayerWindow from './pages/IframePlayerWindow'
-import BrowserFetchBridge from './pages/BrowserFetchBridge'
-import Watchlist from './pages/Watchlist'
-import History from './pages/History'
-import Settings from './pages/Settings'
-import Profile from './pages/Profile'
 import Auth from './pages/Auth'
 import SearchOverlay from './components/Search/SearchOverlay'
 import GalaxyIntro from './components/Intro/GalaxyIntro'
 import useAppStore from './store/useAppStore'
 import useAuthStore from './store/useAuthStore'
+
+const Movies = lazy(() => import('./pages/Movies'))
+const Series = lazy(() => import('./pages/Series'))
+const Anime = lazy(() => import('./pages/Anime'))
+const Animation = lazy(() => import('./pages/Animation'))
+const Detail = lazy(() => import('./pages/Detail'))
+const IframePlayerWindow = lazy(() => import('./pages/IframePlayerWindow'))
+const BrowserFetchBridge = lazy(() => import('./pages/BrowserFetchBridge'))
+const Watchlist = lazy(() => import('./pages/Watchlist'))
+const History = lazy(() => import('./pages/History'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Profile = lazy(() => import('./pages/Profile'))
+
+function RouteLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div
+        className="w-12 h-12 rounded-full border-2 border-t-transparent animate-spin"
+        style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
+      />
+    </div>
+  )
+}
 
 export default function App() {
   const searchOpen = useAppStore(s => s.searchOpen)
@@ -68,22 +80,24 @@ export default function App() {
   return (
     <>
       <BrowserRouter>
-        <Routes>
-          <Route path="/player-window" element={<IframePlayerWindow />} />
-          <Route path="/fetch-bridge" element={<BrowserFetchBridge />} />
-          <Route element={<Layout />}>
-            <Route path="/" element={<Home />} />
-            <Route path="/movies" element={<Movies />} />
-            <Route path="/series" element={<Series />} />
-            <Route path="/anime" element={<Anime />} />
-            <Route path="/animation" element={<Animation />} />
-            <Route path="/detail/:type/:id" element={<Detail />} />
-            <Route path="/watchlist" element={<Watchlist />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/profile" element={<Profile />} />
-          </Route>
-        </Routes>
+        <Suspense fallback={<RouteLoader />}>
+          <Routes>
+            <Route path="/player-window" element={<IframePlayerWindow />} />
+            <Route path="/fetch-bridge" element={<BrowserFetchBridge />} />
+            <Route element={<Layout />}>
+              <Route path="/" element={<Home />} />
+              <Route path="/movies" element={<Movies />} />
+              <Route path="/series" element={<Series />} />
+              <Route path="/anime" element={<Anime />} />
+              <Route path="/animation" element={<Animation />} />
+              <Route path="/detail/:type/:id" element={<Detail />} />
+              <Route path="/watchlist" element={<Watchlist />} />
+              <Route path="/history" element={<History />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/profile" element={<Profile />} />
+            </Route>
+          </Routes>
+        </Suspense>
         {!isSpecialWindow && searchOpen && <SearchOverlay />}
       </BrowserRouter>
 

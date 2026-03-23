@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fetch-og-image"
+description = "Allows fetching OG image metadata from article URLs."
+commands.allow = ["fetch_og_image"]

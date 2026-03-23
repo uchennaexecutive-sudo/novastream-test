@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { discoverMovies, discoverTV } from '../lib/tmdb'
 import MediaCard from '../components/Cards/MediaCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
+import { isLikelyAnimeTmdbItem } from '../lib/animeClassification'
 
 function FilterChip({ active, onClick, children }) {
   return (
@@ -34,7 +35,9 @@ export default function Animation() {
       ? discoverMovies({ with_genres: 16, page: p, sort_by: 'popularity.desc' })
       : discoverTV({ with_genres: 16, page: p, sort_by: 'popularity.desc' })
     fn.then(data => {
-      setItems(prev => append ? [...prev, ...data.results] : data.results)
+      const mediaType = t === 'movies' ? 'movie' : 'tv'
+      const filteredResults = (data.results || []).filter((item) => !isLikelyAnimeTmdbItem(item, mediaType))
+      setItems(prev => append ? [...prev, ...filteredResults] : filteredResults)
       setHasMore(data.page < data.total_pages)
       setLoading(false)
     })

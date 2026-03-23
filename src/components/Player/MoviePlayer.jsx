@@ -153,6 +153,16 @@ const normalizeBinaryPayload = (data) => {
   return new Uint8Array(0).buffer
 }
 
+const inferDirectMimeType = (stream) => {
+  const contentType = String(stream?.contentType || '').trim()
+  if (contentType) return contentType
+
+  const url = String(stream?.url || '').toLowerCase()
+  if (url.includes('.webm')) return 'video/webm'
+  if (url.includes('.mov')) return 'video/quicktime'
+  return 'video/mp4'
+}
+
 const createLoaderStats = (startTime, loaded) => {
   const endTime = performance.now()
   const size = Number.isFinite(loaded) ? loaded : 0
@@ -284,6 +294,8 @@ export default function MoviePlayer({
   const resumeAppliedRef = useRef(false)
   const mp4BlobUrlRef = useRef('')
   const handledFailureKeyRef = useRef('')
+  const streamLoadRequestIdRef = useRef(0)
+  const expandedFallbackUsedRef = useRef(false)
   const lastProgressRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
     durationSeconds: 0,
@@ -418,6 +430,84 @@ export default function MoviePlayer({
     setMediaLoading(false)
   }, [streamIndex, streams.length])
 
+  const loadResolverStreams = useCallback(async ({ forceRefresh = false, excludeUrls = [] } = {}) => {
+    const requestId = ++streamLoadRequestIdRef.current
+
+    setLoading(true)
+    setLoadingStage(forceRefresh ? 'Trying broader fallback...' : 'Finding stream...')
+    setError('')
+    setErrorDetail('')
+    setStreams([])
+    setStreamIndex(0)
+
+    try {
+      const nextStreams = contentType === 'series'
+        ? await getSeriesStreams(tmdbId, currentSeason, currentEpisode, imdbId, { forceRefresh, excludeUrls })
+        : contentType === 'animation'
+          ? await getAnimationStreams(tmdbId, imdbId, { forceRefresh, excludeUrls })
+          : await getMovieStreams(tmdbId, imdbId, { forceRefresh, excludeUrls })
+
+      if (requestId !== streamLoadRequestIdRef.current) return false
+
+      const orderedStreams = sortStreamsByPreference(nextStreams, contentType)
+      console.log('[MoviePlayer] resolved streams', {
+        forceRefresh,
+        count: orderedStreams.length,
+        streams: orderedStreams,
+      })
+
+      setStreams(orderedStreams)
+      setLoading(false)
+      setLoadingStage('Loading player...')
+      return orderedStreams.length > 0
+    } catch (streamError) {
+      if (requestId !== streamLoadRequestIdRef.current) return false
+
+      setLoading(false)
+      setMediaLoading(false)
+      setError('Could not load stream')
+      setErrorDetail(streamError instanceof Error ? streamError.message : String(streamError))
+      return false
+    }
+  }, [contentType, currentEpisode, currentSeason, imdbId, tmdbId])
+
+  const tryExpandedFallback = useCallback((detail) => {
+    if (expandedFallbackUsedRef.current) {
+      setMediaLoading(false)
+      setError('Could not load stream')
+      setErrorDetail(detail || '')
+      return
+    }
+
+    expandedFallbackUsedRef.current = true
+    handledFailureKeyRef.current = ''
+    setError('')
+    setErrorDetail('')
+    setLoading(false)
+    setMediaLoading(true)
+    setLoadingStage('Trying broader fallback...')
+
+    const excludeUrls = streams
+      .map(item => String(item?.url || '').trim())
+      .filter(Boolean)
+
+    console.warn('[MoviePlayer] exhausted current validated streams, requesting broader fallback', {
+      contentType,
+      attemptedCount: excludeUrls.length,
+      attemptedProviders: streams.map(item => item?.provider).filter(Boolean),
+      detail: detail || '',
+    })
+
+    void loadResolverStreams({ forceRefresh: true, excludeUrls })
+      .then((loaded) => {
+        if (!loaded) {
+          setMediaLoading(false)
+          setError('Could not load stream')
+          setErrorDetail(detail || 'Broader fallback did not return a playable source')
+        }
+      })
+  }, [contentType, loadResolverStreams, streams])
+
   const handleStreamFailure = useCallback((detail) => {
     const failureKey = `${streamIndex}:${stream?.url || ''}`
     if (handledFailureKeyRef.current === failureKey) {
@@ -438,10 +528,8 @@ export default function MoviePlayer({
       return
     }
 
-    setMediaLoading(false)
-    setError('Could not load stream')
-    setErrorDetail(detail || '')
-  }, [moveToNextStream, stream, streamIndex, streamType, streams])
+    tryExpandedFallback(detail)
+  }, [moveToNextStream, stream, streamIndex, streamType, streams, tryExpandedFallback])
 
   const retryCurrentState = useCallback(() => {
     if (error && streamIndex < streams.length - 1) {
@@ -449,6 +537,7 @@ export default function MoviePlayer({
       return
     }
 
+    expandedFallbackUsedRef.current = false
     setStreams([])
     setStreamIndex(0)
     setError('')
@@ -530,6 +619,7 @@ export default function MoviePlayer({
 
     persistProgress().catch(() => {})
     lastProgressRef.current = { progressSeconds: 0, durationSeconds: 0 }
+    expandedFallbackUsedRef.current = false
     setCurrentEpisode(Number(nextEpisodeMeta.episode_number))
     setStreams([])
     setStreamIndex(0)
@@ -543,6 +633,7 @@ export default function MoviePlayer({
   useEffect(() => {
     setCurrentSeason(Number(season) || 1)
     setCurrentEpisode(Number(episode) || 1)
+    expandedFallbackUsedRef.current = false
     lastProgressRef.current = {
       progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
       durationSeconds: 0,
@@ -606,45 +697,13 @@ export default function MoviePlayer({
   }, [contentType, currentEpisode, currentSeason, imdbId, retryNonce, tmdbId])
 
   useEffect(() => {
-    let cancelled = false
-
-    async function loadStreams() {
-      setLoading(true)
-      setLoadingStage('Finding stream...')
-      setError('')
-      setErrorDetail('')
-      setStreams([])
-      setStreamIndex(0)
-
-      try {
-        const nextStreams = contentType === 'series'
-          ? await getSeriesStreams(tmdbId, currentSeason, currentEpisode, imdbId)
-          : contentType === 'animation'
-            ? await getAnimationStreams(tmdbId, imdbId)
-            : await getMovieStreams(tmdbId, imdbId)
-
-        if (cancelled) return
-
-        const orderedStreams = sortStreamsByPreference(nextStreams, contentType)
-        console.log('[MoviePlayer] resolved streams', orderedStreams)
-        setStreams(orderedStreams)
-        setLoading(false)
-        setLoadingStage('Loading player...')
-      } catch (streamError) {
-        if (cancelled) return
-        setLoading(false)
-        setMediaLoading(false)
-        setError('Could not load stream')
-        setErrorDetail(streamError instanceof Error ? streamError.message : String(streamError))
-      }
-    }
-
-    loadStreams()
+    expandedFallbackUsedRef.current = false
+    void loadResolverStreams()
 
     return () => {
-      cancelled = true
+      streamLoadRequestIdRef.current += 1
     }
-  }, [contentType, currentEpisode, currentSeason, imdbId, retryNonce, tmdbId])
+  }, [loadResolverStreams, retryNonce])
 
   useEffect(() => {
     handledFailureKeyRef.current = ''
@@ -693,8 +752,10 @@ export default function MoviePlayer({
     if (!stream?.url) return
     console.log('[MoviePlayer] selected stream', {
       provider: stream.provider,
+      strategy: stream.strategy || 'unknown',
       quality: stream.quality,
       streamType,
+      contentType: stream.contentType || '',
       url: stream.url,
       headers: stream.headers || {},
       index: streamIndex,
@@ -831,7 +892,7 @@ export default function MoviePlayer({
       .then((data) => {
         if (disposed) return
         const payload = normalizeBinaryPayload(data)
-        const blob = new Blob([payload], { type: 'video/mp4' })
+        const blob = new Blob([payload], { type: inferDirectMimeType(stream) })
         const blobUrl = URL.createObjectURL(blob)
         mp4BlobUrlRef.current = blobUrl
         video.src = blobUrl

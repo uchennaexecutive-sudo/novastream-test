@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   getTrending,
@@ -18,8 +18,9 @@ import MediaCard from '../components/Cards/MediaCard'
 import ContinueCard from '../components/Cards/ContinueCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
 import { saveData, getData, hasData } from '../lib/sessionCache'
+import { isLikelyAnimeTmdbItem } from '../lib/animeClassification'
 
-function ContentRow({ title, icon, items, loading, type, renderItem, skeletonCount = 8 }) {
+const ContentRow = memo(function ContentRow({ title, icon, items, loading, type, renderItem, skeletonCount = 8 }) {
   const scrollRef = useRef(null)
   const [isDragging, setIsDragging] = useState(false)
   const [startX, setStartX] = useState(0)
@@ -45,8 +46,26 @@ function ContentRow({ title, icon, items, loading, type, renderItem, skeletonCou
     scrollRef.current.scrollBy({ left: direction * 600, behavior: 'smooth' })
   }, [])
 
+  const rowItems = useMemo(() => {
+    if (loading) {
+      return Array.from({ length: skeletonCount }).map((_, index) => <SkeletonCard key={index} />)
+    }
+
+    return items?.map((item) => (
+      renderItem
+        ? renderItem(item)
+        : <MediaCard key={item.id} item={item} type={type} />
+    ))
+  }, [items, loading, renderItem, skeletonCount, type])
+
   return (
-    <div className="mb-10 group/row">
+    <div
+      className="mb-10 group/row"
+      style={{
+        contentVisibility: 'auto',
+        containIntrinsicSize: '360px',
+      }}
+    >
       <div className="flex items-center justify-between px-6 mb-4">
         <h2 className="font-display font-semibold text-lg flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
           {icon && <span className="text-xl">{icon}</span>}
@@ -78,18 +97,11 @@ function ContentRow({ title, icon, items, loading, type, renderItem, skeletonCou
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
       >
-        {loading
-          ? Array.from({ length: skeletonCount }).map((_, index) => <SkeletonCard key={index} />)
-          : items?.map((item) => (
-              renderItem
-                ? renderItem(item)
-                : <MediaCard key={item.id} item={item} type={type} />
-            ))
-        }
+        {rowItems}
       </div>
     </div>
   )
-}
+})
 
 export default function Home() {
   const [trending, setTrending] = useState([])
@@ -120,7 +132,7 @@ export default function Home() {
       setOnAir(c.onAir)
       setNetflix(c.netflix)
       setAnime(c.anime)
-      setAnimation(c.animation)
+      setAnimation((c.animation || []).filter((item) => !isLikelyAnimeTmdbItem(item, 'movie')))
       setLoading(false)
       return
     }
@@ -135,6 +147,7 @@ export default function Home() {
       getAnimeSeries(),
       getAnimationMovies(),
     ]).then(([trendData, popMovies, topRatedData, popSeries, nowPlayData, onAirData, netflixData, animeData, animData]) => {
+      const filteredAnimation = (animData.results || []).filter((item) => !isLikelyAnimeTmdbItem(item, 'movie'))
       setTrending(trendData)
       setPopularMovies(popMovies.results)
       setTopRated(topRatedData.results)
@@ -143,7 +156,7 @@ export default function Home() {
       setOnAir(onAirData)
       setNetflix(netflixData.results)
       setAnime(animeData.results)
-      setAnimation(animData.results)
+      setAnimation(filteredAnimation)
       saveData(CACHE_KEY, {
         trending: trendData,
         popularMovies: popMovies.results,
@@ -153,7 +166,7 @@ export default function Home() {
         onAir: onAirData,
         netflix: netflixData.results,
         anime: animeData.results,
-        animation: animData.results,
+        animation: filteredAnimation,
       })
     }).finally(() => setLoading(false))
   }, [])
@@ -208,7 +221,7 @@ export default function Home() {
     return () => clearInterval(timer)
   }, [trending])
 
-  const heroItems = trending.slice(0, 5)
+  const heroItems = useMemo(() => trending.slice(0, 5), [trending])
 
   return (
     <div>

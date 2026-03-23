@@ -1,15 +1,22 @@
+import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { imgW500 } from '../../lib/tmdb'
+import { buildDetailNavigationForTmdbItem, getTmdbMediaType } from '../../lib/animeClassification'
 
-export default function MediaCard({ item, type, aspectRatio = 'portrait' }) {
+function MediaCard({ item, type, aspectRatio = 'portrait' }) {
   const navigate = useNavigate()
-  const mediaType = type || item.media_type || (item.title ? 'movie' : 'tv')
+  const mediaType = getTmdbMediaType(item, type)
   const title = item.title || item.name || item.original_title || ''
   const poster = imgW500(item.poster_path || item.backdrop_path)
   const rating = item.vote_average
 
   const isSquare = aspectRatio === 'square'
+
+  const handleOpen = async () => {
+    const target = await buildDetailNavigationForTmdbItem(item, type)
+    navigate(target.path, target.state ? { state: target.state } : undefined)
+  }
 
   return (
     <motion.div
@@ -26,19 +33,7 @@ export default function MediaCard({ item, type, aspectRatio = 'portrait' }) {
         borderColor: 'var(--border-hover)',
         transition: { duration: 0.3, ease: 'easeOut' },
       }}
-      onClick={() =>
-        navigate(`/detail/${mediaType}/${item.id}`, {
-          state:
-            mediaType === 'anime'
-              ? {
-                isAnime: true,
-                animeTitle: item.title || item.name || item.original_title || '',
-                animeAltTitle: item.original_name || item.original_title || '',
-                animeYear: item.releaseDate || item.start_date || item.year || null,
-              }
-              : undefined,
-        })
-      }
+      onClick={handleOpen}
     >
       {poster ? (
         <img
@@ -104,3 +99,5 @@ export default function MediaCard({ item, type, aspectRatio = 'portrait' }) {
     </motion.div>
   )
 }
+
+export default memo(MediaCard)

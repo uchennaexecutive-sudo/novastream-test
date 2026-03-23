@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fetch-ann-feed"
+description = "Allows fetching the Anime News Network RSS feed."
+commands.allow = ["fetch_ann_feed"]

@@ -1,6 +1,6 @@
 const ANILIST_URL = 'https://graphql.anilist.co'
 
-const MEDIA_FIELDS = `
+const CORE_MEDIA_FIELDS = `
   id
   idMal
   type
@@ -19,46 +19,67 @@ const MEDIA_FIELDS = `
   popularity
   genres
   description(asHtml: false)
-  relations {
-    edges {
-      relationType
-      node {
-  id
-  idMal
-  type
-  format
-  status
-  season
-  seasonYear
-  startDate { year month day }
-  episodes
-  duration
-  title { english romaji native }
-  synonyms
-  coverImage { large extraLarge }
-  bannerImage
+  nextAiringEpisode { episode }
+`
+
+const BROWSE_RELATION_FIELDS = `
   relations {
     edges {
       relationType
       node {
         id
-        idMal
-        type
         format
-        status
-        season
-        seasonYear
-        startDate { year month day }
-        episodes
-        duration
         title { english romaji native }
-        synonyms
-        coverImage { large extraLarge }
-        bannerImage
       }
     }
   }
-}
+`
+
+const BROWSE_MEDIA_FIELDS = `
+  ${CORE_MEDIA_FIELDS}
+  ${BROWSE_RELATION_FIELDS}
+`
+
+const SEARCH_MEDIA_FIELDS = `
+  id
+  format
+  seasonYear
+  startDate { year month day }
+  title { english romaji native }
+  coverImage { large extraLarge }
+  averageScore
+  popularity
+`
+
+const DETAIL_MEDIA_FIELDS = `
+  ${CORE_MEDIA_FIELDS}
+  relations {
+    edges {
+      relationType
+      node {
+        ${CORE_MEDIA_FIELDS}
+        relations {
+          edges {
+            relationType
+            node {
+              id
+              idMal
+              type
+              format
+              status
+              season
+              seasonYear
+              startDate { year month day }
+              episodes
+              duration
+              title { english romaji native }
+              synonyms
+              coverImage { large extraLarge }
+              bannerImage
+            }
+          }
+        }
+      }
     }
   }
 `
@@ -91,7 +112,7 @@ export const getTrendingAnime = (page = 1, perPage = 28) =>
       query ($page: Int, $perPage: Int) {
         Page(page: $page, perPage: $perPage) {
           media(sort: TRENDING_DESC, type: ANIME, isAdult: false) {
-            ${MEDIA_FIELDS}
+            ${BROWSE_MEDIA_FIELDS}
           }
         }
       }
@@ -105,7 +126,7 @@ export const getPopularAnime = (page = 1, perPage = 28) =>
       query ($page: Int, $perPage: Int) {
         Page(page: $page, perPage: $perPage) {
           media(sort: POPULARITY_DESC, type: ANIME, isAdult: false) {
-            ${MEDIA_FIELDS}
+            ${BROWSE_MEDIA_FIELDS}
           }
         }
       }
@@ -119,7 +140,7 @@ export const getTopRatedAnime = (page = 1, perPage = 28) =>
       query ($page: Int, $perPage: Int) {
         Page(page: $page, perPage: $perPage) {
           media(sort: SCORE_DESC, type: ANIME, isAdult: false) {
-            ${MEDIA_FIELDS}
+            ${BROWSE_MEDIA_FIELDS}
           }
         }
       }
@@ -133,7 +154,7 @@ export const searchAnime = (search) =>
       query ($search: String) {
         Page(perPage: 12) {
           media(type: ANIME, search: $search, isAdult: false) {
-            ${MEDIA_FIELDS}
+            ${SEARCH_MEDIA_FIELDS}
           }
         }
       }
@@ -146,7 +167,7 @@ export async function getAnimeById(anilistId) {
     `
       query ($id: Int) {
         Media(id: $id, type: ANIME) {
-          ${MEDIA_FIELDS}
+          ${DETAIL_MEDIA_FIELDS}
         }
       }
     `,

@@ -49,7 +49,7 @@ const NUVIO_SIDECAR_STARTUP_TIMEOUT_SECS: u64 = 45;
 const NUVIO_STREAM_FETCH_TIMEOUT_SECS: u64 = 75;
 const NUVIO_FAST_STAGE_TIMEOUT_SECS: u64 = 18;
 const NUVIO_MEDIUM_STAGE_TIMEOUT_SECS: u64 = 30;
-const MOVIE_STREAM_CACHE_VERSION: &str = "v2";
+const MOVIE_STREAM_CACHE_VERSION: &str = "v3";
 const MOVIE_SUBTITLE_CACHE_VERSION: &str = "v2";
 const NUVIO_FAST_PROVIDER_SET_MOVIE: &str = "vixsrc,moviesmod,moviesdrive";
 const NUVIO_FAST_PROVIDER_SET_ANIMATION: &str = "moviesmod,vixsrc,moviesdrive,moviebox";
@@ -575,7 +575,7 @@ async fn fetch_anime_json(
 
 #[tauri::command]
 fn close_window(window: tauri::Window) {
-    window.close().unwrap();
+    let _ = window.close();
 }
 
 #[derive(serde::Deserialize)]
@@ -3238,6 +3238,8 @@ struct ResolvedMovieStream {
     title: String,
     source: String,
     stream_type: String,
+    content_type: Option<String>,
+    strategy: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -3248,6 +3250,9 @@ struct MovieResolverRequest {
     season: Option<u32>,
     episode: Option<u32>,
     imdb_id: Option<String>,
+    force_refresh: Option<bool>,
+    exclude_urls: Option<Vec<String>>,
+    exclude_providers: Option<Vec<String>>,
 }
 
 #[tauri::command]
@@ -3297,7 +3302,7 @@ async fn probe_movie_stream_inner(
     }
 
     if normalized_stream_type != "hls" {
-        request = request.header("Range", "bytes=0-1");
+        request = request.header("Range", "bytes=0-511");
     }
 
     let response = match request.send().await {
@@ -3332,9 +3337,16 @@ async fn probe_movie_stream_inner(
                 Err(_) => false,
             }
         }
+    } else if !(status.is_success() || status.as_u16() == 206) {
+        false
     } else {
-        (status.is_success() || status.as_u16() == 206)
-            && is_media_like_content_type(content_type.as_deref())
+        match response.bytes().await {
+            Ok(bytes) => {
+                is_media_like_content_type(content_type.as_deref())
+                    && !looks_like_non_media_payload_prefix(&bytes)
+            }
+            Err(_) => false,
+        }
     };
 
     let error = if ok {
@@ -3382,23 +3394,53 @@ fn movie_stream_type_score(value: &str) -> i32 {
     }
 }
 
-fn movie_provider_preference_score(provider: &str) -> i32 {
+fn movie_provider_preference_score(provider: &str, content_type: &str) -> i32 {
     let normalized = provider.to_ascii_lowercase();
 
-    if normalized.contains("vixsrc") {
-        5
-    } else if normalized.contains("moviesmod") {
-        4
-    } else if normalized.contains("uhdmovies") {
-        3
-    } else if normalized.contains("moviesdrive") || normalized.contains("moviebox") {
-        3
-    } else if normalized.contains("auto") {
-        1
-    } else if normalized.contains("4khdhub") {
-        -12
+    if content_type == "animation" {
+        if normalized.contains("uhdmovies") {
+            6
+        } else if normalized.contains("moviesmod") {
+            5
+        } else if normalized.contains("vixsrc") {
+            4
+        } else if normalized.contains("moviesdrive") || normalized.contains("moviebox") {
+            3
+        } else if normalized.contains("showbox") {
+            -2
+        } else if normalized.contains("vidsrc") || normalized.contains("vidzee") {
+            -4
+        } else if normalized.contains("topmovies") || normalized.contains("mp4hydra") {
+            -5
+        } else if normalized.contains("4khdhub") {
+            -20
+        } else if normalized.contains("auto") {
+            1
+        } else {
+            0
+        }
     } else {
-        0
+        if normalized.contains("vixsrc") {
+            5
+        } else if normalized.contains("moviesmod") {
+            4
+        } else if normalized.contains("uhdmovies") {
+            3
+        } else if normalized.contains("moviesdrive") || normalized.contains("moviebox") {
+            3
+        } else if normalized.contains("showbox") {
+            -1
+        } else if normalized.contains("vidsrc") || normalized.contains("vidzee") {
+            -3
+        } else if normalized.contains("topmovies") || normalized.contains("mp4hydra") {
+            -4
+        } else if normalized.contains("auto") {
+            1
+        } else if normalized.contains("4khdhub") {
+            -12
+        } else {
+            0
+        }
     }
 }
 
@@ -3436,6 +3478,13 @@ fn is_direct_playable_movie_url(value: &str) -> bool {
         || lower.contains("youtube.com/")
         || lower.contains("youtu.be/")
         || lower.ends_with(".html")
+        || lower.contains("/embed/")
+        || lower.contains("/iframe/")
+        || lower.contains("autoembed")
+        || lower.contains("vidsrc.")
+        || lower.contains("vidsrc/")
+        || lower.contains("watch.html")
+        || lower.contains("index.html")
         || lower.contains("/blob/")
         || lower.contains("/tree/")
     {
@@ -3443,6 +3492,26 @@ fn is_direct_playable_movie_url(value: &str) -> bool {
     }
 
     true
+}
+
+fn looks_like_non_media_payload_prefix(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return true;
+    }
+
+    let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]).to_ascii_lowercase();
+    let trimmed = preview.trim_start_matches('\u{feff}').trim_start();
+
+    trimmed.starts_with("<!doctype")
+        || trimmed.starts_with("<html")
+        || trimmed.starts_with("<?xml")
+        || trimmed.starts_with("{\"")
+        || trimmed.starts_with("[")
+        || trimmed.contains("<title>")
+        || trimmed.contains("cloudflare")
+        || trimmed.contains("access denied")
+        || trimmed.contains("captcha")
+        || trimmed.contains("forbidden")
 }
 
 fn is_media_like_content_type(content_type: Option<&str>) -> bool {
@@ -3569,7 +3638,7 @@ fn build_nuvio_stream_urls(
     ]
 }
 
-fn normalize_nuvio_streams(value: &serde_json::Value) -> Vec<ResolvedMovieStream> {
+fn normalize_nuvio_streams(value: &serde_json::Value, strategy: &str) -> Vec<ResolvedMovieStream> {
     value
         .get("streams")
         .and_then(|streams| streams.as_array())
@@ -3599,9 +3668,9 @@ fn normalize_nuvio_streams(value: &serde_json::Value) -> Vec<ResolvedMovieStream
                 url,
                 quality,
                 provider: stream
-                    .get("name")
+                    .get("provider")
                     .and_then(|value| value.as_str())
-                    .or_else(|| stream.get("provider").and_then(|value| value.as_str()))
+                    .or_else(|| stream.get("name").and_then(|value| value.as_str()))
                     .unwrap_or("Nuvio")
                     .to_string(),
                 headers,
@@ -3611,6 +3680,8 @@ fn normalize_nuvio_streams(value: &serde_json::Value) -> Vec<ResolvedMovieStream
                     .unwrap_or_default()
                     .to_string(),
                 source: "nuvio-streams".to_string(),
+                content_type: None,
+                strategy: strategy.to_string(),
             })
         })
         .collect()
@@ -3880,6 +3951,20 @@ async fn fetch_movie_resolver_streams(
     } else {
         "movie"
     };
+    let force_refresh = payload.force_refresh.unwrap_or(false);
+    let excluded_urls = payload.exclude_urls.clone().unwrap_or_default();
+    let excluded_providers = payload.exclude_providers.clone().unwrap_or_default();
+    let excluded_url_set = excluded_urls
+        .iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let excluded_provider_set = excluded_providers
+        .iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let use_cache = !force_refresh && excluded_url_set.is_empty() && excluded_provider_set.is_empty();
 
     let resolved_imdb_id = match payload.imdb_id.clone() {
         Some(imdb_id) if !imdb_id.trim().is_empty() => Ok(imdb_id),
@@ -3899,19 +3984,21 @@ async fn fetch_movie_resolver_streams(
         )
     });
 
-    if let Some(cache_key) = cache_key.as_ref() {
-        if let Some(cached) = get_cached_value(
-            movie_stream_cache(),
-            cache_key,
-            MOVIE_STREAM_CACHE_TTL_SECS,
-        ) {
-            log_resolver_debug(&format!(
-                "[fetch_movie_resolver_streams] cache_hit tmdbId={} imdbId={:?} stream_count={}",
-                payload.tmdb_id,
-                resolved_imdb_id,
-                cached.len()
-            ));
-            return Ok(cached);
+    if use_cache {
+        if let Some(cache_key) = cache_key.as_ref() {
+            if let Some(cached) = get_cached_value(
+                movie_stream_cache(),
+                cache_key,
+                MOVIE_STREAM_CACHE_TTL_SECS,
+            ) {
+                log_resolver_debug(&format!(
+                    "[fetch_movie_resolver_streams] cache_hit tmdbId={} imdbId={:?} stream_count={}",
+                    payload.tmdb_id,
+                    resolved_imdb_id,
+                    cached.len()
+                ));
+                return Ok(cached);
+            }
         }
     }
 
@@ -3929,12 +4016,18 @@ async fn fetch_movie_resolver_streams(
     });
 
     log_resolver_debug(&format!(
-        "[fetch_movie_resolver_streams] tmdbId={} contentType={} imdbId={:?}",
-        payload.tmdb_id, normalized_content_type, resolved_imdb_id
+        "[fetch_movie_resolver_streams] tmdbId={} contentType={} imdbId={:?} forceRefresh={} excludedUrls={} excludedProviders={}",
+        payload.tmdb_id,
+        normalized_content_type,
+        resolved_imdb_id,
+        force_refresh,
+        excluded_url_set.len(),
+        excluded_provider_set.len()
     ));
 
     let mut validated_streams = Vec::new();
     let mut last_nuvio_error = None;
+    let collect_all_stages = force_refresh || !excluded_url_set.is_empty() || !excluded_provider_set.is_empty();
 
     match nuvio_urls.as_ref() {
         Some(urls) => {
@@ -3946,7 +4039,14 @@ async fn fetch_movie_resolver_streams(
 
                 match fetch_json_value_with_timeout(&client, url, *timeout_secs).await {
                     Ok(data) => {
-                        let mut candidate_streams = normalize_nuvio_streams(&data);
+                        let mut candidate_streams = normalize_nuvio_streams(&data, strategy)
+                            .into_iter()
+                            .filter(|stream| {
+                                !excluded_url_set.contains(&stream.url.trim().to_ascii_lowercase())
+                                    && !excluded_provider_set
+                                        .contains(&stream.provider.trim().to_ascii_lowercase())
+                            })
+                            .collect::<Vec<_>>();
                         log_resolver_debug(&format!(
                             "[fetch_movie_resolver_streams] Nuvio strategy={} stream_count={} tmdbId={}",
                             strategy,
@@ -3962,8 +4062,8 @@ async fn fetch_movie_resolver_streams(
                             movie_stream_type_score(&b.stream_type)
                                 .cmp(&movie_stream_type_score(&a.stream_type))
                                 .then_with(|| {
-                                    movie_provider_preference_score(&b.provider)
-                                        .cmp(&movie_provider_preference_score(&a.provider))
+                                    movie_provider_preference_score(&b.provider, &normalized_content_type)
+                                        .cmp(&movie_provider_preference_score(&a.provider, &normalized_content_type))
                                 })
                                 .then_with(|| {
                                     movie_quality_score(&b.quality).cmp(&movie_quality_score(&a.quality))
@@ -3985,11 +4085,13 @@ async fn fetch_movie_resolver_streams(
                             if probe_result.ok {
                                 let validated_stream = ResolvedMovieStream {
                                     url: probe_result.final_url.unwrap_or_else(|| stream.url.clone()),
+                                    content_type: probe_result.content_type.clone(),
                                     ..stream
                                 };
                                 log_resolver_debug(&format!(
-                                    "[fetch_movie_resolver_streams] accepted stream provider={} source={} streamType={} quality={} url={}",
+                                    "[fetch_movie_resolver_streams] accepted stream provider={} strategy={} source={} streamType={} quality={} url={}",
                                     validated_stream.provider,
+                                    validated_stream.strategy,
                                     validated_stream.source,
                                     validated_stream.stream_type,
                                     validated_stream.quality,
@@ -4021,8 +4123,11 @@ async fn fetch_movie_resolver_streams(
                                 payload.tmdb_id,
                                 provider_summary
                             ));
-                            validated_streams = stage_validated_streams;
-                            break;
+                            validated_streams.extend(stage_validated_streams);
+                            if !collect_all_stages {
+                                break;
+                            }
+                            continue;
                         }
 
                         log_resolver_debug(&format!(
@@ -4051,6 +4156,19 @@ async fn fetch_movie_resolver_streams(
             );
         }
     }
+
+    validated_streams.sort_by(|a, b| {
+        movie_stream_type_score(&b.stream_type)
+            .cmp(&movie_stream_type_score(&a.stream_type))
+            .then_with(|| {
+                movie_provider_preference_score(&b.provider, &normalized_content_type)
+                    .cmp(&movie_provider_preference_score(&a.provider, &normalized_content_type))
+            })
+            .then_with(|| movie_quality_score(&b.quality).cmp(&movie_quality_score(&a.quality)))
+            .then_with(|| a.provider.cmp(&b.provider))
+            .then_with(|| a.url.cmp(&b.url))
+    });
+    validated_streams.dedup_by(|left, right| left.url == right.url);
 
     if validated_streams.is_empty() {
         if let Some(error) = last_nuvio_error {
@@ -4082,8 +4200,10 @@ async fn fetch_movie_resolver_streams(
             .unwrap_or("unknown")
     ));
 
-    if let Some(cache_key) = cache_key {
-        set_cached_value(movie_stream_cache(), cache_key, validated_streams.clone());
+    if use_cache {
+        if let Some(cache_key) = cache_key {
+            set_cached_value(movie_stream_cache(), cache_key, validated_streams.clone());
+        }
     }
 
     Ok(validated_streams)
@@ -4802,6 +4922,16 @@ fn log_resolver_debug(message: &str) {
     append_resolver_debug_log(message);
 }
 
+fn updater_runtime_dir() -> Result<PathBuf, String> {
+    let base_dir = dirs::data_local_dir()
+        .or_else(|| dirs::home_dir().map(|home| home.join("AppData").join("Local")))
+        .ok_or_else(|| "failed to resolve LocalAppData directory".to_string())?;
+
+    let dir = base_dir.join("NOVA STREAM").join("updater");
+    fs::create_dir_all(&dir).map_err(|e| format!("failed to create updater directory: {e}"))?;
+    Ok(dir)
+}
+
 fn nuvio_sidecar_log_path() -> PathBuf {
     env::temp_dir().join("nova-stream-nuvio-sidecar.log")
 }
@@ -4846,12 +4976,16 @@ fn get_anime_debug_log_path() -> String {
 #[tauri::command]
 async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, String> {
     let current_exe = env::current_exe().map_err(|e| e.to_string())?;
-    let update_dir = current_exe.parent().ok_or("No parent dir")?.join("_update");
-    fs::create_dir_all(&update_dir).map_err(|e| e.to_string())?;
+    let update_dir = updater_runtime_dir()?;
     let update_path = update_dir.join("nova-stream.exe");
     let temp_update_path = update_dir.join("nova-stream.exe.part");
 
-    append_updater_log(&format!("download start url={} target={}", url, update_path.display()));
+    append_updater_log(&format!(
+        "download start url={} current_exe={} target={}",
+        url,
+        current_exe.display(),
+        update_path.display()
+    ));
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
@@ -4978,10 +5112,8 @@ async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, S
 async fn apply_update() -> Result<(), String> {
     let current_exe = env::current_exe().map_err(|e| e.to_string())?;
     let current_path = current_exe.to_string_lossy().to_string();
-    let update_exe = current_exe
-        .parent().ok_or("No parent dir")?
-        .join("_update")
-        .join("nova-stream.exe");
+    let update_dir = updater_runtime_dir()?;
+    let update_exe = update_dir.join("nova-stream.exe");
     let update_path = update_exe.to_string_lossy().to_string();
     let updater_log_path = env::temp_dir().join("nova-stream-updater.log");
 
@@ -4995,9 +5127,7 @@ async fn apply_update() -> Result<(), String> {
         return Err("Update file not found".to_string());
     }
 
-    let batch_path = current_exe
-        .parent().ok_or("No parent dir")?
-        .join("_update.bat");
+    let batch_path = update_dir.join("apply-update.bat");
 
     let script = format!(
         "@echo off\r\n\
@@ -5016,7 +5146,7 @@ async fn apply_update() -> Result<(), String> {
         current_path,
         updater_log_path.to_string_lossy(),
         updater_log_path.to_string_lossy(),
-        current_exe.parent().unwrap().join("_update").to_string_lossy(),
+        update_dir.to_string_lossy(),
         updater_log_path.to_string_lossy(),
         current_path,
         updater_log_path.to_string_lossy(),
@@ -5027,13 +5157,26 @@ async fn apply_update() -> Result<(), String> {
         e.to_string()
     })?;
 
-    Command::new("cmd")
-        .args(["/C", "start", "/min", "", &batch_path.to_string_lossy()])
-        .spawn()
-        .map_err(|e| {
-            append_updater_log(&format!("apply failed launching batch file error={e}"));
-            e.to_string()
-        })?;
+    let batch_path_string = batch_path.to_string_lossy().to_string();
+
+    let mut command = Command::new("cmd");
+    command.args(["/C", &batch_path_string]);
+    command.stdin(Stdio::null());
+    command.stdout(Stdio::null());
+    command.stderr(Stdio::null());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command.spawn().map_err(|e| {
+        append_updater_log(&format!("apply failed launching batch file error={e}"));
+        e.to_string()
+    })?;
 
     append_updater_log(&format!(
         "apply launched batch file={}",
@@ -5041,6 +5184,108 @@ async fn apply_update() -> Result<(), String> {
     ));
 
     std::process::exit(0)
+}
+
+#[tauri::command]
+async fn fetch_ann_feed() -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let text = client
+        .get("https://www.animenewsnetwork.com/news/rss.xml")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(text)
+}
+
+#[tauri::command]
+async fn fetch_og_image(url: String) -> Result<String, String> {
+    use base64::{Engine as _, engine::general_purpose};
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let html = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Extract og:image URL — try property-before-content and content-before-property order
+    let patterns = [
+        r#"property=["']og:image["'][^>]*content=["']([^"']+)["']"#,
+        r#"content=["']([^"']+)["'][^>]*property=["']og:image["']"#,
+    ];
+    let mut img_url = String::new();
+    for pat in &patterns {
+        if let Ok(re) = regex::Regex::new(pat) {
+            if let Some(cap) = re.captures(&html) {
+                img_url = cap[1].to_string().replace("&amp;", "&");
+                break;
+            }
+        }
+    }
+    if img_url.is_empty() {
+        return Ok(String::new());
+    }
+
+    // Resolve relative URLs
+    let img_url = if img_url.starts_with("//") {
+        format!("https:{}", img_url)
+    } else if img_url.starts_with('/') {
+        // Extract scheme+host from article URL: everything before the 3rd '/'
+        let origin = if let Some(idx) = url.find("//") {
+            let after = &url[idx + 2..];
+            let host_end = after.find('/').unwrap_or(after.len());
+            format!("{}//{}", &url[..idx], &after[..host_end])
+        } else {
+            url.clone()
+        };
+        format!("{}{}", origin, img_url)
+    } else {
+        img_url
+    };
+
+    // Fetch image bytes through Rust so hotlink/referer restrictions don't apply in the webview
+    let resp = client
+        .get(&img_url)
+        .header("Referer", &url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .split(';')
+        .next()
+        .unwrap_or("image/jpeg")
+        .trim()
+        .to_string();
+
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    if bytes.is_empty() {
+        return Ok(String::new());
+    }
+
+    let b64 = general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{};base64,{}", content_type, b64))
 }
 
 fn main() {
@@ -5101,17 +5346,35 @@ fn main() {
             capture_stream,
             resolve_embed_stream,
             download_update,
-            apply_update
+            apply_update,
+            fetch_ann_feed,
+            fetch_og_image
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_app_handle, event| {
-        if matches!(
-            event,
-            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
-        ) {
-            stop_nuvio_sidecar();
+    app.run(|app_handle, event| {
+        match event {
+            tauri::RunEvent::WindowEvent { label, event, .. } => {
+                if label == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                    if let Some(player_window) = app_handle.get_webview_window(IFRAME_PLAYER_WINDOW_LABEL) {
+                        let _ = player_window.close();
+                        let _ = player_window.destroy();
+                    }
+
+                    if let Some(bridge_window) = app_handle.get_webview_window(BROWSER_FETCH_BRIDGE_WINDOW_LABEL) {
+                        let _ = bridge_window.close();
+                        let _ = bridge_window.destroy();
+                    }
+
+                    stop_nuvio_sidecar();
+                    app_handle.exit(0);
+                }
+            }
+            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. } => {
+                stop_nuvio_sidecar();
+            }
+            _ => {}
         }
     });
 }

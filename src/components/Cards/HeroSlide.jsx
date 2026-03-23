@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { imgOriginal } from '../../lib/tmdb'
@@ -5,15 +6,21 @@ import GlassButton from '../UI/GlassButton'
 import RatingBadge from '../UI/RatingBadge'
 import GlassBadge from '../UI/GlassBadge'
 import { GENRE_MAP } from '../../lib/tmdb'
+import { buildDetailNavigationForTmdbItem, getTmdbMediaType } from '../../lib/animeClassification'
 
-export default function HeroSlide({ item }) {
+function HeroSlide({ item }) {
   const navigate = useNavigate()
   const title = item.title || item.name
-  const type = item.media_type || (item.title ? 'movie' : 'tv')
+  const type = getTmdbMediaType(item)
   const backdrop = imgOriginal(item.backdrop_path)
   const overview = item.overview?.slice(0, 200) + (item.overview?.length > 200 ? '...' : '')
   const genres = (item.genre_ids || []).slice(0, 3).map(id => GENRE_MAP[id]).filter(Boolean)
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)
+
+  const handleOpen = async () => {
+    const target = await buildDetailNavigationForTmdbItem(item, type)
+    navigate(target.path, target.state ? { state: target.state } : undefined)
+  }
 
   return (
     <div className="relative w-full h-[75vh] overflow-hidden">
@@ -105,19 +112,7 @@ export default function HeroSlide({ item }) {
         <div className="flex gap-3">
           <GlassButton
             variant="filled"
-            onClick={() =>
-              navigate(`/detail/${type}/${item.id}`, {
-                state:
-                  type === 'anime'
-                    ? {
-                      isAnime: true,
-                      animeTitle: item.title || item.name || item.original_title || '',
-                      animeAltTitle: item.original_name || item.original_title || '',
-                      animeYear: item.releaseDate || item.start_date || item.year || null,
-                    }
-                    : undefined,
-              })
-            }
+            onClick={handleOpen}
             className="accent-pulse"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -131,3 +126,5 @@ export default function HeroSlide({ item }) {
     </div>
   )
 }
+
+export default memo(HeroSlide)

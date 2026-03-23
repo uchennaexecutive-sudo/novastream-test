@@ -3,6 +3,7 @@ import { discoverTV } from '../lib/tmdb'
 import MediaCard from '../components/Cards/MediaCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
 import { saveData, getData, hasData } from '../lib/sessionCache'
+import { isLikelyAnimeTmdbItem } from '../lib/animeClassification'
 
 const GENRES = [
   { id: 0, name: 'All' }, { id: 10759, name: 'Action' }, { id: 35, name: 'Comedy' },
@@ -46,7 +47,7 @@ export default function Series() {
     const cacheKey = `series-p${p}-g${g || 0}-n${n || 0}`
     if (!append && hasData(cacheKey)) {
       const { results, hasMore: cachedHasMore } = getData(cacheKey)
-      setSeries(results)
+      setSeries((results || []).filter((item) => !isLikelyAnimeTmdbItem(item, 'tv')))
       setHasMore(cachedHasMore)
       setLoading(false)
       return
@@ -56,11 +57,12 @@ export default function Series() {
     if (n) params.with_networks = n
     setLoading(true)
     discoverTV(params).then(data => {
-      setSeries(prev => append ? [...prev, ...data.results] : data.results)
+      const filteredResults = (data.results || []).filter((item) => !isLikelyAnimeTmdbItem(item, 'tv'))
+      setSeries(prev => append ? [...prev, ...filteredResults] : filteredResults)
       const more = data.page < data.total_pages
       setHasMore(more)
       setLoading(false)
-      if (!append) saveData(cacheKey, { results: data.results, hasMore: more })
+      if (!append) saveData(cacheKey, { results: filteredResults, hasMore: more })
     })
   }, [])
 

@@ -45,8 +45,8 @@ export default function Sidebar() {
       }}
       animate={{ width: hovered ? 240 : 72 }}
       transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
     >
       {/* Logo — exact same height as TopBar, starts at top:0, no extra padding above */}
       <div

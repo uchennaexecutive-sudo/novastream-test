@@ -29,6 +29,8 @@
     "allow-register-media-proxy-stream",
     "allow-open-iframe-player-window",
     "allow-resolve-embed-stream",
+    "allow-fetch-ann-feed",
+    "allow-fetch-og-image",
     "allow-download-update",
     "allow-apply-update",
     "process:default",
