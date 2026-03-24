@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { Home, Film, Tv2, Swords, Palette, Bookmark, History, Settings, LogIn } from 'lucide-react'
 import useAuthStore from '../../store/useAuthStore'
@@ -66,20 +66,23 @@ export default function Sidebar() {
         >
           N
         </div>
-        <AnimatePresence>
-          {hovered && (
-            <motion.span
-              className="font-display font-bold text-base tracking-wide"
-              style={{ color: 'var(--text-primary)' }}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -8 }}
-              transition={{ duration: 0.2 }}
-            >
-              <span style={{ color: 'var(--accent)' }}>NOVA</span> STREAM
-            </motion.span>
-          )}
-        </AnimatePresence>
+        <motion.div
+          className="overflow-hidden min-w-0 whitespace-nowrap"
+          animate={{
+            width: hovered ? 'auto' : 0,
+            opacity: hovered ? 1 : 0,
+            x: hovered ? 0 : -8,
+          }}
+          transition={{ duration: 0.2 }}
+          style={{ pointerEvents: 'none' }}
+        >
+          <span
+            className="font-display font-bold text-base tracking-wide inline-block"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <span style={{ color: 'var(--accent)' }}>NOVA</span> STREAM
+          </span>
+        </motion.div>
       </div>
 
       {/* Main Nav */}
@@ -127,19 +130,20 @@ export default function Sidebar() {
               <img src={dicebearUrl(avatarStyle, avatarSeed)} alt="Avatar" className="w-full h-full" />
             </div>
 
-            <AnimatePresence>
-              {hovered && (
-                <motion.span
-                  className="text-sm font-medium truncate min-w-0"
-                  initial={{ opacity: 0, x: -4 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -4 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  {displayName}
-                </motion.span>
-              )}
-            </AnimatePresence>
+            <motion.div
+              className="overflow-hidden min-w-0 whitespace-nowrap"
+              animate={{
+                width: hovered ? 'auto' : 0,
+                opacity: hovered ? 1 : 0,
+                x: hovered ? 0 : -4,
+              }}
+              transition={{ duration: 0.15 }}
+              style={{ pointerEvents: 'none' }}
+            >
+              <span className="text-sm font-medium truncate min-w-0 inline-block">
+                {displayName}
+              </span>
+            </motion.div>
 
             {/* Hover highlight */}
             {location.pathname !== '/profile' && (
@@ -159,19 +163,20 @@ export default function Sidebar() {
             <span className="w-6 flex items-center justify-center flex-shrink-0">
               <LogIn size={18} strokeWidth={1.75} />
             </span>
-            <AnimatePresence>
-              {hovered && (
-                <motion.span
-                  className="text-sm font-medium"
-                  initial={{ opacity: 0, x: -4 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -4 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  Sign in
-                </motion.span>
-              )}
-            </AnimatePresence>
+            <motion.div
+              className="overflow-hidden min-w-0 whitespace-nowrap"
+              animate={{
+                width: hovered ? 'auto' : 0,
+                opacity: hovered ? 1 : 0,
+                x: hovered ? 0 : -4,
+              }}
+              transition={{ duration: 0.15 }}
+              style={{ pointerEvents: 'none' }}
+            >
+              <span className="text-sm font-medium inline-block">
+                Sign in
+              </span>
+            </motion.div>
             <div
               className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 -z-10"
               style={{ background: 'var(--bg-surface)' }}
@@ -211,19 +216,20 @@ function SidebarLink({ item, isActive, hovered }) {
         <Icon size={18} strokeWidth={isActive ? 2.5 : 1.75} />
       </span>
 
-      <AnimatePresence>
-        {hovered && (
-          <motion.span
-            className="text-sm font-medium"
-            initial={{ opacity: 0, x: -4 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -4 }}
-            transition={{ duration: 0.15 }}
-          >
-            {item.label}
-          </motion.span>
-        )}
-      </AnimatePresence>
+      <motion.div
+        className="overflow-hidden min-w-0 whitespace-nowrap"
+        animate={{
+          width: hovered ? 'auto' : 0,
+          opacity: hovered ? 1 : 0,
+          x: hovered ? 0 : -4,
+        }}
+        transition={{ duration: 0.15 }}
+        style={{ pointerEvents: 'none' }}
+      >
+        <span className="text-sm font-medium inline-block">
+          {item.label}
+        </span>
+      </motion.div>
 
       {/* Hover highlight */}
       {!isActive && (

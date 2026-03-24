@@ -68,6 +68,129 @@ const parseSubtitles = (text) => text
   })
   .filter(item => item?.text)
 
+const SUBTITLE_TOKEN_STOPWORDS = new Set([
+  'the',
+  'and',
+  'with',
+  'for',
+  'from',
+  'this',
+  'that',
+  'movie',
+  'english',
+  'subtitle',
+  'subtitles',
+  'subs',
+  'resync',
+  'proper',
+  'original',
+  'source',
+  'audio',
+  'dual',
+  'multi',
+  'hindi',
+  'chinese',
+  'moviesmod',
+  'cafe',
+  'eng',
+  'non',
+  'hi',
+])
+
+const tokenizeSubtitleContext = (value) => String(value || '')
+  .toLowerCase()
+  .split(/[^a-z0-9]+/)
+  .filter(token => token.length >= 3 && !SUBTITLE_TOKEN_STOPWORDS.has(token))
+
+const getSubtitleTrackScore = (track, stream) => {
+  const streamTitle = String(stream?.title || '').toLowerCase()
+  const streamProvider = String(stream?.provider || '').toLowerCase()
+  const trackText = [
+    track?.release,
+    track?.fileName,
+    track?.origin,
+    track?.label,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  let score = 0
+
+  const streamHas = (token) => streamTitle.includes(token)
+  const trackHas = (token) => trackText.includes(token)
+
+  if (String(track?.language || '').toLowerCase() === 'en') score += 30
+  if (!track?.hearingImpaired) score += 8
+  if (String(track?.source || '').toLowerCase().includes('opensubtitles')) score += 4
+
+  const streamTokens = tokenizeSubtitleContext(streamTitle)
+  const trackTokens = new Set(tokenizeSubtitleContext(trackText))
+  for (const token of streamTokens) {
+    if (trackTokens.has(token)) score += 6
+  }
+
+  if (streamHas('1080p') && trackHas('1080p')) score += 24
+  if (streamHas('720p') && trackHas('720p')) score += 14
+  if ((streamHas('4k') || streamHas('2160')) && (trackHas('4k') || trackHas('2160p'))) score += 14
+
+  if (streamHas('web-dl') && (trackHas('web-dl') || trackHas('webdl'))) score += 26
+  if (streamHas('web') && trackHas('web')) score += 10
+  if (streamHas('webrip') && trackHas('webrip')) score += 10
+
+  if (streamHas('10bit') && trackHas('10bit')) score += 18
+  if (!streamHas('10bit') && trackHas('10bit')) score -= 22
+
+  if ((streamHas('h264') || streamHas('x264')) && (trackHas('h264') || trackHas('x264'))) score += 14
+  if ((streamHas('h264') || streamHas('x264')) && trackHas('x265')) score -= 18
+  if (streamHas('x265') && trackHas('x265')) score += 10
+
+  if (streamHas('esubs') && (trackHas('esub') || trackHas('esubs'))) score += 16
+  if (streamHas('atmos') && trackHas('atmos')) score += 5
+  if (streamHas('amzn') && trackHas('amzn')) score += 6
+
+  if (!streamHas('dubbed') && trackHas('dubbed')) score -= 22
+  if (!streamHas('hc') && (trackHas('.hc.') || trackHas(' hc ') || trackHas('hc-web') || trackHas('hc-sub'))) score -= 26
+  if (!streamHas('hdts') && trackHas('hdts')) score -= 30
+  if (!streamHas('cam') && trackHas('cam')) score -= 28
+  if (!streamHas('bluray') && trackHas('bluray')) score -= 24
+  if (!streamHas('bdrip') && trackHas('bdrip')) score -= 20
+  if (!streamHas('dv') && trackHas('dv')) score -= 8
+  if (!streamHas('hdr') && trackHas('hdr')) score -= 8
+
+  if (trackHas('retail') && trackHas('english dub') && !streamHas('dubbed')) score -= 14
+  if (trackHas('forced') && !streamHas('forced')) score -= 8
+
+  if (streamProvider.includes('moviesmod') && trackText.includes('web')) score += 6
+
+  return score
+}
+
+const sortSubtitleTracksForStream = (tracks, stream) => {
+  const list = Array.isArray(tracks) ? [...tracks] : []
+  if (!stream?.title) {
+    return list
+  }
+
+  list.sort((a, b) => (
+    getSubtitleTrackScore(b, stream) - getSubtitleTrackScore(a, stream)
+    || String(a?.label || '').localeCompare(String(b?.label || ''))
+    || String(a?.url || '').localeCompare(String(b?.url || ''))
+  ))
+
+  return list
+}
+
+const formatSubtitleTrackOptionLabel = (track, index) => {
+  const language = track?.label || track?.language || `Track ${index + 1}`
+  const release = track?.release || track?.fileName || track?.origin || ''
+  const compactRelease = String(release)
+    .replace(/\.[a-z0-9]{2,4}$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!compactRelease) return language
+  if (compactRelease.length <= 38) return `${language} | ${compactRelease}`
+  return `${language} | ${compactRelease.slice(0, 35)}...`
+}
+
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
   const hours = Math.floor(seconds / 3600)
@@ -151,16 +274,6 @@ const normalizeBinaryPayload = (data) => {
     return new Uint8Array(data).buffer
   }
   return new Uint8Array(0).buffer
-}
-
-const inferDirectMimeType = (stream) => {
-  const contentType = String(stream?.contentType || '').trim()
-  if (contentType) return contentType
-
-  const url = String(stream?.url || '').toLowerCase()
-  if (url.includes('.webm')) return 'video/webm'
-  if (url.includes('.mov')) return 'video/quicktime'
-  return 'video/mp4'
 }
 
 const createLoaderStats = (startTime, loaded) => {
@@ -292,7 +405,7 @@ export default function MoviePlayer({
   const hideTimerRef = useRef(null)
   const startupTimerRef = useRef(null)
   const resumeAppliedRef = useRef(false)
-  const mp4BlobUrlRef = useRef('')
+  const directMediaUrlRef = useRef('')
   const handledFailureKeyRef = useRef('')
   const streamLoadRequestIdRef = useRef(0)
   const expandedFallbackUsedRef = useRef(false)
@@ -326,8 +439,11 @@ export default function MoviePlayer({
   const [selectedResolution, setSelectedResolution] = useState('auto')
   const [mediaLoading, setMediaLoading] = useState(false)
   const [subtitleTracks, setSubtitleTracks] = useState([])
+  const [fallbackSubtitleTracks, setFallbackSubtitleTracks] = useState([])
   const [subtitleCues, setSubtitleCues] = useState([])
   const [subtitleEnabled, setSubtitleEnabled] = useState(false)
+  const [subtitleMode, setSubtitleMode] = useState('none')
+  const [selectedSubtitleTrackKey, setSelectedSubtitleTrackKey] = useState('auto')
 
   const stream = streams[streamIndex] || null
   const streamType = inferStreamType(stream)
@@ -353,6 +469,13 @@ export default function MoviePlayer({
     const cue = subtitleCues.find(item => currentTime >= item.start && currentTime <= item.end)
     return cue?.text || ''
   }, [currentTime, subtitleCues, subtitleEnabled])
+  const isFallbackSubtitleMode = subtitleMode === 'fallback' && subtitleTracks.length > 0
+  const subtitleSelectionOptions = useMemo(() => (
+    subtitleTracks.map((track, index) => ({
+      key: track?.url || `${track?.label || track?.language || 'track'}-${index}`,
+      label: formatSubtitleTrackOptionLabel(track, index),
+    }))
+  ), [subtitleTracks])
 
   const clearHideTimer = () => {
     window.clearTimeout(hideTimerRef.current)
@@ -667,7 +790,7 @@ export default function MoviePlayer({
   useEffect(() => {
     let cancelled = false
 
-    async function loadSubtitles() {
+    async function loadFallbackSubtitles() {
       try {
         const nextTracks = contentType === 'series'
           ? await getSeriesSubtitles(tmdbId, currentSeason, currentEpisode, imdbId)
@@ -677,24 +800,52 @@ export default function MoviePlayer({
 
         if (cancelled) return
 
-        setSubtitleTracks(nextTracks)
-        setSubtitleEnabled(nextTracks.length > 0)
+        setFallbackSubtitleTracks(nextTracks)
       } catch {
         if (cancelled) return
-        setSubtitleTracks([])
-        setSubtitleEnabled(false)
+        setFallbackSubtitleTracks([])
       }
     }
 
-    setSubtitleTracks([])
+    setFallbackSubtitleTracks([])
     setSubtitleCues([])
-    setSubtitleEnabled(false)
-    loadSubtitles()
+    loadFallbackSubtitles()
 
     return () => {
       cancelled = true
     }
   }, [contentType, currentEpisode, currentSeason, imdbId, retryNonce, tmdbId])
+
+  useEffect(() => {
+    const providerSubtitleTracks = Array.isArray(stream?.subtitles) ? stream.subtitles : []
+    const rankedFallbackTracks = sortSubtitleTracksForStream(fallbackSubtitleTracks, stream)
+    const nextTracks = providerSubtitleTracks.length > 0 ? providerSubtitleTracks : rankedFallbackTracks
+
+    setSubtitleTracks(nextTracks)
+    setSubtitleEnabled(nextTracks.length > 0)
+    setSubtitleMode(
+      providerSubtitleTracks.length > 0
+        ? 'provider'
+        : nextTracks.length > 0
+          ? 'fallback'
+          : 'none'
+    )
+    setSelectedSubtitleTrackKey('auto')
+
+    const chosenSource = providerSubtitleTracks.length > 0
+      ? `provider:${stream?.provider || 'unknown'}`
+      : nextTracks.length > 0
+        ? `fallback:${nextTracks[0]?.source || 'wyzie'}`
+        : 'none'
+
+    console.log('[MoviePlayer] subtitle source selected', {
+      provider: stream?.provider || null,
+      chosenSource,
+      trackCount: nextTracks.length,
+      labels: nextTracks.map(track => track.label || track.language || 'Unknown'),
+      topRelease: nextTracks[0]?.release || nextTracks[0]?.fileName || null,
+    })
+  }, [fallbackSubtitleTracks, stream])
 
   useEffect(() => {
     expandedFallbackUsedRef.current = false
@@ -716,7 +867,11 @@ export default function MoviePlayer({
   }, [streamIndex, currentEpisode, currentSeason, retryNonce])
 
   useEffect(() => {
-    const preferredTrack = subtitleTracks.find(track => String(track.language || '').toLowerCase() === 'en')
+    const preferredTrack = (
+      isFallbackSubtitleMode && selectedSubtitleTrackKey !== 'auto'
+        ? subtitleTracks.find(track => (track?.url || '') === selectedSubtitleTrackKey)
+        : null
+    ) || subtitleTracks.find(track => String(track.language || '').toLowerCase() === 'en')
       || subtitleTracks[0]
     const trackUrl = preferredTrack?.url || null
 
@@ -736,6 +891,13 @@ export default function MoviePlayer({
     subtitleRequest
       .then(text => {
         if (!cancelled) {
+          console.log('[MoviePlayer] subtitle track loaded', {
+            source: preferredTrack?.source || 'unknown',
+            label: preferredTrack?.label || preferredTrack?.language || 'Unknown',
+            release: preferredTrack?.release || preferredTrack?.fileName || null,
+            mode: subtitleMode,
+            url: trackUrl,
+          })
           setSubtitleCues(parseSubtitles(text))
         }
       })
@@ -746,7 +908,7 @@ export default function MoviePlayer({
     return () => {
       cancelled = true
     }
-  }, [subtitleEnabled, subtitleTracks])
+  }, [isFallbackSubtitleMode, selectedSubtitleTrackKey, subtitleEnabled, subtitleMode, subtitleTracks])
 
   useEffect(() => {
     if (!stream?.url) return
@@ -756,6 +918,7 @@ export default function MoviePlayer({
       quality: stream.quality,
       streamType,
       contentType: stream.contentType || '',
+      subtitleCount: Array.isArray(stream.subtitles) ? stream.subtitles.length : 0,
       url: stream.url,
       headers: stream.headers || {},
       index: streamIndex,
@@ -778,9 +941,8 @@ export default function MoviePlayer({
       hlsRef.current.destroy()
       hlsRef.current = null
     }
-    if (mp4BlobUrlRef.current) {
-      URL.revokeObjectURL(mp4BlobUrlRef.current)
-      mp4BlobUrlRef.current = ''
+    if (directMediaUrlRef.current) {
+      directMediaUrlRef.current = ''
     }
 
     video.pause()
@@ -885,24 +1047,22 @@ export default function MoviePlayer({
       }
     }
 
-    invoke('fetch_movie_segment', {
+    invoke('register_media_proxy_stream', {
       url: stream.url,
       headers: stream.headers || {},
+      sessionId: null,
     })
-      .then((data) => {
+      .then((proxyUrl) => {
         if (disposed) return
-        const payload = normalizeBinaryPayload(data)
-        const blob = new Blob([payload], { type: inferDirectMimeType(stream) })
-        const blobUrl = URL.createObjectURL(blob)
-        mp4BlobUrlRef.current = blobUrl
-        video.src = blobUrl
+        directMediaUrlRef.current = proxyUrl
+        video.src = proxyUrl
         video.load()
         video.play().catch(() => {})
       })
-      .catch((segmentError) => {
+      .catch((proxyError) => {
         if (disposed) return
         handleStartupFailure(
-          segmentError instanceof Error ? segmentError.message : String(segmentError)
+          proxyError instanceof Error ? proxyError.message : String(proxyError)
         )
       })
 
@@ -912,9 +1072,8 @@ export default function MoviePlayer({
       video.pause()
       video.removeAttribute('src')
       video.load()
-      if (mp4BlobUrlRef.current) {
-        URL.revokeObjectURL(mp4BlobUrlRef.current)
-        mp4BlobUrlRef.current = ''
+      if (directMediaUrlRef.current) {
+        directMediaUrlRef.current = ''
       }
     }
   }, [handleStreamFailure, markStartupReady, stream, streamType])
@@ -1093,9 +1252,8 @@ export default function MoviePlayer({
     clearHideTimer()
     clearStartupTimer()
     persistProgress().catch(() => {})
-    if (mp4BlobUrlRef.current) {
-      URL.revokeObjectURL(mp4BlobUrlRef.current)
-      mp4BlobUrlRef.current = ''
+    if (directMediaUrlRef.current) {
+      directMediaUrlRef.current = ''
     }
   }, [persistProgress])
 
@@ -1393,6 +1551,30 @@ export default function MoviePlayer({
                           <Captions size={15} />
                           {subtitleEnabled ? 'SUB ON' : 'SUB OFF'}
                         </button>
+                      )}
+                      {isFallbackSubtitleMode && (
+                        <select
+                          value={selectedSubtitleTrackKey}
+                          onChange={(event) => setSelectedSubtitleTrackKey(event.target.value)}
+                          disabled={!subtitleEnabled}
+                          className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none"
+                          style={{
+                            background: subtitleEnabled ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
+                            border: subtitleEnabled ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.05)',
+                            color: subtitleEnabled ? '#fff' : 'rgba(255,255,255,0.45)',
+                            cursor: subtitleEnabled ? 'pointer' : 'not-allowed',
+                            width: selectedSubtitleTrackKey === 'auto' ? 92 : 'auto',
+                            maxWidth: 220,
+                          }}
+                          title={subtitleEnabled ? 'Choose subtitle track' : 'Turn subtitles on to choose a track'}
+                        >
+                          <option value="auto" style={{ color: '#000' }}>CC Auto</option>
+                          {subtitleSelectionOptions.map(option => (
+                            <option key={option.key} value={option.key} style={{ color: '#000' }}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
                       )}
                       <select value={selectedResolution} onChange={(event) => handleResolutionChange(event.target.value)} className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
                         {(availableResolutions.length > 0 ? availableResolutions : FALLBACK_RESOLUTIONS).map(option => (

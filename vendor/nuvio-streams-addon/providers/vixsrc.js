@@ -259,13 +259,29 @@ function getSubtitles(subtitleApiUrl) {
             subtitleTrack = subtitleData.find(track => track.display.includes('English') && track.encoding === 'CP850');
         }
 
-        const subtitles = subtitleTrack ? subtitleTrack.url : '';
-        console.log(subtitles ? `[Vixsrc] Found subtitles: ${subtitles}` : '[Vixsrc] No English subtitles found');
+        if (!subtitleTrack?.url) {
+            console.log('[Vixsrc] No English subtitles found');
+            return [];
+        }
+
+        const label = subtitleTrack.display || 'English';
+        const format = subtitleTrack.format || (subtitleTrack.url.includes('.vtt') ? 'vtt' : 'srt');
+        const language = subtitleTrack.language || 'en';
+        const subtitles = [{
+            url: subtitleTrack.url,
+            label,
+            language,
+            format,
+            source: 'vixsrc',
+            isHearingImpaired: Boolean(subtitleTrack.isHearingImpaired)
+        }];
+
+        console.log(`[Vixsrc] Found provider subtitles: ${subtitleTrack.url}`);
         return subtitles;
     })
     .catch(error => {
         console.log('[Vixsrc] Subtitle fetch failed:', error.message);
-        return '';
+        return [];
     });
 }
 
@@ -304,7 +320,8 @@ function getVixsrcStreams(tmdbId, mediaType = 'movie', seasonNum = null, episode
                 headers: {
                     'Referer': BASE_URL,
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-                }
+                },
+                subtitles
             }];
 
             console.log('[Vixsrc] Successfully processed 1 stream with Auto quality');

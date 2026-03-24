@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.5.2
+Premium streaming desktop application (Tauri 2) - v1.5.3
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -31,9 +31,12 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Settings - theme picker, playback prefs, update status with real download % progress bar
 - [x] 6 themes - Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
 - [x] Layout - sidebar (top-aligned logo, collapses to 72px, expands to 240px on hover), top bar (search), ambient orbs
-- [x] Tauri desktop - native Windows exe, `decorations: true` (native title bar - no 32px offset needed)
+- [x] Tauri desktop - native Windows exe, `decorations: false` with custom overlay TitleBar.jsx (minimize/maximize/close, z:60, top-right 138px)
 - [x] Auto-update - raw GitHub feed check, resilient download retries, streamed progress, local updater logging, and restart prompt
 - [x] macOS release artifact via GitHub Actions (`.dmg`, unsigned)
+- [x] Auth & profiles - optional Supabase accounts, sign up / sign in / forgot password, frictionless onboarding (splash → auth → avatar picker → home), DiceBear avatars, profile page with stats and account management
+- [x] Cross-device sync - Supabase-backed watchlist, history, progress, theme, and preferences; write-through sync; cloud wins on conflicts; guests stay localStorage-only
+- [x] Anime news feed - ANN RSS carousel on Anime page, paginated 2-up cards, OG image extraction via Rust (base64 data URLs), localStorage image cache for instant return visits
 
 ## Layout Notes
 - `decorations: false` in `tauri.conf.json` -> custom overlay title bar (TitleBar.jsx, z:60, top-right 138px)
@@ -173,6 +176,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.5.3 - Refactor sidebar label animations from AnimatePresence mount/unmount to persistent motion.div width/opacity for smoother and more reliable expand/collapse behavior
 - v1.5.2 - Add ANN live news feed carousel to Anime page with paginated 2-up cards, OG image extraction via Rust (base64 data URLs to bypass hotlink protection), localStorage image cache for instant return visits, and fix sidebar collapse sticking by switching to pointer events
 - v1.5.0 - Fix auto-update system: correct GitHub repository URL so checks reach the right repo, stream update download directly to disk instead of buffering in RAM, remove unused Tauri updater plugin, and prevent error-loop on non-Windows platforms
 - v1.4.8 - Add optional Supabase account system with sign up, sign in, DiceBear avatar picker, profile page, and full cross-device sync for watchlist, history, playback position, theme, and preferences
@@ -215,9 +219,6 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - v1.0.3 - Fixed white screen from render-blocking fonts
 - v1.0.2 - Portable exe auto-update with silent download + restart prompt
 - v1.0.1 - Initial release
-
-## Debug Log v1.1.7
-- Pending runtime capture. Rust-side manifest and segment logging has been added locally, but anime playback was not driven from this agent session, so terminal output still needs to be captured from a `npm run tauri:dev` reproduction.
 
 ---
 

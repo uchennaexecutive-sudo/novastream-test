@@ -3,6 +3,7 @@ import { discoverMovies } from '../lib/tmdb'
 import MediaCard from '../components/Cards/MediaCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
 import { saveData, getData, hasData } from '../lib/sessionCache'
+import { isLikelyAnimeTmdbItem } from '../lib/animeClassification'
 
 const GENRES = [
   { id: 0, name: 'All' }, { id: 28, name: 'Action' }, { id: 35, name: 'Comedy' },
@@ -42,6 +43,10 @@ export default function Movies() {
   const [hasMore, setHasMore] = useState(true)
   const observer = useRef(null)
 
+  const filterMovies = useCallback((items) => (
+    Array.isArray(items) ? items.filter(item => !isLikelyAnimeTmdbItem(item, 'movie')) : []
+  ), [])
+
   const fetchMovies = useCallback((p, g, s, append = false) => {
     const cacheKey = `movies-p${p}-g${g || 0}-s${s}`
     if (!append && hasData(cacheKey)) {
@@ -55,13 +60,14 @@ export default function Movies() {
     if (g) params.with_genres = g
     setLoading(true)
     discoverMovies(params).then(data => {
-      setMovies(prev => append ? [...prev, ...data.results] : data.results)
+      const filteredResults = filterMovies(data.results)
+      setMovies(prev => append ? [...prev, ...filteredResults] : filteredResults)
       const more = data.page < data.total_pages
       setHasMore(more)
       setLoading(false)
-      if (!append) saveData(cacheKey, { results: data.results, hasMore: more })
+      if (!append) saveData(cacheKey, { results: filteredResults, hasMore: more })
     })
-  }, [])
+  }, [filterMovies])
 
   useEffect(() => {
     setPage(1)

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { searchAnime as searchAniListAnime } from '../../lib/anilist'
 import useAppStore from '../../store/useAppStore'
 import { searchMulti, searchAnimeOnTMDB, imgW500 } from '../../lib/tmdb'
-import { buildDetailNavigationForTmdbItem } from '../../lib/animeClassification'
+import { buildDetailNavigationForTmdbItem, isLikelyAnimeTmdbItem } from '../../lib/animeClassification'
 
 export default function SearchOverlay() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
@@ -105,8 +105,9 @@ export default function SearchOverlay() {
     }
   }
 
-  const movies = results.filter(r => r.media_type === 'movie')
-  const shows = results.filter(r => r.media_type === 'tv')
+  const nonAnimeTmdbResults = results.filter(result => !isLikelyAnimeTmdbItem(result))
+  const movies = nonAnimeTmdbResults.filter(r => r.media_type === 'movie')
+  const shows = nonAnimeTmdbResults.filter(r => r.media_type === 'tv')
 
   return (
     <motion.div

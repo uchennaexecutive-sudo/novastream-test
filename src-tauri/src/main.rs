@@ -51,12 +51,18 @@ const NUVIO_FAST_STAGE_TIMEOUT_SECS: u64 = 18;
 const NUVIO_MEDIUM_STAGE_TIMEOUT_SECS: u64 = 30;
 const MOVIE_STREAM_CACHE_VERSION: &str = "v3";
 const MOVIE_SUBTITLE_CACHE_VERSION: &str = "v2";
-const NUVIO_FAST_PROVIDER_SET_MOVIE: &str = "vixsrc,moviesmod,moviesdrive";
-const NUVIO_FAST_PROVIDER_SET_ANIMATION: &str = "moviesmod,vixsrc,moviesdrive,moviebox";
+const NUVIO_FAST_PROVIDER_SET_MOVIE: &str = "vixsrc,moviesmod,4khdhub,moviesdrive";
+const NUVIO_FAST_PROVIDER_SET_ANIMATION: &str = "vixsrc,moviesmod,4khdhub,moviesdrive,moviebox";
 const NUVIO_FAST_PROVIDER_SET_SERIES: &str = "vixsrc,moviesdrive,moviesmod";
 const NUVIO_PRIMARY_PROVIDER_MOVIE: &str = "vixsrc";
-const NUVIO_PRIMARY_PROVIDER_ANIMATION: &str = "moviesmod,vixsrc";
+const NUVIO_PRIMARY_PROVIDER_ANIMATION: &str = "vixsrc,moviesmod";
 const NUVIO_PRIMARY_PROVIDER_SERIES: &str = "vixsrc,moviesdrive";
+const NUVIO_FULL_PROVIDER_SET_MOVIE: &str =
+    "vixsrc,moviesmod,4khdhub,moviesdrive,moviebox,hdhub4u,topmovies,soapertv,vidzee,mp4hydra,vidsrc,showbox";
+const NUVIO_FULL_PROVIDER_SET_ANIMATION: &str =
+    "vixsrc,moviesmod,4khdhub,moviesdrive,moviebox,hdhub4u,topmovies,soapertv,vidzee,mp4hydra,vidsrc,showbox";
+const NUVIO_FULL_PROVIDER_SET_SERIES: &str =
+    "vixsrc,moviesdrive,moviesmod,4khdhub,moviebox,hdhub4u,topmovies,soapertv,vidzee,mp4hydra,vidsrc,showbox";
 const MOVIE_STREAM_CACHE_TTL_SECS: u64 = 20 * 60;
 const MOVIE_SUBTITLE_CACHE_TTL_SECS: u64 = 60 * 60;
 const WYZIE_SUBTITLES_BASE_URL: &str = "https://sub.wyzie.io";
@@ -684,6 +690,9 @@ struct ResolvedMovieSubtitle {
     format: String,
     source: String,
     hearing_impaired: bool,
+    release: Option<String>,
+    origin: Option<String>,
+    file_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -873,11 +882,21 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
 fn nuvio_sidecar_dir_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
+    if cfg!(debug_assertions) {
+        if let Some(repo_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
+            candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
+        }
+    }
+
     if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
         candidates.push(runtime_root.join("vendor").join("nuvio-streams-addon"));
     }
 
-    if let Some(repo_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
+    if !cfg!(debug_assertions) {
+        if let Some(repo_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
+            candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
+        }
+    } else if let Some(repo_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
         candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
     }
 
@@ -1107,10 +1126,39 @@ fn stop_nuvio_sidecar() {
     if let Ok(mut guard) = nuvio_sidecar_child().lock() {
         if let Some(mut child) = guard.take() {
             log_resolver_debug("[nuvio_sidecar] stopping local addon");
+            #[cfg(target_os = "windows")]
+            {
+                let _ = kill_process_tree(child.id());
+            }
             let _ = child.kill();
             let _ = child.wait();
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn kill_process_tree(pid: u32) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let status = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("failed to run taskkill for Nuvio sidecar: {e}"))?;
+
+    if !status.success() {
+        return Err(format!(
+            "taskkill failed for Nuvio sidecar pid {} with status {}",
+            pid, status
+        ));
+    }
+
+    Ok(())
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -3240,6 +3288,7 @@ struct ResolvedMovieStream {
     stream_type: String,
     content_type: Option<String>,
     strategy: String,
+    subtitles: Vec<ResolvedMovieSubtitle>,
 }
 
 #[derive(serde::Deserialize)]
@@ -3342,8 +3391,11 @@ async fn probe_movie_stream_inner(
     } else {
         match response.bytes().await {
             Ok(bytes) => {
-                is_media_like_content_type(content_type.as_deref())
-                    && !looks_like_non_media_payload_prefix(&bytes)
+                let media_like_content_type = is_media_like_content_type(content_type.as_deref());
+                let matroska_signature = bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]);
+
+                media_like_content_type
+                    && (matroska_signature || !looks_like_non_media_payload_prefix(&bytes))
             }
             Err(_) => false,
         }
@@ -3398,22 +3450,20 @@ fn movie_provider_preference_score(provider: &str, content_type: &str) -> i32 {
     let normalized = provider.to_ascii_lowercase();
 
     if content_type == "animation" {
-        if normalized.contains("uhdmovies") {
+        if normalized.contains("vixsrc") {
             6
         } else if normalized.contains("moviesmod") {
             5
-        } else if normalized.contains("vixsrc") {
+        } else if normalized.contains("4khdhub") {
             4
         } else if normalized.contains("moviesdrive") || normalized.contains("moviebox") {
-            3
+            1
         } else if normalized.contains("showbox") {
             -2
         } else if normalized.contains("vidsrc") || normalized.contains("vidzee") {
             -4
         } else if normalized.contains("topmovies") || normalized.contains("mp4hydra") {
             -5
-        } else if normalized.contains("4khdhub") {
-            -20
         } else if normalized.contains("auto") {
             1
         } else {
@@ -3421,13 +3471,13 @@ fn movie_provider_preference_score(provider: &str, content_type: &str) -> i32 {
         }
     } else {
         if normalized.contains("vixsrc") {
-            5
+            6
         } else if normalized.contains("moviesmod") {
+            5
+        } else if normalized.contains("4khdhub") {
             4
-        } else if normalized.contains("uhdmovies") {
-            3
         } else if normalized.contains("moviesdrive") || normalized.contains("moviebox") {
-            3
+            2
         } else if normalized.contains("showbox") {
             -1
         } else if normalized.contains("vidsrc") || normalized.contains("vidzee") {
@@ -3436,12 +3486,96 @@ fn movie_provider_preference_score(provider: &str, content_type: &str) -> i32 {
             -4
         } else if normalized.contains("auto") {
             1
-        } else if normalized.contains("4khdhub") {
-            -12
         } else {
             0
         }
     }
+}
+
+fn movie_stream_host(url: &str) -> String {
+    Url::parse(url)
+        .ok()
+        .and_then(|value| value.host_str().map(str::to_string))
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+fn is_known_bad_movie_direct_host(url: &str) -> bool {
+    let host = movie_stream_host(url);
+    host.ends_with("video-leech.pro")
+}
+
+fn movie_host_preference_score(provider: &str, url: &str, content_type: &str) -> i32 {
+    let normalized_provider = provider.to_ascii_lowercase();
+    let host = movie_stream_host(url);
+
+    if host.is_empty() {
+        return 0;
+    }
+
+    if is_known_bad_movie_direct_host(url) {
+        return -100;
+    }
+
+    if normalized_provider.contains("moviesmod") {
+        if host.ends_with("workers.dev") {
+            return 40;
+        }
+        if host.ends_with("googleusercontent.com") {
+            return 34;
+        }
+        if host.ends_with("moviesmod.cafe") {
+            return 26;
+        }
+        return 0;
+    }
+
+    if normalized_provider.contains("4khdhub") {
+        if host.ends_with("pixeldrain.dev") {
+            return 10;
+        }
+        if host.ends_with("hub.mayhem.buzz") || host.ends_with("hub.oreao-cdn.buzz") {
+            return -8;
+        }
+    }
+
+    if normalized_provider.contains("uhdmovies") {
+        if host.ends_with("googleusercontent.com") {
+            return if content_type == "animation" { 16 } else { 12 };
+        }
+    }
+
+    0
+}
+
+fn movie_variant_preference_score(stream: &ResolvedMovieStream, content_type: &str) -> i32 {
+    let provider = stream.provider.to_ascii_lowercase();
+    let title = stream.title.to_ascii_lowercase();
+    let url = stream.url.to_ascii_lowercase();
+    let mut score = 0;
+
+    if provider.contains("moviesmod") {
+        if url.contains("workers.dev") {
+            score += 18;
+        }
+        if title.contains("10bit") {
+            score -= if content_type == "animation" { 10 } else { 8 };
+        }
+        if title.contains("web-dl") {
+            score += 3;
+        }
+        if title.contains("moviesmod.cafe") {
+            score += 2;
+        }
+    }
+
+    if provider.contains("4khdhub") {
+        if title.contains("dv") || title.contains("hdr") || title.contains("atmos") {
+            score -= 4;
+        }
+    }
+
+    score
 }
 
 fn parse_movie_quality(value: &str) -> String {
@@ -3487,6 +3621,7 @@ fn is_direct_playable_movie_url(value: &str) -> bool {
         || lower.contains("index.html")
         || lower.contains("/blob/")
         || lower.contains("/tree/")
+        || lower.contains("video-leech.pro/")
     {
         return false;
     }
@@ -3497,6 +3632,10 @@ fn is_direct_playable_movie_url(value: &str) -> bool {
 fn looks_like_non_media_payload_prefix(bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return true;
+    }
+
+    if bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        return false;
     }
 
     let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]).to_ascii_lowercase();
@@ -3603,13 +3742,22 @@ fn build_nuvio_stream_urls(
     season: Option<u32>,
     episode: Option<u32>,
 ) -> Vec<(String, &'static str, u64)> {
-    let (primary_provider_set, fast_provider_set) = match content_type {
-        "series" => (NUVIO_PRIMARY_PROVIDER_SERIES, NUVIO_FAST_PROVIDER_SET_SERIES),
+    let (primary_provider_set, fast_provider_set, full_provider_set) = match content_type {
+        "series" => (
+            NUVIO_PRIMARY_PROVIDER_SERIES,
+            NUVIO_FAST_PROVIDER_SET_SERIES,
+            NUVIO_FULL_PROVIDER_SET_SERIES,
+        ),
         "animation" => (
             NUVIO_PRIMARY_PROVIDER_ANIMATION,
             NUVIO_FAST_PROVIDER_SET_ANIMATION,
+            NUVIO_FULL_PROVIDER_SET_ANIMATION,
         ),
-        _ => (NUVIO_PRIMARY_PROVIDER_MOVIE, NUVIO_FAST_PROVIDER_SET_MOVIE),
+        _ => (
+            NUVIO_PRIMARY_PROVIDER_MOVIE,
+            NUVIO_FAST_PROVIDER_SET_MOVIE,
+            NUVIO_FULL_PROVIDER_SET_MOVIE,
+        ),
     };
 
     let base_path = if content_type == "series" {
@@ -3634,7 +3782,11 @@ fn build_nuvio_stream_urls(
             "fast-providers",
             NUVIO_MEDIUM_STAGE_TIMEOUT_SECS,
         ),
-        (base_path, "full-fallback", NUVIO_STREAM_FETCH_TIMEOUT_SECS),
+        (
+            format!("{base_path}?providers={full_provider_set}"),
+            "full-fallback",
+            NUVIO_STREAM_FETCH_TIMEOUT_SECS,
+        ),
     ]
 }
 
@@ -3662,17 +3814,22 @@ fn normalize_nuvio_streams(value: &serde_json::Value, strategy: &str) -> Vec<Res
                     .or_else(|| stream.get("title").and_then(|value| value.as_str()))
                     .unwrap_or("auto"),
             );
+            let provider = stream
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .or_else(|| stream.get("name").and_then(|value| value.as_str()))
+                .unwrap_or("Nuvio")
+                .to_string();
+            let subtitles = stream
+                .get("subtitles")
+                .map(|value| normalize_provider_subtitles(value, &provider))
+                .unwrap_or_default();
 
             Some(ResolvedMovieStream {
                 stream_type: infer_stream_type(&url),
                 url,
                 quality,
-                provider: stream
-                    .get("provider")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| stream.get("name").and_then(|value| value.as_str()))
-                    .unwrap_or("Nuvio")
-                    .to_string(),
+                provider,
                 headers,
                 title: stream
                     .get("title")
@@ -3682,6 +3839,7 @@ fn normalize_nuvio_streams(value: &serde_json::Value, strategy: &str) -> Vec<Res
                 source: "nuvio-streams".to_string(),
                 content_type: None,
                 strategy: strategy.to_string(),
+                subtitles,
             })
         })
         .collect()
@@ -3737,6 +3895,18 @@ fn normalize_wyzie_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubti
                 .and_then(|value| value.as_str())
                 .unwrap_or("wyzie")
                 .to_string();
+            let release = item
+                .get("release")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let origin = item
+                .get("origin")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let file_name = item
+                .get("fileName")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
             let hearing_impaired = item
                 .get("isHearingImpaired")
                 .and_then(|value| value.as_bool())
@@ -3754,6 +3924,99 @@ fn normalize_wyzie_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubti
                 format,
                 source,
                 hearing_impaired,
+                release,
+                origin,
+                file_name,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    subtitles.sort_by(|a, b| {
+        subtitle_preference_score(b)
+            .cmp(&subtitle_preference_score(a))
+            .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.url.cmp(&b.url))
+    });
+    subtitles.dedup_by(|left, right| left.url == right.url);
+    subtitles
+}
+
+fn normalize_provider_subtitles(data: &serde_json::Value, fallback_source: &str) -> Vec<ResolvedMovieSubtitle> {
+    let Some(streams) = data.as_array() else {
+        return Vec::new();
+    };
+
+    let mut subtitles = streams
+        .iter()
+        .filter_map(|item| {
+            let url = item
+                .get("url")
+                .or_else(|| item.get("file"))
+                .and_then(|value| value.as_str())?
+                .trim()
+                .to_string();
+
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return None;
+            }
+
+            let language = item
+                .get("language")
+                .or_else(|| item.get("lang"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("en")
+                .to_string();
+            let label = item
+                .get("label")
+                .or_else(|| item.get("display"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("English")
+                .to_string();
+            let format = item
+                .get("format")
+                .and_then(|value| value.as_str())
+                .unwrap_or_else(|| {
+                    if url.to_ascii_lowercase().contains(".vtt") {
+                        "vtt"
+                    } else {
+                        "srt"
+                    }
+                })
+                .to_string();
+            let source = item
+                .get("source")
+                .and_then(|value| value.as_str())
+                .unwrap_or(fallback_source)
+                .to_string();
+            let release = item
+                .get("release")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let origin = item
+                .get("origin")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let file_name = item
+                .get("fileName")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let hearing_impaired = item
+                .get("isHearingImpaired")
+                .or_else(|| item.get("hearingImpaired"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+
+            Some(ResolvedMovieSubtitle {
+                url,
+                label,
+                language,
+                format,
+                source,
+                hearing_impaired,
+                release,
+                origin,
+                file_name,
             })
         })
         .collect::<Vec<_>>();
@@ -3897,7 +4160,7 @@ async fn fetch_movie_subtitles(
     set_cached_value(movie_subtitle_cache(), cache_key, subtitles.clone());
 
     log_resolver_debug(&format!(
-        "[fetch_movie_subtitles] subtitle_count={} tmdbId={} imdbId={}",
+        "[fetch_movie_subtitles] subtitle_count={} source=wyzie tmdbId={} imdbId={}",
         subtitles.len(), payload.tmdb_id, imdb_id
     ));
 
@@ -4062,6 +4325,22 @@ async fn fetch_movie_resolver_streams(
                             movie_stream_type_score(&b.stream_type)
                                 .cmp(&movie_stream_type_score(&a.stream_type))
                                 .then_with(|| {
+                                    movie_variant_preference_score(b, &normalized_content_type)
+                                        .cmp(&movie_variant_preference_score(a, &normalized_content_type))
+                                })
+                                .then_with(|| {
+                                    movie_host_preference_score(
+                                        &b.provider,
+                                        &b.url,
+                                        &normalized_content_type,
+                                    )
+                                    .cmp(&movie_host_preference_score(
+                                        &a.provider,
+                                        &a.url,
+                                        &normalized_content_type,
+                                    ))
+                                })
+                                .then_with(|| {
                                     movie_provider_preference_score(&b.provider, &normalized_content_type)
                                         .cmp(&movie_provider_preference_score(&a.provider, &normalized_content_type))
                                 })
@@ -4089,12 +4368,13 @@ async fn fetch_movie_resolver_streams(
                                     ..stream
                                 };
                                 log_resolver_debug(&format!(
-                                    "[fetch_movie_resolver_streams] accepted stream provider={} strategy={} source={} streamType={} quality={} url={}",
+                                    "[fetch_movie_resolver_streams] accepted stream provider={} strategy={} source={} streamType={} quality={} subtitleCount={} url={}",
                                     validated_stream.provider,
                                     validated_stream.strategy,
                                     validated_stream.source,
                                     validated_stream.stream_type,
                                     validated_stream.quality,
+                                    validated_stream.subtitles.len(),
                                     validated_stream.url
                                 ));
                                 stage_validated_streams.push(validated_stream);
@@ -4160,6 +4440,15 @@ async fn fetch_movie_resolver_streams(
     validated_streams.sort_by(|a, b| {
         movie_stream_type_score(&b.stream_type)
             .cmp(&movie_stream_type_score(&a.stream_type))
+            .then_with(|| {
+                movie_variant_preference_score(b, &normalized_content_type)
+                    .cmp(&movie_variant_preference_score(a, &normalized_content_type))
+            })
+            .then_with(|| {
+                movie_host_preference_score(&b.provider, &b.url, &normalized_content_type).cmp(
+                    &movie_host_preference_score(&a.provider, &a.url, &normalized_content_type),
+                )
+            })
             .then_with(|| {
                 movie_provider_preference_score(&b.provider, &normalized_content_type)
                     .cmp(&movie_provider_preference_score(&a.provider, &normalized_content_type))
