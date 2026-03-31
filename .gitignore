@@ -1,6 +1,9 @@
 node_modules/
 dist/
-release/
+release/*
+!release/macos/
+release/macos/*
+!release/macos/install-first.command
 src-tauri/target/
 .env
 *.log
