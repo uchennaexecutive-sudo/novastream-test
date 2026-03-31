@@ -205,6 +205,17 @@ export default function AnimePlayer({
     })
   }, [animeTitle, backdrop, contentId, currentEpisode, poster, season])
 
+  const buildClosePayload = useCallback((snapshot = lastPlaybackRef.current) => ({
+    season: season || 1,
+    episode: currentEpisode,
+    progressSeconds: Math.max(0, Math.floor(Number(snapshot?.progressSeconds) || 0)),
+    durationSeconds: Math.max(0, Math.floor(Number(snapshot?.durationSeconds) || 0)),
+  }), [currentEpisode, season])
+
+  const handleClosePlayer = useCallback(() => {
+    onClose?.(buildClosePayload())
+  }, [buildClosePayload, onClose])
+
   const retryFreshStream = useCallback(() => {
     clearRetryTimer()
     streamAttemptRef.current = 0
@@ -652,7 +663,7 @@ export default function AnimePlayer({
       error={error}
       errorDetail={errorDetail || ''}
       onRetry={retryFreshStream}
-      onClose={onClose}
+      onClose={handleClosePlayer}
       onStreamFailure={handleStreamFailure}
       onPersistProgress={handlePersistProgress}
       onPlaybackSnapshot={handlePlaybackSnapshot}

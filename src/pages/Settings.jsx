@@ -269,6 +269,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.5.6 - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup on Windows</p>
             <p>v1.5.5 - Update Mac release helper packaging and fix Anime + Search behavior</p>
             <p>v1.5.0 - Fix auto-update system: correct GitHub repo URL so update checks work, stream downloads directly to disk, remove unused Tauri updater plugin</p>
             <p>v1.4.8 - Add optional Supabase account system with sign up, sign in, DiceBear avatar picker, and full cross-device sync for watchlist, history, playback position, theme, and preferences</p>

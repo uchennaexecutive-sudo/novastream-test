@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronLeft } from 'lucide-react'
@@ -112,41 +112,78 @@ export default function Detail() {
     type,
   ])
 
+  const applyProgressState = useCallback((progress, nextProgressMap = null) => {
+    const nextResumeProgress = isResumableProgress(progress) ? progress : null
+
+    if (nextProgressMap !== null) {
+      setProgressMap(nextProgressMap || {})
+    }
+
+    setResumeProgress(nextResumeProgress)
+
+    if (!isMovieLike) {
+      const nextSeason = Number(progress?.season) || null
+      const nextEpisode = Number(progress?.episode) || null
+
+      if (nextSeason) setPlaySeason(nextSeason)
+      if (nextEpisode) setPlayEpisode(nextEpisode)
+    }
+
+    setPlayerResumeAt(
+      Math.max(0, Math.floor(Number(nextResumeProgress?.progress_seconds || 0)))
+    )
+  }, [isMovieLike])
+
+  const loadProgressState = useCallback(async (overrideProgress = null) => {
+    const hasExplicitRequestedEpisode = (
+      !isMovieLike
+      && Number.isInteger(requestedResumeSeason)
+      && requestedResumeSeason > 0
+      && Number.isInteger(requestedResumeEpisode)
+      && requestedResumeEpisode > 0
+    )
+
+    const [directProgress, latestProgress, nextProgressMap] = await Promise.all([
+      hasExplicitRequestedEpisode
+        ? getProgress(id, requestedResumeSeason, requestedResumeEpisode)
+        : Promise.resolve(null),
+      getLatestProgress(id),
+      isMovieLike ? Promise.resolve({}) : getContentProgressMap(id),
+    ])
+
+    const preferredProgress = overrideProgress !== null
+      ? overrideProgress
+      : [
+        location.state?.resumeProgress,
+        directProgress,
+        latestProgress,
+      ].find(isResumableProgress) || [
+        location.state?.resumeProgress,
+        directProgress,
+        latestProgress,
+      ].find(Boolean) || null
+
+    applyProgressState(preferredProgress, nextProgressMap || {})
+    return preferredProgress
+  }, [
+    applyProgressState,
+    id,
+    isMovieLike,
+    location.state?.resumeProgress,
+    requestedResumeEpisode,
+    requestedResumeSeason,
+  ])
+
   useEffect(() => {
     let cancelled = false
 
     async function loadProgress() {
       try {
-        const [directProgress, latestProgress, nextProgressMap] = await Promise.all([
-          getProgress(
-            id,
-            isMovieLike ? null : requestedResumeSeason,
-            isMovieLike ? null : requestedResumeEpisode
-          ),
-          getLatestProgress(id),
-          isMovieLike ? Promise.resolve({}) : getContentProgressMap(id),
-        ])
-
+        await loadProgressState()
         if (cancelled) return
-
-        const preferredProgress =
-          [directProgress, latestProgress, location.state?.resumeProgress].find((item) =>
-            isResumableProgress(item)
-          ) || null
-
-        setProgressMap(nextProgressMap || {})
-        setResumeProgress(preferredProgress)
-
-        if (preferredProgress?.season) setPlaySeason(preferredProgress.season)
-        if (preferredProgress?.episode) setPlayEpisode(preferredProgress.episode)
-
-        if (preferredProgress?.progress_seconds) {
-          setPlayerResumeAt(preferredProgress.progress_seconds)
-        }
       } catch {
         if (!cancelled) {
-          setProgressMap({})
-          setResumeProgress(location.state?.resumeProgress || null)
+          applyProgressState(location.state?.resumeProgress || null, {})
         }
       }
     }
@@ -156,7 +193,52 @@ export default function Detail() {
     return () => {
       cancelled = true
     }
-  }, [id, isMovieLike, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, type])
+  }, [applyProgressState, id, loadProgressState, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, type])
+
+  const normalizePlayerCloseProgress = useCallback((payload) => {
+    if (!payload) return null
+
+    const progressSeconds = Math.max(
+      0,
+      Math.floor(Number(payload.progressSeconds ?? payload.progress_seconds) || 0)
+    )
+    const durationSeconds = Math.max(
+      0,
+      Math.floor(Number(payload.durationSeconds ?? payload.duration_seconds) || 0)
+    )
+
+    return {
+      content_id: String(id),
+      content_type: isAnime ? 'anime' : isMovieLike ? type : 'tv',
+      season: isMovieLike ? null : (Number(payload.season) || null),
+      episode: isMovieLike ? null : (Number(payload.episode) || null),
+      progress_seconds: progressSeconds,
+      duration_seconds: durationSeconds,
+      updated_at: new Date().toISOString(),
+    }
+  }, [id, isAnime, isMovieLike, type])
+
+  const handleMoviePlayerClose = useCallback((payload = null) => {
+    setPlayerOpen(false)
+
+    const normalizedProgress = normalizePlayerCloseProgress(payload)
+    if (normalizedProgress) {
+      applyProgressState(normalizedProgress)
+    }
+
+    void loadProgressState(normalizedProgress)
+  }, [applyProgressState, loadProgressState, normalizePlayerCloseProgress])
+
+  const handleAnimePlayerClose = useCallback((payload = null) => {
+    setAnimePlayerOpen(false)
+
+    const normalizedProgress = normalizePlayerCloseProgress(payload)
+    if (normalizedProgress) {
+      applyProgressState(normalizedProgress)
+    }
+
+    void loadProgressState(normalizedProgress)
+  }, [applyProgressState, loadProgressState, normalizePlayerCloseProgress])
 
   useEffect(() => {
     const animeIdentityId = canonicalAnilistId || anilistId
@@ -846,7 +928,7 @@ export default function Detail() {
             season={playSeason}
             episode={playEpisode}
             resumeAt={playerResumeAt}
-            onClose={() => setPlayerOpen(false)}
+            onClose={handleMoviePlayerClose}
           />
         </Suspense>
       )}
@@ -863,7 +945,7 @@ export default function Detail() {
             backdrop={backdrop}
             resumeAt={playerResumeAt}
             prefetchedAnime={animePrefetchRef.current.get(prefetchedAnimeIdRef.current) || null}
-            onClose={() => setAnimePlayerOpen(false)}
+            onClose={handleAnimePlayerClose}
           />
         </Suspense>
       )}

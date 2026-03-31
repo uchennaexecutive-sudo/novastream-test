@@ -33,7 +33,6 @@ function ContinueCard({ item }) {
           isAnime: contentType === 'anime',
           animeTitle: title,
           animeAltTitle: title,
-          autoOpenPlayer: resumeAt > 0,
           resumeAt,
           resumeSeason: item.season,
           resumeEpisode: item.episode,

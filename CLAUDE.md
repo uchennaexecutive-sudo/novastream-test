@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.5.5
+Premium streaming desktop application (Tauri 2) - v1.5.6
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -28,6 +28,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Watchlist - localStorage-backed add/remove/check, responsive grid
 - [x] Watch history - auto-recorded on play, localStorage-backed
 - [x] Continue Watching - deduplicated episodic entries so each show displays only the latest watched episode
+- [x] Resume flow - Continue Watching opens detail first, detail pages refresh resume state after player close, and episodic players sync final episode/progress back to detail
 - [x] Settings - theme picker, playback prefs, update status with real download % progress bar
 - [x] 6 themes - Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
 - [x] Layout - sidebar (top-aligned logo, collapses to 72px, expands to 240px on hover), top bar (search), ambient orbs
@@ -127,6 +128,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Release builds now also embed the vendored Nuvio sidecar dependencies, so packaged users should not hit a first-run `npm install`
 - If the extracted Nuvio runtime is deleted, the app recreates it automatically on next launch
 - Nuvio sidecar startup and any emergency dependency install path now run hidden in the background on Windows and log to `%TEMP%\nova-stream-nuvio-sidecar.log` instead of opening a visible terminal
+- Embedded Nuvio runtime refresh now stops stale sidecar processes before retrying extraction, reducing Windows `os error 32` file-lock failures
 - Some individual titles can still fail because upstream provider links themselves are bad or non-playable; this is currently treated as a source-quality edge case, not an absorption failure
 
 ## Release Workflow
@@ -178,6 +180,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.5.6 - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup against Windows file-lock failures
 - v1.5.5 - Update Mac release helper packaging and fix Anime + Search behavior
 - v1.5.4 - Cleanup updates and current app version baseline
 - v1.5.3 - Refactor sidebar label animations from AnimatePresence mount/unmount to persistent motion.div width/opacity for smoother and more reliable expand/collapse behavior

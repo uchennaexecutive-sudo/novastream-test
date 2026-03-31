@@ -25,5 +25,13 @@ export async function getSeriesSubtitles(tmdbId, season, episode, imdbId = null)
 }
 
 export async function getAnimationSubtitles(tmdbId, imdbId = null) {
-  return getMovieSubtitles(tmdbId, imdbId)
+  return invoke('fetch_movie_subtitles', {
+    payload: {
+      tmdbId: String(tmdbId),
+      imdbId: imdbId || null,
+      contentType: 'animation',
+      season: null,
+      episode: null,
+    },
+  })
 }

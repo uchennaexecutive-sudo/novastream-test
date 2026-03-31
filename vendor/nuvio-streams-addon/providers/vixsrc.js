@@ -149,17 +149,108 @@ function resolveUrl(url, baseUrl) {
     }
 }
 
+function extractPlaylistAttribute(line, attribute) {
+    const quotedMatch = line.match(new RegExp(`${attribute}="([^"]+)"`));
+    if (quotedMatch) {
+        return quotedMatch[1];
+    }
+
+    const unquotedMatch = line.match(new RegExp(`${attribute}=([^,]+)`));
+    return unquotedMatch ? unquotedMatch[1] : null;
+}
+
+function normalizeSubtitleLanguage(language, label) {
+    const normalized = String(language || label || 'en').toLowerCase();
+    const primary = normalized.split('-')[0];
+    const map = {
+        eng: 'en',
+        en: 'en',
+        ger: 'de',
+        deu: 'de',
+        de: 'de',
+        fre: 'fr',
+        fra: 'fr',
+        fr: 'fr',
+        ita: 'it',
+        it: 'it',
+        jpn: 'ja',
+        ja: 'ja',
+        ukr: 'uk',
+        uk: 'uk',
+        por: 'pt',
+        pt: 'pt',
+        spa: 'es',
+        es: 'es',
+    };
+
+    return map[primary] || primary || 'en';
+}
+
+function getSubtitlesFromManifest(masterPlaylistUrl) {
+    return makeRequest(masterPlaylistUrl, {
+        headers: {
+            'Accept': 'application/vnd.apple.mpegurl, application/x-mpegURL, */*',
+            'Referer': BASE_URL,
+        }
+    })
+    .then(response => response.text())
+    .then(manifest => {
+        const lines = manifest.split('\n').map(line => line.trim()).filter(Boolean);
+        const subtitles = [];
+        const seen = new Set();
+
+        for (const line of lines) {
+            if (!line.startsWith('#EXT-X-MEDIA:')) {
+                continue;
+            }
+
+            const type = extractPlaylistAttribute(line, 'TYPE');
+            if (type !== 'SUBTITLES') {
+                continue;
+            }
+
+            const uri = extractPlaylistAttribute(line, 'URI');
+            if (!uri) {
+                continue;
+            }
+
+            const label = extractPlaylistAttribute(line, 'NAME') || 'Unknown';
+            const language = normalizeSubtitleLanguage(extractPlaylistAttribute(line, 'LANGUAGE'), label);
+            const isHearingImpaired = /\[cc\]/i.test(label);
+            const resolvedUrl = resolveUrl(uri, masterPlaylistUrl);
+
+            if (seen.has(resolvedUrl)) {
+                continue;
+            }
+            seen.add(resolvedUrl);
+
+            subtitles.push({
+                url: resolvedUrl,
+                label,
+                language,
+                format: 'vtt',
+                source: 'vixsrc',
+                isHearingImpaired,
+            });
+        }
+
+        console.log(`[Vixsrc] Found ${subtitles.length} native subtitle tracks in master playlist`);
+        return subtitles;
+    })
+    .catch(error => {
+        console.log('[Vixsrc] Native subtitle manifest fetch failed:', error.message);
+        return [];
+    });
+}
+
 // Helper function to extract stream URL from Vixsrc page
 function extractStreamFromPage(url, contentType, contentId, seasonNum, episodeNum) {
     let vixsrcUrl;
-    let subtitleApiUrl;
 
     if (contentType === 'movie') {
         vixsrcUrl = `${BASE_URL}/movie/${contentId}`;
-        subtitleApiUrl = `https://sub.wyzie.ru/search?id=${contentId}`;
     } else {
         vixsrcUrl = `${BASE_URL}/tv/${contentId}/${seasonNum}/${episodeNum}`;
-        subtitleApiUrl = `https://sub.wyzie.ru/search?id=${contentId}&season=${seasonNum}&episode=${episodeNum}`;
     }
 
     console.log(`[Vixsrc] Fetching: ${vixsrcUrl}`);
@@ -233,55 +324,7 @@ function extractStreamFromPage(url, contentType, contentId, seasonNum, episodeNu
             return null;
         }
 
-        return { masterPlaylistUrl, subtitleApiUrl };
-    });
-}
-
-// Helper function to get subtitles
-function getSubtitles(subtitleApiUrl) {
-    return makeRequest(subtitleApiUrl)
-    .then(response => response.json())
-    .then(subtitleData => {
-        // Find English subtitle track (same logic as original)
-        let subtitleTrack = subtitleData.find(track =>
-            track.display.includes('English') && (track.encoding === 'ASCII' || track.encoding === 'UTF-8')
-        );
-
-        if (!subtitleTrack) {
-            subtitleTrack = subtitleData.find(track => track.display.includes('English') && track.encoding === 'CP1252');
-        }
-
-        if (!subtitleTrack) {
-            subtitleTrack = subtitleData.find(track => track.display.includes('English') && track.encoding === 'CP1250');
-        }
-
-        if (!subtitleTrack) {
-            subtitleTrack = subtitleData.find(track => track.display.includes('English') && track.encoding === 'CP850');
-        }
-
-        if (!subtitleTrack?.url) {
-            console.log('[Vixsrc] No English subtitles found');
-            return [];
-        }
-
-        const label = subtitleTrack.display || 'English';
-        const format = subtitleTrack.format || (subtitleTrack.url.includes('.vtt') ? 'vtt' : 'srt');
-        const language = subtitleTrack.language || 'en';
-        const subtitles = [{
-            url: subtitleTrack.url,
-            label,
-            language,
-            format,
-            source: 'vixsrc',
-            isHearingImpaired: Boolean(subtitleTrack.isHearingImpaired)
-        }];
-
-        console.log(`[Vixsrc] Found provider subtitles: ${subtitleTrack.url}`);
-        return subtitles;
-    })
-    .catch(error => {
-        console.log('[Vixsrc] Subtitle fetch failed:', error.message);
-        return [];
+        return { masterPlaylistUrl };
     });
 }
 
@@ -302,13 +345,13 @@ function getVixsrcStreams(tmdbId, mediaType = 'movie', seasonNum = null, episode
             return [];
         }
 
-        const { masterPlaylistUrl, subtitleApiUrl } = streamData;
+        const { masterPlaylistUrl } = streamData;
 
         // Return single master playlist with Auto quality
         console.log('[Vixsrc] Returning master playlist with Auto quality...');
         
-        // Get subtitles
-        return getSubtitles(subtitleApiUrl)
+        // Get native subtitles directly from the provider's HLS manifest.
+        return getSubtitlesFromManifest(masterPlaylistUrl)
         .then(subtitles => {
             // Return single stream with master playlist
             const nuvioStreams = [{

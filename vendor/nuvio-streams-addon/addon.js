@@ -185,7 +185,8 @@ if (USE_EXTERNAL_PROVIDERS) {
 // NEW: Stream caching config
 const STREAM_CACHE_DIR = process.env.VERCEL ? path.join('/tmp', '.streams_cache') : path.join(__dirname, '.streams_cache');
 const STREAM_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const STREAM_CACHE_VERSION = 'v2';
+// Bump cache version so older Vixsrc responses without native subtitles are discarded.
+const STREAM_CACHE_VERSION = 'v3';
 const ENABLE_STREAM_CACHE = process.env.DISABLE_STREAM_CACHE !== 'true'; // Enabled by default
 const UNCACHED_STREAM_PROVIDERS = new Set(['showbox', 'pstream', 'moviesmod', '4khdhub']);
 console.log(`[addon.js] Stream links caching ${ENABLE_STREAM_CACHE ? 'enabled' : 'disabled'}`);

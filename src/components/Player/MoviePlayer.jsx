@@ -247,6 +247,60 @@ const getMovieQualityPreferenceScore = (quality) => {
   return 0
 }
 
+const getMovieAudioPreferenceScore = (stream) => {
+  const combined = [
+    stream?.title,
+    stream?.provider,
+    stream?.url,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  const englishMarkers = [
+    'english',
+    'eng',
+    'english dub',
+    'dubbed',
+    'amzn',
+    'itunes',
+  ]
+  const nonEnglishMarkers = [
+    'hindi',
+    'tamil',
+    'telugu',
+    'malayalam',
+    'kannada',
+    'punjabi',
+    'bengali',
+    'urdu',
+    'arabic',
+    'korean',
+    'japanese',
+    'french',
+    'german',
+    'italian',
+    'russian',
+    'spanish',
+    'latino',
+    'chinese',
+    'mandarin',
+    'dual audio',
+    'multi audio',
+    'multi-audio',
+    'esubs',
+  ]
+
+  let score = 0
+
+  if (englishMarkers.some(marker => combined.includes(marker))) score += 10
+
+  const nonEnglishHits = nonEnglishMarkers.filter(marker => combined.includes(marker)).length
+  if (nonEnglishHits > 0) {
+    score -= nonEnglishHits * 18
+    if (!combined.includes('english') && !combined.includes('eng')) score -= 12
+  }
+
+  return score
+}
+
 const sortStreamsByPreference = (items, contentType) => [...items].sort((left, right) => {
   const leftType = inferStreamType(left)
   const rightType = inferStreamType(right)
@@ -254,6 +308,7 @@ const sortStreamsByPreference = (items, contentType) => [...items].sort((left, r
   const rightTypeScore = rightType === 'hls' ? 3 : rightType === 'mp4' ? 1 : 0
 
   return rightTypeScore - leftTypeScore
+    || getMovieAudioPreferenceScore(right) - getMovieAudioPreferenceScore(left)
     || getMovieProviderPreferenceScore(right.provider, contentType)
       - getMovieProviderPreferenceScore(left.provider, contentType)
     || getMovieQualityPreferenceScore(right.quality)
@@ -518,6 +573,19 @@ export default function MoviePlayer({
       durationSeconds,
     })
   }, [backdrop, contentType, currentEpisode, currentSeason, poster, title, tmdbId])
+
+  const buildClosePayload = useCallback((snapshot = lastProgressRef.current) => ({
+    season: isSeriesContent(contentType) ? currentSeason : null,
+    episode: isSeriesContent(contentType) ? currentEpisode : null,
+    progressSeconds: Math.max(0, Math.floor(Number(snapshot?.progressSeconds) || 0)),
+    durationSeconds: Math.max(0, Math.floor(Number(snapshot?.durationSeconds) || 0)),
+  }), [contentType, currentEpisode, currentSeason])
+
+  const handleClosePlayer = useCallback(() => {
+    const payload = buildClosePayload()
+    persistProgress(payload).catch(() => {})
+    onClose?.(payload)
+  }, [buildClosePayload, onClose, persistProgress])
 
   const scheduleControlsHide = useCallback(() => {
     clearHideTimer()
@@ -874,6 +942,26 @@ export default function MoviePlayer({
     ) || subtitleTracks.find(track => String(track.language || '').toLowerCase() === 'en')
       || subtitleTracks[0]
     const trackUrl = preferredTrack?.url || null
+    const rankedFallbackTracks = sortSubtitleTracksForStream(fallbackSubtitleTracks, stream)
+
+    const switchToFallbackSubtitles = (reason) => {
+      if (subtitleMode !== 'provider' || rankedFallbackTracks.length === 0) {
+        setSubtitleCues([])
+        return
+      }
+
+      console.warn('[MoviePlayer] provider subtitles failed, switching to Wyzie fallback', {
+        provider: stream?.provider || null,
+        reason,
+        failedTrack: preferredTrack?.label || preferredTrack?.language || 'Unknown',
+        fallbackCount: rankedFallbackTracks.length,
+      })
+      setSubtitleTracks(rankedFallbackTracks)
+      setSubtitleMode('fallback')
+      setSelectedSubtitleTrackKey('auto')
+      setSubtitleEnabled(true)
+      setSubtitleCues([])
+    }
 
     if (!subtitleEnabled || !trackUrl) {
       setSubtitleCues([])
@@ -891,6 +979,11 @@ export default function MoviePlayer({
     subtitleRequest
       .then(text => {
         if (!cancelled) {
+          const parsedCues = parseSubtitles(text)
+          if (parsedCues.length === 0) {
+            switchToFallbackSubtitles('parsed-empty')
+            return
+          }
           console.log('[MoviePlayer] subtitle track loaded', {
             source: preferredTrack?.source || 'unknown',
             label: preferredTrack?.label || preferredTrack?.language || 'Unknown',
@@ -898,17 +991,19 @@ export default function MoviePlayer({
             mode: subtitleMode,
             url: trackUrl,
           })
-          setSubtitleCues(parseSubtitles(text))
+          setSubtitleCues(parsedCues)
         }
       })
-      .catch(() => {
-        if (!cancelled) setSubtitleCues([])
+      .catch((error) => {
+        if (!cancelled) {
+          switchToFallbackSubtitles(error?.message || 'fetch-failed')
+        }
       })
 
     return () => {
       cancelled = true
     }
-  }, [isFallbackSubtitleMode, selectedSubtitleTrackKey, subtitleEnabled, subtitleMode, subtitleTracks])
+  }, [fallbackSubtitleTracks, isFallbackSubtitleMode, selectedSubtitleTrackKey, stream, subtitleEnabled, subtitleMode, subtitleTracks])
 
   useEffect(() => {
     if (!stream?.url) return
@@ -1276,8 +1371,7 @@ export default function MoviePlayer({
         exit={{ opacity: 0 }}
         onClick={(event) => {
           if (event.target === event.currentTarget) {
-            persistProgress().catch(() => {})
-            onClose?.()
+            handleClosePlayer()
           }
         }}
       >
@@ -1355,7 +1449,7 @@ export default function MoviePlayer({
                   <button onClick={toggleFullscreen} className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all" title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
                     {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
                   </button>
-                  <button onClick={() => { persistProgress().catch(() => {}); onClose?.() }} className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all" title="Close">
+                  <button onClick={handleClosePlayer} className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all" title="Close">
                     <X size={14} />
                   </button>
                 </div>

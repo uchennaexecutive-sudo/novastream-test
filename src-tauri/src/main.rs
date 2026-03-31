@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{
@@ -14,6 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use regex::Regex;
 use reqwest::Url;
@@ -50,7 +51,7 @@ const NUVIO_STREAM_FETCH_TIMEOUT_SECS: u64 = 75;
 const NUVIO_FAST_STAGE_TIMEOUT_SECS: u64 = 18;
 const NUVIO_MEDIUM_STAGE_TIMEOUT_SECS: u64 = 30;
 const MOVIE_STREAM_CACHE_VERSION: &str = "v3";
-const MOVIE_SUBTITLE_CACHE_VERSION: &str = "v2";
+const MOVIE_SUBTITLE_CACHE_VERSION: &str = "v4";
 const NUVIO_FAST_PROVIDER_SET_MOVIE: &str = "vixsrc,moviesmod,4khdhub,moviesdrive";
 const NUVIO_FAST_PROVIDER_SET_ANIMATION: &str = "vixsrc,moviesmod,4khdhub,moviesdrive,moviebox";
 const NUVIO_FAST_PROVIDER_SET_SERIES: &str = "vixsrc,moviesdrive,moviesmod";
@@ -66,6 +67,15 @@ const NUVIO_FULL_PROVIDER_SET_SERIES: &str =
 const MOVIE_STREAM_CACHE_TTL_SECS: u64 = 20 * 60;
 const MOVIE_SUBTITLE_CACHE_TTL_SECS: u64 = 60 * 60;
 const WYZIE_SUBTITLES_BASE_URL: &str = "https://sub.wyzie.io";
+const SUBDL_API_BASE_URL: &str = "https://api.subdl.com/api/v1";
+const SUBDL_DOWNLOAD_BASE_URL: &str = "https://dl.subdl.com";
+const SUBF2M_BASE_URL: &str = "https://subf2m.co";
+const OPENSUBTITLES_API_BASE_URL: &str = "https://api.opensubtitles.com/api/v1";
+const OPENSUBTITLES_CLIENT_USER_AGENT: &str = "NOVA STREAM v1.5.5";
+const DEFAULT_WYZIE_MOVIE_SOURCES: &str = "subdl,podnapisi,opensubtitles,yify";
+const DEFAULT_WYZIE_SERIES_SOURCES: &str = "gestdown,subdl,podnapisi,opensubtitles";
+const DEFAULT_WYZIE_ANIMATION_SOURCES: &str =
+    "jimaku,ajatttools,animetosho,kitsunekko,subdl,opensubtitles";
 const IFRAME_PLAYER_WINDOW_LABEL: &str = "iframe-player";
 const BROWSER_FETCH_BRIDGE_WINDOW_LABEL: &str = "browser-fetch-bridge";
 const IFRAME_PLAYER_BROWSER_ARGS: &str =
@@ -701,6 +711,12 @@ struct CachedValue<T> {
     stored_at_ms: u128,
 }
 
+#[derive(Clone)]
+struct OpenSubtitlesSession {
+    base_url: String,
+    token: String,
+}
+
 struct StaticCaptureResolution {
     resolved_stream: Option<ResolvedEmbedStream>,
     next_url: String,
@@ -724,6 +740,8 @@ static MOVIE_STREAM_CACHE: OnceLock<Mutex<HashMap<String, CachedValue<Vec<Resolv
     OnceLock::new();
 static MOVIE_SUBTITLE_CACHE: OnceLock<Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>>> =
     OnceLock::new();
+static OPENSUBTITLES_SESSION_CACHE: OnceLock<Mutex<Option<CachedValue<OpenSubtitlesSession>>>> =
+    OnceLock::new();
 static BROWSER_FETCH_COUNTER: AtomicU64 = AtomicU64::new(1);
 static BROWSER_FETCH_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
 static PENDING_BROWSER_FETCHES: OnceLock<
@@ -744,6 +762,10 @@ fn movie_stream_cache() -> &'static Mutex<HashMap<String, CachedValue<Vec<Resolv
 
 fn movie_subtitle_cache() -> &'static Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>> {
     MOVIE_SUBTITLE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn opensubtitles_session_cache() -> &'static Mutex<Option<CachedValue<OpenSubtitlesSession>>> {
+    OPENSUBTITLES_SESSION_CACHE.get_or_init(|| Mutex::new(None))
 }
 
 fn pending_browser_fetches(
@@ -789,7 +811,203 @@ fn set_cached_value<T: Clone>(
 }
 
 fn embedded_nuvio_runtime_version() -> String {
-    format!("{}-{}", env!("CARGO_PKG_VERSION"), std::env::consts::OS)
+    format!(
+        "{}-{}-{}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        env!("NUVIO_RUNTIME_BUILD_ID")
+    )
+}
+
+fn read_env_assignment_from_file(path: &std::path::Path, key: &str) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let (entry_key, entry_value) = trimmed.split_once('=')?;
+        if entry_key.trim() != key {
+            continue;
+        }
+
+        let value = entry_value.trim().trim_matches('"').trim_matches('\'');
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+
+    None
+}
+
+fn resolve_wyzie_api_key() -> Option<String> {
+    if let Ok(value) = env::var("WYZIE_API_KEY") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    for sidecar_dir in nuvio_sidecar_dir_candidates() {
+        let env_path = sidecar_dir.join(".env");
+        if let Some(value) = read_env_assignment_from_file(&env_path, "WYZIE_API_KEY") {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+fn resolve_subdl_api_key() -> Option<String> {
+    resolve_optional_sidecar_env("SUBDL_API_KEY")
+}
+
+fn is_subdl_fallback_enabled() -> bool {
+    match resolve_optional_sidecar_env("ENABLE_SUBDL_FALLBACK") {
+        Some(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
+        }
+        None => false,
+    }
+}
+
+fn is_wyzie_fallback_enabled() -> bool {
+    match resolve_optional_sidecar_env("ENABLE_WYZIE_FALLBACK") {
+        Some(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
+        }
+        None => false,
+    }
+}
+
+fn resolve_opensubtitles_api_key() -> Option<String> {
+    resolve_optional_sidecar_env("OPENSUBTITLES_API_KEY")
+}
+
+fn resolve_opensubtitles_username() -> Option<String> {
+    resolve_optional_sidecar_env("OPENSUBTITLES_USERNAME")
+}
+
+fn resolve_opensubtitles_password() -> Option<String> {
+    resolve_optional_sidecar_env("OPENSUBTITLES_PASSWORD")
+}
+
+fn normalize_opensubtitles_base_url(value: &str) -> String {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return OPENSUBTITLES_API_BASE_URL.to_string();
+    }
+
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        if trimmed.ends_with("/api/v1") {
+            trimmed.to_string()
+        } else {
+            format!("{trimmed}/api/v1")
+        }
+    } else if trimmed.ends_with("/api/v1") {
+        format!("https://{trimmed}")
+    } else {
+        format!("https://{trimmed}/api/v1")
+    }
+}
+
+fn clear_opensubtitles_session_cache() {
+    if let Ok(mut guard) = opensubtitles_session_cache().lock() {
+        *guard = None;
+    }
+}
+
+async fn login_opensubtitles(client: &reqwest::Client) -> Result<OpenSubtitlesSession, String> {
+    if let Ok(guard) = opensubtitles_session_cache().lock() {
+        if let Some(cached) = guard.as_ref() {
+            let age_ms = now_ms().saturating_sub(cached.stored_at_ms);
+            if age_ms <= 6 * 60 * 60 * 1000 {
+                return Ok(cached.value.clone());
+            }
+        }
+    }
+
+    let api_key = resolve_opensubtitles_api_key()
+        .ok_or_else(|| "OpenSubtitles API key is not configured".to_string())?;
+    let username = resolve_opensubtitles_username()
+        .ok_or_else(|| "OpenSubtitles username is not configured".to_string())?;
+    let password = resolve_opensubtitles_password()
+        .ok_or_else(|| "OpenSubtitles password is not configured".to_string())?;
+
+    let response = client
+        .post(format!("{OPENSUBTITLES_API_BASE_URL}/login"))
+        .header("Api-Key", api_key)
+        .header("User-Agent", OPENSUBTITLES_CLIENT_USER_AGENT)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&serde_json::json!({
+            "username": username,
+            "password": password
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("OpenSubtitles login request failed: {e}"))?;
+
+    let status = response.status();
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("OpenSubtitles login failed: HTTP {}", status));
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let token = value
+        .get("token")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "OpenSubtitles login response missing token".to_string())?
+        .to_string();
+    let base_url = normalize_opensubtitles_base_url(
+        value
+            .get("base_url")
+            .and_then(|value| value.as_str())
+            .unwrap_or("api.opensubtitles.com"),
+    );
+
+    let session = OpenSubtitlesSession { base_url, token };
+    if let Ok(mut guard) = opensubtitles_session_cache().lock() {
+        *guard = Some(CachedValue {
+            value: session.clone(),
+            stored_at_ms: now_ms(),
+        });
+    }
+
+    Ok(session)
+}
+
+fn resolve_optional_sidecar_env(key: &str) -> Option<String> {
+    if let Ok(value) = env::var(key) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    for sidecar_dir in nuvio_sidecar_dir_candidates() {
+        let env_path = sidecar_dir.join(".env");
+        if let Some(value) = read_env_assignment_from_file(&env_path, key) {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+fn wyzie_sources_for_content_type(content_type: &str) -> String {
+    let (env_key, default_sources) = match content_type {
+        "series" => ("WYZIE_SERIES_SOURCES", DEFAULT_WYZIE_SERIES_SOURCES),
+        "animation" => ("WYZIE_ANIMATION_SOURCES", DEFAULT_WYZIE_ANIMATION_SOURCES),
+        _ => ("WYZIE_MOVIE_SOURCES", DEFAULT_WYZIE_MOVIE_SOURCES),
+    };
+
+    resolve_optional_sidecar_env(env_key).unwrap_or_else(|| default_sources.to_string())
 }
 
 fn embedded_nuvio_runtime_root() -> Result<PathBuf, String> {
@@ -798,6 +1016,30 @@ fn embedded_nuvio_runtime_root() -> Result<PathBuf, String> {
         .ok_or("failed to resolve local app data directory".to_string())?;
 
     Ok(base_dir.join("NOVA STREAM").join("runtime"))
+}
+
+fn stop_nuvio_sidecar_for_runtime_refresh() {
+    log_resolver_debug("[nuvio_sidecar] stopping existing sidecar before runtime refresh");
+    stop_nuvio_sidecar();
+    stop_process_on_port(NUVIO_SIDECAR_PORT);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+}
+
+fn clear_embedded_nuvio_runtime(runtime_root: &std::path::Path) -> Result<(), String> {
+    fs::create_dir_all(runtime_root)
+        .map_err(|e| format!("failed to create Nuvio runtime root: {e}"))?;
+
+    for (path, label) in [
+        (runtime_root.join("vendor"), "embedded Nuvio vendor directory"),
+        (runtime_root.join("node"), "embedded Nuvio node directory"),
+    ] {
+        if path.exists() {
+            fs::remove_dir_all(&path)
+                .map_err(|e| format!("failed to remove {label}: {e}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
@@ -821,60 +1063,78 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
         return Ok(runtime_root);
     }
 
-    fs::create_dir_all(&runtime_root)
-        .map_err(|e| format!("failed to create Nuvio runtime root: {e}"))?;
-    let _ = fs::remove_dir_all(runtime_root.join("vendor"));
-    let _ = fs::remove_dir_all(runtime_root.join("node"));
-
-    let reader = Cursor::new(EMBEDDED_NUVIO_RUNTIME_ARCHIVE);
-    let mut archive =
-        ZipArchive::new(reader).map_err(|e| format!("failed to open embedded Nuvio archive: {e}"))?;
-
-    for index in 0..archive.len() {
-        let mut entry = archive
-            .by_index(index)
-            .map_err(|e| format!("failed to read embedded Nuvio archive entry: {e}"))?;
-
-        let enclosed = entry
-            .enclosed_name()
-            .map(|path| path.to_owned())
-            .ok_or("embedded Nuvio archive contained an unsafe path".to_string())?;
-        let output_path = runtime_root.join(enclosed);
-
-        if entry.is_dir() {
-            fs::create_dir_all(&output_path)
-                .map_err(|e| format!("failed to create embedded Nuvio directory: {e}"))?;
-            continue;
+    for attempt in 0..2 {
+        if attempt > 0 {
+            stop_nuvio_sidecar_for_runtime_refresh();
         }
 
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("failed to create embedded Nuvio parent directory: {e}"))?;
-        }
+        let extraction_result = (|| -> Result<(), String> {
+            clear_embedded_nuvio_runtime(&runtime_root)?;
 
-        let mut file = fs::File::create(&output_path)
-            .map_err(|e| format!("failed to create embedded Nuvio file: {e}"))?;
-        std::io::copy(&mut entry, &mut file)
-            .map_err(|e| format!("failed to extract embedded Nuvio file: {e}"))?;
+            let reader = Cursor::new(EMBEDDED_NUVIO_RUNTIME_ARCHIVE);
+            let mut archive = ZipArchive::new(reader)
+                .map_err(|e| format!("failed to open embedded Nuvio archive: {e}"))?;
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
+            for index in 0..archive.len() {
+                let mut entry = archive
+                    .by_index(index)
+                    .map_err(|e| format!("failed to read embedded Nuvio archive entry: {e}"))?;
 
-            if let Some(mode) = entry.unix_mode() {
-                let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(mode));
-            } else if output_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                == Some(node_name)
-            {
-                let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(0o755));
+                let enclosed = entry
+                    .enclosed_name()
+                    .map(|path| path.to_owned())
+                    .ok_or("embedded Nuvio archive contained an unsafe path".to_string())?;
+                let output_path = runtime_root.join(enclosed);
+
+                if entry.is_dir() {
+                    fs::create_dir_all(&output_path)
+                        .map_err(|e| format!("failed to create embedded Nuvio directory: {e}"))?;
+                    continue;
+                }
+
+                if let Some(parent) = output_path.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|e| format!("failed to create embedded Nuvio parent directory: {e}"))?;
+                }
+
+                let mut file = fs::File::create(&output_path)
+                    .map_err(|e| format!("failed to create embedded Nuvio file: {e}"))?;
+                std::io::copy(&mut entry, &mut file)
+                    .map_err(|e| format!("failed to extract embedded Nuvio file: {e}"))?;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+
+                    if let Some(mode) = entry.unix_mode() {
+                        let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(mode));
+                    } else if output_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        == Some(node_name)
+                    {
+                        let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(0o755));
+                    }
+                }
             }
+
+            fs::write(&version_file, &version)
+                .map_err(|e| format!("failed to write embedded Nuvio runtime version: {e}"))?;
+
+            Ok(())
+        })();
+
+        match extraction_result {
+            Ok(()) => return Ok(runtime_root),
+            Err(error) if attempt == 0 => {
+                log_resolver_debug(&format!(
+                    "[nuvio_sidecar] embedded runtime extraction failed on first attempt: {}",
+                    error
+                ));
+            }
+            Err(error) => return Err(error),
         }
     }
-
-    fs::write(&version_file, version)
-        .map_err(|e| format!("failed to write embedded Nuvio runtime version: {e}"))?;
 
     Ok(runtime_root)
 }
@@ -1021,6 +1281,9 @@ fn spawn_nuvio_sidecar(sidecar_dir: PathBuf) -> Result<Child, String> {
         .env("USE_EXTERNAL_PROVIDERS", "false")
         .env("ENABLE_PSTREAM_API", "false")
         .env("TMDB_API_KEY", TMDB_API_KEY);
+    if let Some(wyzie_api_key) = resolve_wyzie_api_key() {
+        command.env("WYZIE_API_KEY", wyzie_api_key);
+    }
     configure_background_process(&mut command)?;
 
     command
@@ -1041,7 +1304,34 @@ async fn nuvio_sidecar_is_healthy(client: &reqwest::Client) -> bool {
 
 async fn ensure_nuvio_sidecar(client: &reqwest::Client) -> Result<(), String> {
     if nuvio_sidecar_is_healthy(client).await {
-        return Ok(());
+        let managed_running = {
+            let mut guard = nuvio_sidecar_child()
+                .lock()
+                .map_err(|_| "failed to lock Nuvio sidecar state".to_string())?;
+
+            match guard.as_mut() {
+                Some(child) => match child.try_wait() {
+                    Ok(Some(_)) => {
+                        *guard = None;
+                        false
+                    }
+                    Ok(None) => true,
+                    Err(_) => {
+                        *guard = None;
+                        false
+                    }
+                },
+                None => false,
+            }
+        };
+
+        if managed_running {
+            return Ok(());
+        }
+
+        log_resolver_debug("[nuvio_sidecar] replacing unmanaged sidecar process");
+        stop_process_on_port(NUVIO_SIDECAR_PORT);
+        tokio::time::sleep(Duration::from_millis(350)).await;
     }
 
     {
@@ -3265,6 +3555,175 @@ async fn fetch_movie_manifest(
     Ok(rewritten)
 }
 
+fn extract_hls_attribute(line: &str, attribute: &str) -> Option<String> {
+    let quoted_pattern = format!(r#"{attribute}="([^"]+)""#);
+    if let Ok(regex) = Regex::new(&quoted_pattern) {
+        if let Some(captures) = regex.captures(line) {
+            if let Some(value) = captures.get(1) {
+                return Some(value.as_str().to_string());
+            }
+        }
+    }
+
+    let plain_pattern = format!(r"{attribute}=([^,]+)");
+    if let Ok(regex) = Regex::new(&plain_pattern) {
+        if let Some(captures) = regex.captures(line) {
+            if let Some(value) = captures.get(1) {
+                return Some(value.as_str().to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn normalize_hls_subtitle_language(language: Option<&str>, label: &str) -> String {
+    let normalized = language
+        .unwrap_or(label)
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-");
+    let primary = normalized.split('-').next().unwrap_or("en");
+
+    match primary {
+        "eng" | "en" => "en",
+        "ger" | "deu" | "de" => "de",
+        "fre" | "fra" | "fr" => "fr",
+        "ita" | "it" => "it",
+        "jpn" | "ja" => "ja",
+        "ukr" | "uk" => "uk",
+        "por" | "pt" => "pt",
+        "spa" | "es" => "es",
+        other if !other.is_empty() => other,
+        _ => "en",
+    }
+    .to_string()
+}
+
+fn parse_hls_subtitle_tracks(
+    manifest_text: &str,
+    manifest_url: &Url,
+    provider: &str,
+) -> Vec<ResolvedMovieSubtitle> {
+    let mut subtitles = manifest_text
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("#EXT-X-MEDIA:") {
+                return None;
+            }
+
+            let media_type = extract_hls_attribute(trimmed, "TYPE")?;
+            if media_type != "SUBTITLES" {
+                return None;
+            }
+
+            let uri = extract_hls_attribute(trimmed, "URI")?;
+            let subtitle_url = manifest_url.join(&uri).ok()?.to_string();
+            let label = extract_hls_attribute(trimmed, "NAME").unwrap_or_else(|| "Unknown".to_string());
+            let language = normalize_hls_subtitle_language(
+                extract_hls_attribute(trimmed, "LANGUAGE").as_deref(),
+                &label,
+            );
+            let hearing_impaired = label.to_ascii_lowercase().contains("[cc]");
+
+            Some(ResolvedMovieSubtitle {
+                url: subtitle_url,
+                label,
+                language,
+                format: "vtt".to_string(),
+                source: provider.to_string(),
+                hearing_impaired,
+                release: None,
+                origin: None,
+                file_name: None,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    subtitles.sort_by(|a, b| {
+        subtitle_preference_score(b)
+            .cmp(&subtitle_preference_score(a))
+            .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.url.cmp(&b.url))
+    });
+    subtitles.dedup_by(|left, right| left.url == right.url);
+    subtitles
+}
+
+fn should_probe_provider_hls_subtitles(stream: &ResolvedMovieStream) -> bool {
+    let provider = stream.provider.trim().to_ascii_lowercase();
+    stream.subtitles.is_empty()
+        && stream.stream_type == "hls"
+        && (provider.contains("vixsrc")
+            || provider.contains("moviesmod")
+            || provider.contains("4khdhub"))
+}
+
+async fn discover_provider_hls_subtitles(
+    client: &reqwest::Client,
+    stream: &ResolvedMovieStream,
+) -> Vec<ResolvedMovieSubtitle> {
+    if !should_probe_provider_hls_subtitles(stream) {
+        return Vec::new();
+    }
+
+    let mut request = client.get(&stream.url).header(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    );
+
+    for (key, value) in &stream.headers {
+        request = request.header(key.as_str(), value.as_str());
+    }
+
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            log_resolver_debug(&format!(
+                "[provider_subtitles] manifest request failed provider={} url={} error={}",
+                stream.provider, stream.url, error
+            ));
+            return Vec::new();
+        }
+    };
+
+    if !response.status().is_success() {
+        log_resolver_debug(&format!(
+            "[provider_subtitles] manifest request rejected provider={} url={} status={}",
+            stream.provider,
+            stream.url,
+            response.status()
+        ));
+        return Vec::new();
+    }
+
+    let final_url = response.url().clone();
+    let manifest_text = match response.text().await {
+        Ok(text) => text,
+        Err(error) => {
+            log_resolver_debug(&format!(
+                "[provider_subtitles] manifest text read failed provider={} url={} error={}",
+                stream.provider, stream.url, error
+            ));
+            return Vec::new();
+        }
+    };
+
+    let subtitles = parse_hls_subtitle_tracks(&manifest_text, &final_url, &stream.provider);
+    if !subtitles.is_empty() {
+        log_resolver_debug(&format!(
+            "[provider_subtitles] discovered native tracks provider={} subtitleCount={} url={}",
+            stream.provider,
+            subtitles.len(),
+            stream.url
+        ));
+    }
+
+    subtitles
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MovieStreamProbeResult {
@@ -3572,6 +4031,70 @@ fn movie_variant_preference_score(stream: &ResolvedMovieStream, content_type: &s
     if provider.contains("4khdhub") {
         if title.contains("dv") || title.contains("hdr") || title.contains("atmos") {
             score -= 4;
+        }
+    }
+
+    score
+}
+
+fn movie_audio_preference_score(stream: &ResolvedMovieStream) -> i32 {
+    let title = stream.title.to_ascii_lowercase();
+    let provider = stream.provider.to_ascii_lowercase();
+    let url = stream.url.to_ascii_lowercase();
+    let combined = format!("{title} {provider} {url}");
+
+    let english_markers = [
+        "english",
+        "eng",
+        "english dub",
+        "dubbed",
+        "amzn",
+        "itunes",
+    ];
+    let non_english_markers = [
+        "hindi",
+        "tam",
+        "tamil",
+        "tel",
+        "telugu",
+        "malayalam",
+        "kannada",
+        "punjabi",
+        "bengali",
+        "urdu",
+        "arabic",
+        "korean",
+        "japanese",
+        "jpn",
+        "french",
+        "german",
+        "italian",
+        "russian",
+        "spanish",
+        "latino",
+        "chinese",
+        "mandarin",
+        "dual audio",
+        "multi audio",
+        "multi-audio",
+        "esubs",
+    ];
+
+    let mut score = 0;
+
+    if english_markers.iter().any(|marker| combined.contains(marker)) {
+        score += 10;
+    }
+
+    let non_english_hits = non_english_markers
+        .iter()
+        .filter(|marker| combined.contains(**marker))
+        .count() as i32;
+
+    if non_english_hits > 0 {
+        score -= non_english_hits * 18;
+        if !combined.contains("english") && !combined.contains("eng") {
+            score -= 12;
         }
     }
 
@@ -3942,6 +4465,459 @@ fn normalize_wyzie_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubti
     subtitles
 }
 
+fn normalize_subdl_download_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return Some(trimmed.to_string());
+    }
+
+    let normalized = trimmed.trim_start_matches('/');
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if normalized.starts_with("subtitle/") {
+        return Some(format!("{SUBDL_DOWNLOAD_BASE_URL}/{normalized}"));
+    }
+
+    if normalized.ends_with(".zip") {
+        return Some(format!("{SUBDL_DOWNLOAD_BASE_URL}/subtitle/{normalized}"));
+    }
+
+    None
+}
+
+fn normalize_subdl_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubtitle> {
+    let Some(streams) = data.get("subtitles").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+
+    let mut subtitles = streams
+        .iter()
+        .filter_map(|item| {
+            let url = item
+                .get("url")
+                .or_else(|| item.get("download_url"))
+                .or_else(|| item.get("downloadUrl"))
+                .or_else(|| item.get("download_link"))
+                .or_else(|| item.get("downloadLink"))
+                .or_else(|| item.get("link"))
+                .and_then(|value| value.as_str())
+                .and_then(normalize_subdl_download_url)?;
+
+            let language = item
+                .get("language")
+                .or_else(|| item.get("lang"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("en")
+                .to_ascii_lowercase();
+            let release = item
+                .get("release_name")
+                .or_else(|| item.get("release"))
+                .or_else(|| item.get("name"))
+                .or_else(|| item.get("file_name"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let comment = item
+                .get("comment")
+                .or_else(|| item.get("author_comment"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let hearing_impaired = item
+                .get("hi")
+                .or_else(|| item.get("isHearingImpaired"))
+                .or_else(|| item.get("hearing_impaired"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let label = release
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "English".to_string());
+            let format = if url.to_ascii_lowercase().ends_with(".zip") {
+                "zip".to_string()
+            } else if url.to_ascii_lowercase().contains(".vtt") {
+                "vtt".to_string()
+            } else {
+                "srt".to_string()
+            };
+
+            Some(ResolvedMovieSubtitle {
+                url,
+                label,
+                language,
+                format,
+                source: "subdl-direct".to_string(),
+                hearing_impaired,
+                release: release.clone(),
+                origin: comment,
+                file_name: release,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    subtitles.sort_by(|a, b| {
+        subtitle_preference_score(b)
+            .cmp(&subtitle_preference_score(a))
+            .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.url.cmp(&b.url))
+    });
+    subtitles.dedup_by(|left, right| left.url == right.url);
+    subtitles
+}
+
+fn parse_opensubtitles_file_id(url: &str) -> Option<u64> {
+    url.strip_prefix("opensubtitles://")
+        .and_then(|value| value.parse::<u64>().ok())
+}
+
+fn normalize_opensubtitles_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubtitle> {
+    let Some(streams) = data.get("data").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+
+    let mut subtitles = streams
+        .iter()
+        .filter_map(|item| {
+            let attributes = item.get("attributes")?;
+            let files = attributes.get("files")?.as_array()?;
+            let file_id = files
+                .iter()
+                .filter_map(|file| {
+                    file.get("file_id")
+                        .or_else(|| file.get("fileId"))
+                        .and_then(|value| value.as_u64())
+                })
+                .next()?;
+
+            let language = attributes
+                .get("language")
+                .or_else(|| attributes.get("language_code"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("en")
+                .to_ascii_lowercase();
+            let release = attributes
+                .get("release")
+                .or_else(|| attributes.get("movie_name"))
+                .or_else(|| attributes.get("feature_details").and_then(|value| value.get("movie_name")))
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            let file_name = files
+                .iter()
+                .filter_map(|file| {
+                    file.get("file_name")
+                        .or_else(|| file.get("fileName"))
+                        .and_then(|value| value.as_str())
+                })
+                .next()
+                .map(str::to_string);
+            let hearing_impaired = attributes
+                .get("hearing_impaired")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let format = attributes
+                .get("format")
+                .and_then(|value| value.as_str())
+                .unwrap_or("srt")
+                .to_string();
+            let label = release
+                .clone()
+                .or_else(|| file_name.clone())
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "English".to_string());
+
+            Some(ResolvedMovieSubtitle {
+                url: format!("opensubtitles://{file_id}"),
+                label,
+                language,
+                format,
+                source: "opensubtitles-direct".to_string(),
+                hearing_impaired,
+                release,
+                origin: None,
+                file_name,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    subtitles.sort_by(|a, b| {
+        subtitle_preference_score(b)
+            .cmp(&subtitle_preference_score(a))
+            .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.url.cmp(&b.url))
+    });
+    subtitles.dedup_by(|left, right| left.url == right.url);
+    subtitles
+}
+
+async fn fetch_opensubtitles_subtitles(
+    client: &reqwest::Client,
+    imdb_id: &str,
+    content_type: &str,
+    season: Option<u32>,
+    episode: Option<u32>,
+) -> Result<Vec<ResolvedMovieSubtitle>, String> {
+    let api_key = match resolve_opensubtitles_api_key() {
+        Some(value) => value,
+        None => return Ok(Vec::new()),
+    };
+
+    async fn request_once(
+        client: &reqwest::Client,
+        api_key: &str,
+        imdb_id: &str,
+        content_type: &str,
+        season: Option<u32>,
+        episode: Option<u32>,
+    ) -> Result<reqwest::Response, String> {
+        let session = login_opensubtitles(client).await?;
+        let mut url = Url::parse(&format!("{}/subtitles", session.base_url)).map_err(|e| e.to_string())?;
+        {
+            let mut query = url.query_pairs_mut();
+            query
+                .append_pair("imdb_id", imdb_id)
+                .append_pair("languages", "en")
+                .append_pair("order_by", "download_count")
+                .append_pair("order_direction", "desc");
+
+            if content_type == "series" {
+                query
+                    .append_pair("season_number", &season.unwrap_or(1).to_string())
+                    .append_pair("episode_number", &episode.unwrap_or(1).to_string());
+            }
+        }
+
+        client
+            .get(url)
+            .header("Api-Key", api_key)
+            .header("User-Agent", OPENSUBTITLES_CLIENT_USER_AGENT)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .bearer_auth(session.token)
+            .send()
+            .await
+            .map_err(|e| format!("OpenSubtitles search request failed: {e}"))
+    }
+
+    let mut response = request_once(client, &api_key, imdb_id, content_type, season, episode).await?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        clear_opensubtitles_session_cache();
+        response = request_once(client, &api_key, imdb_id, content_type, season, episode).await?;
+    }
+
+    let status = response.status();
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("OpenSubtitles search failed: HTTP {}", status));
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    Ok(normalize_opensubtitles_subtitles(&value))
+}
+
+async fn resolve_opensubtitles_download_link(
+    client: &reqwest::Client,
+    file_id: u64,
+) -> Result<String, String> {
+    let api_key = resolve_opensubtitles_api_key()
+        .ok_or_else(|| "OpenSubtitles API key is not configured".to_string())?;
+
+    async fn request_once(
+        client: &reqwest::Client,
+        api_key: &str,
+        file_id: u64,
+    ) -> Result<reqwest::Response, String> {
+        let session = login_opensubtitles(client).await?;
+        client
+            .post(format!("{}/download", session.base_url))
+            .header("Api-Key", api_key)
+            .header("User-Agent", OPENSUBTITLES_CLIENT_USER_AGENT)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .bearer_auth(session.token)
+            .json(&serde_json::json!({
+                "file_id": file_id,
+                "sub_format": "srt"
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("OpenSubtitles download request failed: {e}"))
+    }
+
+    let mut response = request_once(client, &api_key, file_id).await?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        clear_opensubtitles_session_cache();
+        response = request_once(client, &api_key, file_id).await?;
+    }
+
+    let status = response.status();
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("OpenSubtitles download failed: HTTP {}", status));
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    value
+        .get("link")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "OpenSubtitles download response missing link".to_string())
+}
+
+async fn resolve_tmdb_subtitle_query(
+    client: &reqwest::Client,
+    tmdb_id: &str,
+    content_type: &str,
+) -> Result<(String, Option<String>), String> {
+    let endpoint = if content_type == "series" { "tv" } else { "movie" };
+    let url = format!("{TMDB_BASE_URL}/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}");
+    let data = fetch_json_value(client, &url).await?;
+    let title = data
+        .get("title")
+        .or_else(|| data.get("name"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "TMDB title is missing".to_string())?
+        .to_string();
+    let year = data
+        .get("release_date")
+        .or_else(|| data.get("first_air_date"))
+        .and_then(|value| value.as_str())
+        .and_then(|value| value.split('-').next())
+        .filter(|value| value.len() == 4)
+        .map(str::to_string);
+
+    Ok((title, year))
+}
+
+async fn fetch_subf2m_subtitles(
+    client: &reqwest::Client,
+    tmdb_id: &str,
+    imdb_id: &str,
+    content_type: &str,
+) -> Result<Vec<ResolvedMovieSubtitle>, String> {
+    if content_type == "series" {
+        return Ok(Vec::new());
+    }
+
+    let (title, year) = resolve_tmdb_subtitle_query(client, tmdb_id, content_type).await?;
+    let mut search_url = Url::parse(&format!("{SUBF2M_BASE_URL}/subtitles/searchbytitle"))
+        .map_err(|e| e.to_string())?;
+    {
+        let mut query = search_url.query_pairs_mut();
+        query.append_pair("query", &title);
+    }
+
+    let search_html = client
+        .get(search_url.clone())
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .map_err(|e| format!("subf2m search failed: {e}"))?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let slug_pattern = Regex::new(r#"href="(/subtitles/[^"/?]+)""#).map_err(|e| e.to_string())?;
+    let mut candidate_paths = slug_pattern
+        .captures_iter(&search_html)
+        .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+        .filter(|path| !path.contains("/searchbytitle"))
+        .collect::<Vec<_>>();
+    candidate_paths.sort();
+    candidate_paths.dedup();
+
+    let imdb_marker = format!("/title/{imdb_id}");
+    let expected_year = year.as_deref();
+    let mut matched_path: Option<String> = None;
+
+    for path in candidate_paths.iter().take(8) {
+        let page_url = format!("{SUBF2M_BASE_URL}{path}");
+        let page_html = client
+            .get(&page_url)
+            .header("User-Agent", "Mozilla/5.0")
+            .send()
+            .await
+            .map_err(|e| format!("subf2m title page failed: {e}"))?
+            .text()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if page_html.contains(&imdb_marker) {
+            matched_path = Some(path.clone());
+            break;
+        }
+
+        if matched_path.is_none() {
+            let title_matches = page_html.to_ascii_lowercase().contains(&title.to_ascii_lowercase());
+            let year_matches = expected_year
+                .map(|value| page_html.contains(value))
+                .unwrap_or(true);
+            if title_matches && year_matches {
+                matched_path = Some(path.clone());
+            }
+        }
+    }
+
+    let Some(path) = matched_path else {
+        return Ok(Vec::new());
+    };
+
+    let language_url = format!("{SUBF2M_BASE_URL}{path}/english");
+    let language_html = client
+        .get(&language_url)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .map_err(|e| format!("subf2m language page failed: {e}"))?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let item_pattern = Regex::new(
+        r#"(?s)<li class='item[^']*'>.*?<span class='language [^']*'>English</span>.*?<span class='rate ([^']+)'></span>.*?<ul class='scrolllist'>\s*<li>(.*?)</li>.*?<div class='vertical-middle'>.*?<p>(.*?)</p>.*?<a class='download icon-download' href='([^']+/english/\d+)'"#,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let mut subtitles = item_pattern
+        .captures_iter(&language_html)
+        .filter_map(|captures| {
+            let rating = captures.get(1)?.as_str().trim().to_string();
+            let release = captures.get(2)?.as_str().trim().replace("&amp;", "&");
+            let comment = captures.get(3)?.as_str().trim().replace("&amp;", "&");
+            let detail_path = captures.get(4)?.as_str().trim();
+            let download_url = format!("{SUBF2M_BASE_URL}{detail_path}/download");
+
+            Some(ResolvedMovieSubtitle {
+                url: download_url,
+                label: format!("English - {release}"),
+                language: "en".to_string(),
+                format: "zip".to_string(),
+                source: "subf2m-direct".to_string(),
+                hearing_impaired: comment.to_ascii_lowercase().contains("hi"),
+                release: Some(release),
+                origin: Some(format!("subf2m:{rating}")),
+                file_name: None,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    subtitles.sort_by(|a, b| {
+        subtitle_preference_score(b)
+            .cmp(&subtitle_preference_score(a))
+            .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.url.cmp(&b.url))
+    });
+    subtitles.dedup_by(|left, right| left.url == right.url);
+    Ok(subtitles)
+}
+
 fn normalize_provider_subtitles(data: &serde_json::Value, fallback_source: &str) -> Vec<ResolvedMovieSubtitle> {
     let Some(streams) = data.as_array() else {
         return Vec::new();
@@ -4036,6 +5012,12 @@ fn subtitle_preference_score(subtitle: &ResolvedMovieSubtitle) -> i32 {
     let label = subtitle.label.to_ascii_lowercase();
     let url = subtitle.url.to_ascii_lowercase();
     let source = subtitle.source.to_ascii_lowercase();
+    let release_hint = subtitle
+        .release
+        .as_deref()
+        .or(subtitle.file_name.as_deref())
+        .unwrap_or(&subtitle.label)
+        .to_ascii_lowercase();
 
     let mut score = 0;
 
@@ -4043,7 +5025,7 @@ fn subtitle_preference_score(subtitle: &ResolvedMovieSubtitle) -> i32 {
         score += 40;
     }
 
-    if label.contains("english") {
+    if subtitle.language.eq_ignore_ascii_case("en") || label.contains("english") {
         score += 20;
     }
 
@@ -4051,19 +5033,42 @@ fn subtitle_preference_score(subtitle: &ResolvedMovieSubtitle) -> i32 {
         score -= 8;
     }
 
-    if source.contains("opensubtitles") {
+    if source.contains("subdl") {
+        score += 10;
+    } else if source.contains("gestdown") {
+        score += 9;
+    } else if source.contains("podnapisi") {
+        score += 8;
+    } else if source.contains("jimaku") {
+        score += 8;
+    } else if source.contains("ajatttools") {
+        score += 8;
+    } else if source.contains("subf2m") {
+        score += 8;
+    } else if source.contains("opensubtitles") {
+        score += 6;
+    } else if source.contains("kitsunekko") {
         score += 5;
+    } else if source.contains("yify") {
+        score += 4;
+    } else if source.contains("animetosho") {
+        score += 3;
     }
 
-    if url.contains("web") || url.contains("webrip") || url.contains("web-dl") {
+    if release_hint.contains("web") || release_hint.contains("webrip") || release_hint.contains("web-dl") || url.contains("web") {
         score += 25;
     }
 
-    if url.contains("bluray") || url.contains("bdrip") {
+    if release_hint.contains("bluray") || release_hint.contains("bdrip") || url.contains("bluray") {
         score += 8;
     }
 
-    if url.contains("hdts") || url.contains("cam") || url.contains("chew edition") {
+    if release_hint.contains("hdts")
+        || release_hint.contains("cam")
+        || release_hint.contains("chew edition")
+        || url.contains("hdts")
+        || url.contains("cam")
+    {
         score -= 40;
     }
 
@@ -4090,17 +5095,19 @@ async fn fetch_movie_subtitles(
     } else {
         "movie"
     };
-
     let imdb_id = match payload.imdb_id.clone() {
         Some(imdb_id) if !imdb_id.trim().is_empty() => imdb_id,
         _ => resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, imdb_lookup_content_type).await?,
     };
+    let wyzie_sources = wyzie_sources_for_content_type(&normalized_content_type);
 
     let cache_key = format!(
-        "{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}",
         MOVIE_SUBTITLE_CACHE_VERSION,
         imdb_id,
         normalized_content_type,
+        "subdl-first-wyzie-second",
+        wyzie_sources,
         payload.season.unwrap_or(1),
         payload.episode.unwrap_or(1)
     );
@@ -4119,13 +5126,103 @@ async fn fetch_movie_subtitles(
         return Ok(cached);
     }
 
+    if is_subdl_fallback_enabled() {
+        if let Some(subdl_api_key) = resolve_subdl_api_key() {
+            let mut subdl_url =
+                Url::parse(&format!("{SUBDL_API_BASE_URL}/subtitles")).map_err(|e| e.to_string())?;
+            {
+                let mut query = subdl_url.query_pairs_mut();
+                query
+                    .append_pair("api_key", &subdl_api_key)
+                    .append_pair("imdb_id", &imdb_id)
+                    .append_pair("type", if normalized_content_type == "series" { "tv" } else { "movie" })
+                    .append_pair("languages", "EN")
+                    .append_pair("subs_per_page", "30")
+                    .append_pair("comment", "1")
+                    .append_pair("releases", "1")
+                    .append_pair("hi", "1");
+
+                if normalized_content_type == "series" {
+                    query
+                        .append_pair("season_number", &payload.season.unwrap_or(1).to_string())
+                        .append_pair("episode_number", &payload.episode.unwrap_or(1).to_string());
+                }
+            }
+
+            log_resolver_debug(&format!(
+                "[fetch_movie_subtitles] tmdbId={} contentType={} imdbId={} source=subdl-direct url={}",
+                payload.tmdb_id, normalized_content_type, imdb_id, subdl_url
+            ));
+
+            match client.get(subdl_url.clone()).send().await {
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response.text().await.map_err(|e| e.to_string())?;
+
+                    if status.is_success() {
+                        let value: serde_json::Value =
+                            serde_json::from_str(&body).map_err(|e| e.to_string())?;
+                        let subtitles = normalize_subdl_subtitles(&value);
+
+                        if !subtitles.is_empty() {
+                            set_cached_value(movie_subtitle_cache(), cache_key.clone(), subtitles.clone());
+
+                            log_resolver_debug(&format!(
+                                "[fetch_movie_subtitles] subtitle_count={} source=subdl-direct tmdbId={} imdbId={}",
+                                subtitles.len(),
+                                payload.tmdb_id,
+                                imdb_id
+                            ));
+
+                            return Ok(subtitles);
+                        }
+
+                        log_resolver_debug(&format!(
+                            "[fetch_movie_subtitles] subtitle_count=0 source=subdl-direct tmdbId={} imdbId={}",
+                            payload.tmdb_id, imdb_id
+                        ));
+                    } else {
+                        log_resolver_debug(&format!(
+                            "[fetch_movie_subtitles] subdl request failed tmdbId={} imdbId={} status={}",
+                            payload.tmdb_id, imdb_id, status
+                        ));
+                    }
+                }
+                Err(error) => {
+                    log_resolver_debug(&format!(
+                        "[fetch_movie_subtitles] subdl request error tmdbId={} imdbId={} error={}",
+                        payload.tmdb_id, imdb_id, error
+                    ));
+                }
+            }
+        }
+    } else {
+        log_resolver_debug(&format!(
+            "[fetch_movie_subtitles] subdl disabled tmdbId={} contentType={} imdbId={}",
+            payload.tmdb_id, normalized_content_type, imdb_id
+        ));
+    }
+
+    if !is_wyzie_fallback_enabled() {
+        log_resolver_debug(&format!(
+            "[fetch_movie_subtitles] wyzie disabled tmdbId={} contentType={} imdbId={}",
+            payload.tmdb_id, normalized_content_type, imdb_id
+        ));
+        return Ok(Vec::new());
+    }
+
     let mut url = Url::parse(&format!("{WYZIE_SUBTITLES_BASE_URL}/search")).map_err(|e| e.to_string())?;
     {
         let mut query = url.query_pairs_mut();
         query
             .append_pair("id", &imdb_id)
             .append_pair("language", "en")
-            .append_pair("format", "srt");
+            .append_pair("format", "srt")
+            .append_pair("source", &wyzie_sources);
+
+        if let Some(wyzie_api_key) = resolve_wyzie_api_key() {
+            query.append_pair("key", &wyzie_api_key);
+        }
 
         if normalized_content_type == "series" {
             query.append_pair("season", &payload.season.unwrap_or(1).to_string());
@@ -4134,8 +5231,8 @@ async fn fetch_movie_subtitles(
     }
 
     log_resolver_debug(&format!(
-        "[fetch_movie_subtitles] tmdbId={} contentType={} imdbId={} url={}",
-        payload.tmdb_id, normalized_content_type, imdb_id, url
+        "[fetch_movie_subtitles] tmdbId={} contentType={} imdbId={} sources={} url={}",
+        payload.tmdb_id, normalized_content_type, imdb_id, wyzie_sources, url
     ));
 
     let response = client.get(url.clone()).send().await.map_err(|e| e.to_string())?;
@@ -4160,8 +5257,8 @@ async fn fetch_movie_subtitles(
     set_cached_value(movie_subtitle_cache(), cache_key, subtitles.clone());
 
     log_resolver_debug(&format!(
-        "[fetch_movie_subtitles] subtitle_count={} source=wyzie tmdbId={} imdbId={}",
-        subtitles.len(), payload.tmdb_id, imdb_id
+        "[fetch_movie_subtitles] subtitle_count={} source=wyzie sources={} tmdbId={} imdbId={}",
+        subtitles.len(), wyzie_sources, payload.tmdb_id, imdb_id
     ));
 
     Ok(subtitles)
@@ -4175,23 +5272,209 @@ async fn fetch_movie_text(url: String) -> Result<String, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client
-        .get(&url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let status = response.status();
-    let body = response.text().await.map_err(|e| e.to_string())?;
+    fn extract_subtitle_text_from_zip(bytes: &[u8]) -> Result<String, String> {
+        let reader = Cursor::new(bytes);
+        let mut archive =
+            ZipArchive::new(reader).map_err(|e| format!("Subtitle zip open failed: {e}"))?;
+        let mut best_match: Option<(usize, String, String)> = None;
 
-    if !status.is_success() {
-        return Err(format!("Movie subtitle text fetch failed: HTTP {}", status));
+        for index in 0..archive.len() {
+            let mut entry = archive
+                .by_index(index)
+                .map_err(|e| format!("Subtitle zip entry failed: {e}"))?;
+
+            if entry.is_dir() {
+                continue;
+            }
+
+            let name = entry.name().to_ascii_lowercase();
+            let rank = if name.ends_with(".srt") {
+                0
+            } else if name.ends_with(".vtt") {
+                1
+            } else if name.ends_with(".ass") {
+                2
+            } else if name.ends_with(".ssa") {
+                3
+            } else if name.ends_with(".sub") {
+                4
+            } else {
+                continue;
+            };
+
+            let mut buffer = Vec::new();
+            entry.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+            let text = String::from_utf8_lossy(&buffer).into_owned();
+
+            match &best_match {
+                Some((best_rank, best_name, _)) if rank > *best_rank => {}
+                Some((best_rank, best_name, _)) if rank == *best_rank && name >= *best_name => {}
+                _ => best_match = Some((rank, name, text)),
+            }
+        }
+
+        best_match
+            .map(|(_, _, text)| text)
+            .ok_or_else(|| "No supported subtitle file found in archive".to_string())
     }
 
-    Ok(body)
+    async fn fetch_subtitle_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
+        let response = client
+            .get(url)
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            )
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+
+        if !status.is_success() {
+            return Err(format!("Movie subtitle text fetch failed: HTTP {}", status));
+        }
+
+        let is_zip = url.to_ascii_lowercase().ends_with(".zip")
+            || content_type.contains("application/zip")
+            || content_type.contains("application/octet-stream")
+                && bytes.starts_with(b"PK");
+
+        if is_zip {
+            return extract_subtitle_text_from_zip(&bytes);
+        }
+
+        let is_gzip = content_type.contains("application/gzip")
+            || content_type.contains("application/x-gzip")
+            || bytes.starts_with(&[0x1f, 0x8b]);
+
+        if is_gzip {
+            let mut decoder = GzDecoder::new(bytes.as_ref());
+            let mut decoded = String::new();
+            decoder
+                .read_to_string(&mut decoded)
+                .map_err(|e| format!("Subtitle gzip decode failed: {e}"))?;
+            return Ok(decoded);
+        }
+
+        let body = String::from_utf8_lossy(&bytes).into_owned();
+        Ok(body)
+    }
+
+    fn is_hls_playlist(body: &str) -> bool {
+        let trimmed = body.trim_start_matches('\u{feff}').trim_start();
+        trimmed.starts_with("#EXTM3U") && trimmed.contains("#EXTINF")
+    }
+
+    let resolved_url = if let Some(file_id) = parse_opensubtitles_file_id(&url) {
+        resolve_opensubtitles_download_link(&client, file_id).await?
+    } else {
+        url.clone()
+    };
+
+    let body = fetch_subtitle_text(&client, &resolved_url).await?;
+    if !is_hls_playlist(&body) {
+        return Ok(body);
+    }
+
+    let base_url = Url::parse(&resolved_url).map_err(|e| e.to_string())?;
+    let segment_urls = body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| base_url.join(line).map(|value| value.to_string()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    if segment_urls.is_empty() {
+        return Ok(body);
+    }
+
+    let mut segments = Vec::with_capacity(segment_urls.len());
+    for segment_url in segment_urls {
+        segments.push(fetch_subtitle_text(&client, &segment_url).await?);
+    }
+
+    Ok(segments.join("\n\n"))
+}
+
+fn stop_process_on_port(port: u16) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let output = Command::new("netstat")
+            .args(["-ano", "-p", "tcp"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .output();
+
+        let Ok(output) = output else {
+            return;
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let suffix = format!(":{port}");
+        let current_pid = std::process::id();
+
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if !trimmed.contains("LISTENING") || !trimmed.contains(&suffix) {
+                continue;
+            }
+
+            let pid = trimmed
+                .split_whitespace()
+                .last()
+                .and_then(|value| value.parse::<u32>().ok());
+
+            let Some(pid) = pid else {
+                continue;
+            };
+
+            if pid == current_pid {
+                continue;
+            }
+
+            let _ = kill_process_tree(pid);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("sh")
+            .args(["-lc", &format!("lsof -ti tcp:{port}")])
+            .stdin(Stdio::null())
+            .output();
+
+        let Ok(output) = output else {
+            return;
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let current_pid = std::process::id();
+
+        for pid in stdout.lines().filter_map(|line| line.trim().parse::<u32>().ok()) {
+            if pid == current_pid {
+                continue;
+            }
+
+            let _ = Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
 }
 
 #[tauri::command]
@@ -4325,6 +5608,10 @@ async fn fetch_movie_resolver_streams(
                             movie_stream_type_score(&b.stream_type)
                                 .cmp(&movie_stream_type_score(&a.stream_type))
                                 .then_with(|| {
+                                    movie_audio_preference_score(b)
+                                        .cmp(&movie_audio_preference_score(a))
+                                })
+                                .then_with(|| {
                                     movie_variant_preference_score(b, &normalized_content_type)
                                         .cmp(&movie_variant_preference_score(a, &normalized_content_type))
                                 })
@@ -4366,6 +5653,16 @@ async fn fetch_movie_resolver_streams(
                                     url: probe_result.final_url.unwrap_or_else(|| stream.url.clone()),
                                     content_type: probe_result.content_type.clone(),
                                     ..stream
+                                };
+                                let discovered_subtitles =
+                                    discover_provider_hls_subtitles(&client, &validated_stream).await;
+                                let validated_stream = if !discovered_subtitles.is_empty() {
+                                    ResolvedMovieStream {
+                                        subtitles: discovered_subtitles,
+                                        ..validated_stream
+                                    }
+                                } else {
+                                    validated_stream
                                 };
                                 log_resolver_debug(&format!(
                                     "[fetch_movie_resolver_streams] accepted stream provider={} strategy={} source={} streamType={} quality={} subtitleCount={} url={}",
@@ -4440,6 +5737,7 @@ async fn fetch_movie_resolver_streams(
     validated_streams.sort_by(|a, b| {
         movie_stream_type_score(&b.stream_type)
             .cmp(&movie_stream_type_score(&a.stream_type))
+            .then_with(|| movie_audio_preference_score(b).cmp(&movie_audio_preference_score(a)))
             .then_with(|| {
                 movie_variant_preference_score(b, &normalized_content_type)
                     .cmp(&movie_variant_preference_score(a, &normalized_content_type))

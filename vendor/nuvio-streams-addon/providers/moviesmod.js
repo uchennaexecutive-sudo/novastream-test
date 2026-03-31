@@ -467,7 +467,7 @@ async function resolveIntermediateLink(initialUrl, refererUrl, quality) {
             const finalLinks = [];
 
             // Look for download links in entry-content or main content area
-            $('.entry-content a[href*="driveseed.org"], .entry-content a[href*="tech.unblockedgames.world"], .entry-content a[href*="tech.creativeexpressionsblog.com"], .entry-content a[href*="tech.examzculture.in"], article a[href*="driveseed.org"], article a[href*="tech.unblockedgames.world"], article a[href*="tech.creativeexpressionsblog.com"], article a[href*="tech.examzculture.in"]').each((i, el) => {
+            $('.entry-content a[href*="driveseed.org"], .entry-content a[href*="cloud.unblockedgames.world"], .entry-content a[href*="tech.unblockedgames.world"], .entry-content a[href*="tech.creativeexpressionsblog.com"], .entry-content a[href*="tech.examzculture.in"], article a[href*="driveseed.org"], article a[href*="cloud.unblockedgames.world"], article a[href*="tech.unblockedgames.world"], article a[href*="tech.creativeexpressionsblog.com"], article a[href*="tech.examzculture.in"]').each((i, el) => {
                 const link = $(el).attr('href');
                 const text = $(el).text().trim();
                 // Filter out comment section links and other non-download links
@@ -1526,7 +1526,7 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
                                 let currentUrl = targetLink.url;
 
                                 // Handle SID links if they appear
-                                if (currentUrl.includes('tech.unblockedgames.world') || currentUrl.includes('tech.creativeexpressionsblog.com') || currentUrl.includes('tech.examzculture.in')) {
+                                if (currentUrl.includes('cloud.unblockedgames.world') || currentUrl.includes('tech.unblockedgames.world') || currentUrl.includes('tech.creativeexpressionsblog.com') || currentUrl.includes('tech.examzculture.in')) {
                                     const resolvedUrl = await resolveTechUnblockedLink(currentUrl);
                                     if (!resolvedUrl) return null;
                                     currentUrl = resolvedUrl;

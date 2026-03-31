@@ -1,6 +1,7 @@
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -138,6 +139,34 @@ fn zip_directory(
     Ok(())
 }
 
+fn hash_file_contents(hasher: &mut impl Hasher, file_path: &Path) -> Result<(), Box<dyn Error>> {
+    let mut file = File::open(file_path)
+        .map_err(|error| format!("failed to open {} for hashing: {error}", file_path.display()))?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)
+        .map_err(|error| format!("failed to read {} for hashing: {error}", file_path.display()))?;
+    file_path.to_string_lossy().hash(hasher);
+    buffer.hash(hasher);
+    Ok(())
+}
+
+fn fingerprint_directory(source_dir: &Path) -> Result<u64, Box<dyn Error>> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+
+    for entry in WalkDir::new(source_dir).sort_by_file_name() {
+        let entry = entry.map_err(|error| format!("failed to walk {} for hashing: {error}", source_dir.display()))?;
+        let path = entry.path();
+        let relative = path.strip_prefix(source_dir)?;
+        relative.to_string_lossy().hash(&mut hasher);
+
+        if entry.file_type().is_file() {
+            hash_file_contents(&mut hasher, path)?;
+        }
+    }
+
+    Ok(hasher.finish())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     tauri_build::build();
 
@@ -147,9 +176,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let node_path = resolve_node_binary()?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let archive_path = out_dir.join("nuvio-runtime.zip");
+    let runtime_fingerprint = fingerprint_directory(&sidecar_dir)?;
 
     println!("cargo:rerun-if-changed={}", sidecar_dir.display());
     println!("cargo:rerun-if-changed={}", node_path.display());
+    println!("cargo:rustc-env=NUVIO_RUNTIME_BUILD_ID={runtime_fingerprint:016x}");
 
     if archive_path.exists() {
         fs::remove_file(&archive_path)?;

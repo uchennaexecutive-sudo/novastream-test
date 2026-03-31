@@ -9,7 +9,7 @@
 <<<<<<< Updated upstream
 [![Version](https://img.shields.io/badge/version-1.5.4-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 =======
-[![Version](https://img.shields.io/badge/version-1.5.5-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.5.6-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 >>>>>>> Stashed changes
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
@@ -169,7 +169,7 @@ Releases are managed with `release.ps1` and built automatically via GitHub Actio
 
 ## Current Version
 
-**v1.5.5** - Update Mac release helper packaging and fix Anime + Search behavior.
+**v1.5.6** - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup on Windows.
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 
