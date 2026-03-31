@@ -1,22 +1,10 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.5.4",
-  "notes": "v1.5.4 - Auto-release",
-  "pub_date": "2026-03-24T12:04:57Z",
+  "version": "1.5.5",
+  "notes": "v1.5.5 - update Mac release + Fixed Anime and Search",
+  "pub_date": "2026-03-31T02:44:00Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.4/NOVA-STREAM-1.5.4-portable.exe"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.5/NOVA-STREAM-1.5.5-portable.exe"
     }
   }
 }
-=======
-    "version":  "1.5.5",
-    "notes":  "v1.5.5 - update Mac release + Fixed Anime and Search",
-    "pub_date":  "2026-03-31T02:44:00Z",
-    "platforms":  {
-                      "windows-x86_64":  {
-                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.5/NOVA-STREAM-1.5.5-portable.exe"
-                                         }
-                  }
-}
->>>>>>> Stashed changes
