@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { imgW500 } from '../../lib/tmdb'
 import { getProgressPercent } from '../../lib/progress'
+import { buildDetailNavigationForTmdbItem } from '../../lib/animeClassification'
 
 function ContinueCard({ item }) {
   const navigate = useNavigate()
@@ -14,6 +15,48 @@ function ContinueCard({ item }) {
   const isEpisode = Number(item.season) > 0 && Number(item.episode) > 0
   const detailType = contentType === 'movie' ? 'movie' : 'tv'
   const resumeAt = Math.max(0, Math.floor(Number(item.progress_seconds) || 0))
+
+  const handleOpen = async () => {
+    if (contentType !== 'anime') {
+      navigate(`/detail/${detailType}/${contentId}`, {
+        state: {
+          isAnime: false,
+          resumeAt,
+          resumeSeason: item.season,
+          resumeEpisode: item.episode,
+          resumeProgress: item,
+        },
+      })
+      return
+    }
+
+    const target = await buildDetailNavigationForTmdbItem(
+      {
+        id: contentId,
+        title: item.title || item.name || '',
+        name: item.name || item.title || '',
+        original_title: item.original_title || item.title || item.name || '',
+        original_name: item.original_name || item.name || item.title || '',
+        media_type: 'tv',
+        genre_ids: [16],
+        original_language: 'ja',
+      },
+      'tv'
+    )
+
+    navigate(target.path, {
+      state: {
+        ...(target.state || {}),
+        isAnime: true,
+        animeTitle: target.state?.animeTitle || title,
+        animeAltTitle: target.state?.animeAltTitle || title,
+        resumeAt,
+        resumeSeason: item.season,
+        resumeEpisode: item.episode,
+        resumeProgress: item,
+      },
+    })
+  }
 
   return (
     <motion.div
@@ -28,17 +71,7 @@ function ContinueCard({ item }) {
         boxShadow: '0 0 24px var(--accent-glow), 0 16px 48px rgba(0,0,0,0.3)',
         borderColor: 'var(--border-hover)',
       }}
-      onClick={() => navigate(`/detail/${detailType}/${contentId}`, {
-        state: {
-          isAnime: contentType === 'anime',
-          animeTitle: title,
-          animeAltTitle: title,
-          resumeAt,
-          resumeSeason: item.season,
-          resumeEpisode: item.episode,
-          resumeProgress: item,
-        },
-      })}
+      onClick={handleOpen}
     >
       {backdrop && (
         <img

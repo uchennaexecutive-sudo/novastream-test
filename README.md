@@ -169,7 +169,7 @@ Releases are managed with `release.ps1` and built automatically via GitHub Actio
 
 ## Current Version
 
-**v1.5.6** - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup on Windows.
+**v1.5.7** - Fix anime Continue Watching cards so detail pages load episode and season data correctly.
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 

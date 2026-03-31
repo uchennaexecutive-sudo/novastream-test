@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "version": "1.5.6",
   "notes": "v1.5.6 - Auto-release",
   "pub_date": "2026-03-31T15:11:11Z",
@@ -8,3 +9,14 @@
     }
   }
 }
+=======
+    "version":  "1.5.7",
+    "notes":  "v1.5.7 - Fix anime Continue Watching detail navigation and episode loading",
+    "pub_date":  "2026-03-31T15:53:02Z",
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.7/NOVA-STREAM-1.5.7-portable.exe"
+                                         }
+                  }
+}
+>>>>>>> Stashed changes
