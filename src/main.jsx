@@ -17,7 +17,7 @@ import UpdateToast from './components/UI/UpdateToast'
 import useAppStore from './store/useAppStore'
 
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-const APP_VERSION = '1.5.4'
+const APP_VERSION = '1.5.5'
 const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream-test/main/updates/latest.json'
 const UPDATE_CHECK_TIMEOUT_MS = 15000
 const UPDATE_INITIAL_DELAY_MS = 5000
@@ -157,7 +157,7 @@ function Root() {
 
         const downloadUrl = data.platforms?.['windows-x86_64']?.url
         if (!downloadUrl) {
-          // No Windows download URL ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â not on a supported update platform, treat as up-to-date
+          // No Windows download URL ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â not on a supported update platform, treat as up-to-date
           setUpdateState('up-to-date')
           scheduleCheck(UPDATE_REFRESH_INTERVAL_MS)
           return

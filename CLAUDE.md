@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.5.3
+Premium streaming desktop application (Tauri 2) - v1.5.5
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -89,6 +89,8 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - anime canonical/franchise mapping in `src/lib/animeMapper.js`
   - anime detail handling in `src/pages/Detail.jsx`
   - anime search section in `src/components/Search/SearchOverlay.jsx`
+- AniList browse/search fetches are now hardened against timeouts, non-JSON responses, and transient rate-limit/server failures, with a lightweight retry path in `src/lib/anilist.js`
+- Search overlay now degrades gracefully: TMDB results still render when AniList search fails because `src/components/Search/SearchOverlay.jsx` uses settled-result handling instead of all-or-nothing failure
 - Anime search results open through TMDB-matched anime detail rather than using AniList/MAL ids as TMDB ids
 - Standard seasonal anime and long-running anime still use the existing mapper structure; do not casually rewrite anime browse/detail grouping logic
 - AnimeKai fallback experiments were dropped from the active path; do not reintroduce AnimeKai changes into the working anime stack unless they are rebuilt cleanly and isolated from Gogoanime
@@ -136,12 +138,12 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 3. GitHub Actions CI auto-builds + creates release + updates `updates/latest.json`
 
 - Release workflow now publishes `updates/latest.json` after GitHub release creation. Do not add extra asset polling steps unless they are verified on `windows-latest`.
-- macOS CI now builds and uploads a real DMG via `npx tauri build --bundles dmg`
+- macOS CI now builds the macOS app bundle, stages `Install First.command`, and packages a custom DMG for GitHub Releases
 
-> `release.ps1` automatically bumps and verifies the runtime version in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src/main.jsx`, and also keeps `package-lock.json` in sync.
+> `release.ps1` automatically bumps and verifies the runtime version in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src/main.jsx`, keeps `package-lock.json` in sync, and seeds `updates/latest.json` before the tagged build.
 > Never manually edit version numbers - just run `release.ps1`
 > **Always use `release.ps1`** - never push manually. The CI bot commits `latest.json` back to `main` after each build, causing rejections. The script handles rebase + force-tag automatically, while GitHub Actions rewrites `updates/latest.json` after the tagged build publishes the release asset.
-- GitHub Actions now also builds a macOS DMG and uploads it to the GitHub Release page
+- GitHub Actions now also builds a custom macOS DMG containing the app, `Install First.command`, and the Applications shortcut, then uploads it to the GitHub Release page
 - Current macOS release artifact is `NOVA-STREAM-x.x.x-macos.dmg`
 - The app is still unsigned, so macOS trust warnings may still require manual open/allow steps until signing/notarization is added
 - Windows release flow remains unchanged and still publishes the portable exe + `updates/latest.json`
@@ -176,6 +178,8 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.5.5 - Update Mac release helper packaging and fix Anime + Search behavior
+- v1.5.4 - Cleanup updates and current app version baseline
 - v1.5.3 - Refactor sidebar label animations from AnimatePresence mount/unmount to persistent motion.div width/opacity for smoother and more reliable expand/collapse behavior
 - v1.5.2 - Add ANN live news feed carousel to Anime page with paginated 2-up cards, OG image extraction via Rust (base64 data URLs to bypass hotlink protection), localStorage image cache for instant return visits, and fix sidebar collapse sticking by switching to pointer events
 - v1.5.0 - Fix auto-update system: correct GitHub repository URL so checks reach the right repo, stream update download directly to disk instead of buffering in RAM, remove unused Tauri updater plugin, and prevent error-loop on non-Windows platforms
@@ -222,4 +226,4 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 
 ---
 
-> **RESUME PROMPT:** "You are building NOVA STREAM. Read CLAUDE.md for full project context, API keys, stack, layout rules, and release workflow. All phases are complete. Use `release.ps1` for all releases."
+> **RESUME PROMPT:** "You are building NOVA STREAM. Read CLAUDE.md for full project context, stack, layout rules, and release workflow. Use `release.ps1` for all releases."

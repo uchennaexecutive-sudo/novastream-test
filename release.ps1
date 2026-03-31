@@ -1,5 +1,5 @@
 # release.ps1 - Nova Stream release helper
-# Usage: .\release.ps1 1.5.1 "Short changelog note"
+# Usage: .\release.ps1 1.5.5 "Short changelog note"
 #
 # Auto-update contract for a Windows release:
 # 1. package.json              -> app/package version for the JS project
@@ -7,7 +7,8 @@
 # 3. src-tauri/tauri.conf.json -> packaged app version shown by Tauri
 # 4. src-tauri/Cargo.toml      -> Rust/Tauri binary version
 # 5. src/main.jsx              -> frontend APP_VERSION used by update checks
-# 6. .github/workflows/release.yml writes updates/latest.json after the tag build
+# 6. updates/latest.json        -> seeded locally before push/tag so the repo version stays aligned
+# 7. .github/workflows/release.yml rewrites updates/latest.json after the tag build
 #
 # The updater works only if the built binary version and APP_VERSION match the tag.
 
@@ -22,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location 'c:\Users\uchen\nova-stream-dev-test'
 
 $TargetVersion = $Version
+$ReleaseRepo = 'uchennaexecutive-sudo/novastream-test'
 
 if ($TargetVersion -notmatch '^\d+\.\d+\.\d+$') {
   throw "Version must use semver format X.Y.Z. Received: $TargetVersion"
@@ -109,6 +111,38 @@ function Update-PackageLockVersion {
   }
 }
 
+function Update-LatestJsonManifest {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Version,
+    [Parameter(Mandatory = $true)][string]$Notes,
+    [Parameter(Mandatory = $true)][string]$Repository
+  )
+
+  $manifest = [ordered]@{
+    version = $Version
+    notes = "v$Version - $Notes"
+    pub_date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    platforms = [ordered]@{
+      'windows-x86_64' = [ordered]@{
+        url = "https://github.com/$Repository/releases/download/v$Version/NOVA-STREAM-$Version-portable.exe"
+      }
+    }
+  }
+
+  $json = $manifest | ConvertTo-Json -Depth 10
+  Write-Utf8NoBomFile -Path $Path -Content $json
+
+  $verified = Get-Content -Raw -Path $Path
+  if ($verified -notmatch ('"version"\s*:\s*"' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '"')) {
+    throw "Verification failed for $Path. Expected version $Version"
+  }
+
+  if ($verified -notmatch ('NOVA-STREAM-' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '-portable\.exe')) {
+    throw "Verification failed for $Path. Expected Windows release URL for v$Version"
+  }
+}
+
 Write-Host "`nPreparing Nova Stream v$TargetVersion..." -ForegroundColor Cyan
 Write-Host "Updating version-bearing files required for release + auto-update:" -ForegroundColor Yellow
 Write-Host " - package.json"
@@ -116,6 +150,7 @@ Write-Host " - package-lock.json"
 Write-Host " - src-tauri/tauri.conf.json"
 Write-Host " - src-tauri/Cargo.toml"
 Write-Host " - src/main.jsx"
+Write-Host " - updates/latest.json"
 Write-Host ""
 
 Update-FileText -Path 'package.json' `
@@ -141,10 +176,12 @@ Update-FileText -Path 'src/main.jsx' `
   -Replacement ("const APP_VERSION = '{0}'" -f $TargetVersion) `
   -VerificationText ("const APP_VERSION = '{0}'" -f $TargetVersion)
 
+Update-LatestJsonManifest -Path 'updates/latest.json' -Version $TargetVersion -Notes $Notes -Repository $ReleaseRepo
+
 Write-Host "Version files updated and verified for v$TargetVersion." -ForegroundColor Green
 Write-Host ""
 Write-Host "Reminder:" -ForegroundColor Yellow
-Write-Host " - updates/latest.json is NOT edited here."
+Write-Host " - updates/latest.json is pre-seeded here with the expected Windows release URL."
 Write-Host " - The GitHub Actions release workflow rewrites updates/latest.json after the tag build."
 Write-Host " - That manifest is what installed builds fetch to detect v$TargetVersion."
 Write-Host ""

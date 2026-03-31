@@ -30,15 +30,30 @@ export default function SearchOverlay() {
       return
     }
 
-    Promise.all([
+    Promise.allSettled([
       searchMulti(q),
       searchAniListAnime(q),
     ]).then(([tmdbResults, aniResults]) => {
-      setResults(tmdbResults?.filter(i => i.media_type !== 'person').slice(0, 12) || [])
-      setAnimeResults(Array.isArray(aniResults) ? aniResults.slice(0, 8) : [])
-    }).catch(() => {
-      setResults([])
-      setAnimeResults([])
+      const resolvedTmdbResults =
+        tmdbResults.status === 'fulfilled'
+          ? tmdbResults.value?.filter(i => i.media_type !== 'person').slice(0, 12) || []
+          : []
+
+      const resolvedAnimeResults =
+        aniResults.status === 'fulfilled' && Array.isArray(aniResults.value)
+          ? aniResults.value.slice(0, 8)
+          : []
+
+      if (tmdbResults.status === 'rejected') {
+        console.error('[SearchOverlay] TMDB search failed:', tmdbResults.reason)
+      }
+
+      if (aniResults.status === 'rejected') {
+        console.error('[SearchOverlay] AniList search failed:', aniResults.reason)
+      }
+
+      setResults(resolvedTmdbResults)
+      setAnimeResults(resolvedAnimeResults)
     })
   }, [])
 
