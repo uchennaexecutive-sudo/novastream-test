@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "version": "1.6.0",
   "notes": "v1.6.0 - Auto-release",
   "pub_date": "2026-04-04T19:16:54Z",
@@ -8,3 +9,14 @@
     }
   }
 }
+=======
+    "version":  "1.6.1",
+    "notes":  "v1.6.1 - Rebrand app icon across all platforms to match in-app logo, fix fullscreen F-key toggle and Alt+Tab switching",
+    "pub_date":  "2026-04-04T23:51:02Z",
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.1/NOVA-STREAM-1.6.1-portable.exe"
+                                         }
+                  }
+}
+>>>>>>> Stashed changes

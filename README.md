@@ -6,7 +6,7 @@
 
 *Built with Tauri 2 · React 18 · Rust*
 
-[![Version](https://img.shields.io/badge/version-1.6.0-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.6.1-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -175,7 +175,7 @@ Releases are managed with `release.ps1` and built automatically via GitHub Actio
 
 ## Current Version
 
-**v1.6.0** — Download fixes + Fullscreen fix V1.
+**v1.6.1** — Rebrand app icon across all platforms to match in-app logo, fix fullscreen F-key toggle and Alt+Tab switching.
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 

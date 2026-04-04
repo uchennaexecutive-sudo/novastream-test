@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-set-player-fullscreen"
 description = "Allows the player to enter and exit true fullscreen covering the Windows taskbar."
-commands.allow = ["set_player_fullscreen"]
+commands.allow = ["set_player_fullscreen", "set_topmost_state"]

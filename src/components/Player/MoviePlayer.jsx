@@ -1431,7 +1431,7 @@ export default function MoviePlayer({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [effectiveLoading, error, revealControls])
+  }, [effectiveLoading, error, revealControls, isFullscreen])
 
   useEffect(() => {
     clearHideTimer()

@@ -38,6 +38,9 @@ use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 use zip::ZipArchive;
 
+static PLAYER_FULLSCREEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 const STREAM_CAPTURE_SCHEME: &str = "novastream-capture";
 const ANIME_DEBUG_LOG_FILE: &str = "nova-stream-anime-debug.log";
 const RESOLVER_DEBUG_LOG_FILE: &str = "nova-stream-resolver-debug.log";
@@ -548,11 +551,65 @@ fn toggle_maximize(window: tauri::Window) {
     }
 }
 
-/// Fullscreen that covers the Windows taskbar.
-/// Uses Win32 SetWindowPos with the full monitor rect (rcMonitor, not rcWork)
-/// so content fills the screen exactly with no invisible-border offset.
+/// Polls GetForegroundWindow() every 50 ms while the player is fullscreen.
+/// Drops TOPMOST when another process owns the foreground (Alt+Tab away),
+/// restores it when we become foreground again.
+#[cfg(target_os = "windows")]
+fn start_fullscreen_focus_monitor(hwnd: *mut std::ffi::c_void) {
+    // Cast to usize so it's Send — safe because the main window lives for the app lifetime.
+    let hwnd_usize = hwnd as usize;
+
+    std::thread::spawn(move || {
+        use std::ffi::c_void;
+        type HWND = *mut c_void;
+        extern "system" {
+            fn GetForegroundWindow() -> HWND;
+            fn GetCurrentProcessId() -> u32;
+            fn GetWindowThreadProcessId(hwnd: HWND, lpdw_process_id: *mut u32) -> u32;
+        }
+        let hwnd = hwnd_usize as HWND;
+        let our_pid = unsafe { GetCurrentProcessId() };
+        while PLAYER_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed) {
+            let fg = unsafe { GetForegroundWindow() };
+            let mut fg_pid: u32 = 0;
+            unsafe { GetWindowThreadProcessId(fg, &mut fg_pid) };
+            win32_set_topmost(hwnd, fg_pid == our_pid);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn win32_set_topmost(hwnd: *mut std::ffi::c_void, topmost: bool) {
+    use std::ffi::c_void;
+    type HWND = *mut c_void;
+    const SWP_NOMOVE: u32       = 0x0002;
+    const SWP_NOSIZE: u32       = 0x0001;
+    const SWP_FRAMECHANGED: u32 = 0x0020;
+    let hwnd_topmost:   HWND = (-1isize) as usize as HWND;
+    let hwnd_notopmost: HWND = (-2isize) as usize as HWND;
+    extern "system" {
+        fn SetWindowPos(hwnd: HWND, hwnd_insert_after: HWND,
+                        x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    }
+    let insert_after = if topmost { hwnd_topmost } else { hwnd_notopmost };
+    unsafe { SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED); }
+}
+
+#[tauri::command]
+fn set_topmost_state(window: tauri::Window, topmost: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0;
+        win32_set_topmost(hwnd, topmost);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), String> {
+    PLAYER_FULLSCREEN.store(fullscreen, std::sync::atomic::Ordering::Relaxed);
+
     #[cfg(target_os = "windows")]
     {
         use std::ffi::c_void;
@@ -566,14 +623,13 @@ fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), 
         struct MONITORINFO {
             cb_size: u32,
             rc_monitor: RECT,
-            rc_work: RECT,
-            dw_flags: u32,
+            rc_work:    RECT,
+            dw_flags:   u32,
         }
 
         const MONITOR_DEFAULTTONEAREST: u32 = 2;
         const SWP_NOSIZE: u32       = 0x0001;
         const SWP_NOMOVE: u32       = 0x0002;
-        const SWP_NOACTIVATE: u32   = 0x0010;
         const SWP_FRAMECHANGED: u32 = 0x0020;
         let hwnd_topmost:   HWND = (-1isize) as usize as HWND;
         let hwnd_notopmost: HWND = (-2isize) as usize as HWND;
@@ -581,7 +637,8 @@ fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), 
         extern "system" {
             fn MonitorFromWindow(hwnd: HWND, dw_flags: u32) -> HMONITOR;
             fn GetMonitorInfoW(h_monitor: HMONITOR, lpmi: *mut MONITORINFO) -> i32;
-            fn SetWindowPos(hwnd: HWND, hwnd_insert_after: HWND, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+            fn SetWindowPos(hwnd: HWND, hwnd_insert_after: HWND,
+                            x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
         }
 
         let hwnd: HWND = window.hwnd().map_err(|e| e.to_string())?.0;
@@ -589,10 +646,10 @@ fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), 
         if fullscreen {
             let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
             let mut info = MONITORINFO {
-                cb_size: std::mem::size_of::<MONITORINFO>() as u32,
+                cb_size:    std::mem::size_of::<MONITORINFO>() as u32,
                 rc_monitor: RECT { left: 0, top: 0, right: 0, bottom: 0 },
                 rc_work:    RECT { left: 0, top: 0, right: 0, bottom: 0 },
-                dw_flags: 0,
+                dw_flags:   0,
             };
             unsafe { GetMonitorInfoW(monitor, &mut info) };
             let r = &info.rc_monitor;
@@ -600,9 +657,11 @@ fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), 
                 SetWindowPos(
                     hwnd, hwnd_topmost,
                     r.left, r.top, r.right - r.left, r.bottom - r.top,
-                    SWP_FRAMECHANGED | SWP_NOACTIVATE,
+                    SWP_FRAMECHANGED,
                 );
             }
+            // Start background thread: drops/restores TOPMOST based on foreground process
+            start_fullscreen_focus_monitor(hwnd);
         } else {
             unsafe {
                 SetWindowPos(
@@ -11680,6 +11739,7 @@ fn main() {
             minimize_window,
             toggle_maximize,
             set_player_fullscreen,
+            set_topmost_state,
             close_window,
             open_iframe_player_window,
             search_hianime,

@@ -273,7 +273,7 @@ export default function PlayerModal({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose, persistBestGuessProgress])
+  }, [isOpen, onClose, persistBestGuessProgress, isFullscreen])
 
   const resetChromeTimer = useCallback(() => {
     setShowChrome(true)
