@@ -1,10 +1,10 @@
 {
-    "version":  "1.5.9",
-    "notes":  "v1.5.9 - Fix vendored Nuvio lockfile sync so tagged release builds install sidecar dependencies correctly in CI",
-    "pub_date":  "2026-04-04T09:27:06Z",
-    "platforms":  {
-                      "windows-x86_64":  {
-                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.9/NOVA-STREAM-1.5.9-portable.exe"
-                                         }
-                  }
+  "version": "1.5.9",
+  "notes": "v1.5.9 - Auto-release",
+  "pub_date": "2026-04-04T09:39:21Z",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.9/NOVA-STREAM-1.5.9-portable.exe"
+    }
+  }
 }
