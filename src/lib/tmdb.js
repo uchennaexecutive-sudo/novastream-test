@@ -5,7 +5,11 @@ const BASE = 'https://api.themoviedb.org/3'
 const IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
 const IMG_W500 = 'https://image.tmdb.org/t/p/w500'
 
-const tmdb = axios.create({ baseURL: BASE, params: { api_key: API_KEY } })
+const tmdb = axios.create({
+  baseURL: BASE,
+  timeout: 15000,
+  params: { api_key: API_KEY },
+})
 
 export const imgOriginal = (path) => path ? `${IMG_ORIGINAL}${path}` : null
 export const imgW500 = (path) => path ? `${IMG_W500}${path}` : null

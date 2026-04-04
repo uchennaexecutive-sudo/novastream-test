@@ -1,6 +1,6 @@
 {
   "productName": "NOVA STREAM",
-  "version": "1.5.7",
+  "version": "1.5.8",
   "identifier": "com.novastream.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -27,6 +27,12 @@
     "security": {
       "csp": null,
       "dangerousDisableAssetCspModification": true,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPLOCALDATA/downloads/**"
+        ]
+      },
       "freezePrototype": false
     }
   },

@@ -1,8 +1,20 @@
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { HardDrive, FolderOpen, Trash2, AlertCircle, Download, RotateCcw } from 'lucide-react'
 import useAppStore from '../store/useAppStore'
+import useDownloadStore from '../store/useDownloadStore'
 import { THEMES } from '../themes'
 import ThemeCard from '../components/UI/ThemeCard'
 import { APP_VERSION } from '../main'
+import {
+  deleteVideoDownload,
+  getDownloadLocation,
+  getDownloadsStorageInfo,
+  pickDownloadFolder,
+  resetDownloadLocation as resetDownloadLocationPath,
+  setDownloadLocation as setDownloadLocationPath,
+} from '../lib/videoDownloads'
 
 function Toggle({ label, value, onChange }) {
   return (
@@ -135,8 +147,127 @@ function UpdateStatusSection() {
 }
 
 export default function Settings() {
+  const navigate = useNavigate()
   const preferences = useAppStore(s => s.preferences)
   const setPreference = useAppStore(s => s.setPreference)
+  const maxConcurrentDownloads = useDownloadStore(s => s.maxConcurrent)
+  const setMaxConcurrentDownloads = useDownloadStore(s => s.setMaxConcurrent)
+  const preferredQuality = useDownloadStore(s => s.preferredQuality)
+  const setPreferredQuality = useDownloadStore(s => s.setPreferredQuality)
+  const setStorageInfo = useDownloadStore(s => s.setStorageInfo)
+  const downloadItems = useDownloadStore(s => s.items)
+  const deleteDownload = useDownloadStore(s => s.deleteDownload)
+
+  const completedCount = downloadItems.filter(d => d.status === 'completed').length
+  const failedCount    = downloadItems.filter(d => d.status === 'failed').length
+
+  const [downloadLocation, setDownloadLocation] = useState('')
+  const [defaultDownloadLocation, setDefaultDownloadLocation] = useState('')
+  const isCustomLocation = Boolean(downloadLocation && defaultDownloadLocation && downloadLocation !== defaultDownloadLocation)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadDownloadLocation() {
+      try {
+        const info = await getDownloadLocation()
+        if (!cancelled && info) {
+          setDownloadLocation(info.currentPath || '')
+          setDefaultDownloadLocation(info.defaultPath || '')
+        }
+      } catch (error) {
+        console.warn('[settings] failed to load download location', error)
+      }
+    }
+
+    loadDownloadLocation()
+    return () => { cancelled = true }
+  }, [])
+
+  async function refreshStorage() {
+    try {
+      const info = await getDownloadsStorageInfo()
+      if (info) setStorageInfo(info)
+    } catch (error) {
+      console.warn('[settings] failed to refresh storage', error)
+    }
+  }
+
+  async function changeDownloadLocation() {
+    try {
+      const selectedPath = await pickDownloadFolder({
+        defaultPath: downloadLocation || defaultDownloadLocation || undefined,
+      })
+      if (!selectedPath) return
+
+      const info = await setDownloadLocationPath(selectedPath)
+      if (info) {
+        setDownloadLocation(info.currentPath || selectedPath)
+        setDefaultDownloadLocation(info.defaultPath || defaultDownloadLocation)
+      }
+      await refreshStorage()
+    } catch (error) {
+      console.warn('[settings] change download location failed', error)
+    }
+  }
+
+  async function resetDownloadLocationValue() {
+    try {
+      const info = await resetDownloadLocationPath()
+      if (info) {
+        setDownloadLocation(info.currentPath || '')
+        setDefaultDownloadLocation(info.defaultPath || '')
+      }
+      await refreshStorage()
+    } catch (error) {
+      console.warn('[settings] reset download location failed', error)
+    }
+  }
+
+  async function handleClearCompleted() {
+    const completed = downloadItems.filter(d => d.status === 'completed')
+    for (const download of completed) {
+      try {
+        await deleteVideoDownload({
+          id: download.id,
+          filePath: download.filePath || null,
+        })
+        deleteDownload(download.id)
+      } catch (error) {
+        console.warn('[settings] clear completed failed', error)
+      }
+    }
+  }
+
+  async function handleClearFailed() {
+    // Phase E: failed items have no file to delete — safe to remove from store directly
+    const failed = downloadItems.filter(d => d.status === 'failed')
+    for (const download of failed) {
+      try {
+        await deleteVideoDownload({
+          id: download.id,
+          filePath: download.filePath || null,
+        })
+        deleteDownload(download.id)
+      } catch (error) {
+        console.warn('[settings] clear failed failed', error)
+      }
+    }
+  }
+
+  const maxConcurrentOptions = [
+    { value: 1, label: '1' },
+    { value: 2, label: '2' },
+    { value: 3, label: '3' },
+    { value: 4, label: '4' },
+    { value: 0, label: 'Unlimited' },
+  ]
+
+  const qualityOptions = [
+    { value: 'standard', label: 'SD',  sub: '~900 MB / movie' },
+    { value: 'high',     label: 'HD',  sub: '~2.7 GB / movie' },
+    { value: 'highest',  label: '4K',  sub: '~7.2 GB / movie' },
+  ]
 
   return (
     <div className="p-6 max-w-4xl">
@@ -160,6 +291,242 @@ export default function Settings() {
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {THEMES.map(theme => <ThemeCard key={theme.id} theme={theme} />)}
+        </div>
+      </section>
+
+      {/* Downloads */}
+      <section className="mb-10">
+        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <Download size={18} style={{ color: 'var(--accent)' }} />
+          Downloads &amp; Offline
+        </h2>
+
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{
+            background: 'var(--bg-glass)',
+            border: '1px solid var(--border)',
+            backdropFilter: 'blur(20px)',
+            boxShadow: 'var(--card-shadow), var(--inner-glow)',
+          }}
+        >
+          {/* Default quality */}
+          <div
+            className="px-5 py-4 flex items-start justify-between gap-4 flex-wrap"
+            style={{ borderBottom: '1px solid var(--border)' }}
+          >
+            <div>
+              <p className="text-sm font-medium mb-0.5" style={{ color: 'var(--text-secondary)' }}>
+                Default download quality
+              </p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Applied when you tap Download on a title. Can be overridden per-download.
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {qualityOptions.map(({ value, label, sub }) => {
+                const isActive = preferredQuality === value
+                return (
+                  <button
+                    key={value}
+                    onClick={() => setPreferredQuality(value)}
+                    className="flex flex-col items-center px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+                    style={{
+                      background: isActive ? 'var(--accent)' : 'var(--bg-elevated)',
+                      color: isActive ? '#fff' : 'var(--text-secondary)',
+                      boxShadow: isActive ? '0 0 16px var(--accent-glow)' : 'none',
+                      minWidth: 56,
+                    }}
+                  >
+                    <span className="font-bold">{label}</span>
+                    <span style={{ fontSize: 9, opacity: 0.65, fontWeight: 400, marginTop: 1 }}>{sub}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Max concurrent */}
+          <div
+            className="px-5 py-4 flex items-start justify-between gap-4 flex-wrap"
+            style={{ borderBottom: '1px solid var(--border)' }}
+          >
+            <div>
+              <p className="text-sm font-medium mb-0.5" style={{ color: 'var(--text-secondary)' }}>
+                Max concurrent downloads
+              </p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                2 is the recommended default. Unlimited starts everything in the queue at once.
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {maxConcurrentOptions.map((option) => {
+                const isActive = maxConcurrentDownloads === option.value
+                return (
+                  <button
+                    key={option.label}
+                    onClick={() => setMaxConcurrentDownloads(option.value)}
+                    className="px-4 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                    style={{
+                      background: isActive ? 'var(--accent)' : 'var(--bg-elevated)',
+                      color: isActive ? '#fff' : 'var(--text-secondary)',
+                      boxShadow: isActive ? '0 0 16px var(--accent-glow)' : 'none',
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Download location */}
+          <div
+            className="px-5 py-4"
+            style={{ borderBottom: '1px solid var(--border)' }}
+          >
+            <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+              <div className="flex items-center gap-2.5">
+                <HardDrive size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <div>
+                  <p className="text-sm font-medium mb-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    Download location
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    Where downloaded files are stored on this device.
+                  </p>
+                </div>
+              </div>
+              {isCustomLocation && (
+                <span
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                  style={{
+                    background: 'rgba(var(--accent-rgb, 99,102,241),0.12)',
+                    color: 'var(--accent)',
+                    border: '1px solid rgba(var(--accent-rgb, 99,102,241),0.25)',
+                  }}
+                >
+                  Custom
+                </span>
+              )}
+            </div>
+
+            {/* Path display */}
+            <div
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-3"
+              style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <FolderOpen size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              <span
+                className="text-xs font-mono flex-1 truncate"
+                style={{ color: 'var(--text-secondary)' }}
+                title={downloadLocation}
+              >
+                {downloadLocation}
+              </span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={changeDownloadLocation}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)',
+                }}
+                title="Choose a custom folder for downloads"
+              >
+                <FolderOpen size={12} />
+                Change location
+              </button>
+
+              {isCustomLocation && (
+                <button
+                  onClick={resetDownloadLocationValue}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                  }}
+                  title="Reset to default download location"
+                >
+                  <RotateCcw size={12} />
+                  Reset to default
+                </button>
+              )}
+            </div>
+
+            <p className="text-[11px] mt-2.5" style={{ color: 'var(--text-muted)', opacity: 0.55 }}>
+              Changing location moves the current downloads library so existing offline items still work.
+            </p>
+          </div>
+
+          {/* Library management */}
+          <div className="px-5 py-4">
+            <p className="text-sm font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Manage library
+            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => navigate('/downloads')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <Download size={12} />
+                View Downloads
+              </button>
+
+              <button
+                onClick={handleClearFailed}
+                disabled={failedCount === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                style={{
+                  background: failedCount > 0 ? 'rgba(248,113,113,0.08)' : 'var(--bg-elevated)',
+                  color: failedCount > 0 ? '#f87171' : 'var(--text-muted)',
+                  border: failedCount > 0 ? '1px solid rgba(248,113,113,0.22)' : '1px solid var(--border)',
+                  cursor: failedCount === 0 ? 'not-allowed' : 'pointer',
+                  opacity: failedCount === 0 ? 0.45 : 1,
+                }}
+                title={failedCount === 0 ? 'No failed downloads' : `Clear ${failedCount} failed download${failedCount !== 1 ? 's' : ''}`}
+              >
+                <AlertCircle size={12} />
+                Clear failed{failedCount > 0 ? ` (${failedCount})` : ''}
+              </button>
+
+              <button
+                onClick={handleClearCompleted}
+                disabled={completedCount === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                style={{
+                  background: completedCount > 0 ? 'rgba(248,113,113,0.08)' : 'var(--bg-elevated)',
+                  color: completedCount > 0 ? '#f87171' : 'var(--text-muted)',
+                  border: completedCount > 0 ? '1px solid rgba(248,113,113,0.22)' : '1px solid var(--border)',
+                  cursor: completedCount === 0 ? 'not-allowed' : 'pointer',
+                  opacity: completedCount === 0 ? 0.45 : 1,
+                }}
+                title={completedCount === 0
+                  ? 'No completed downloads'
+                  : `Remove all ${completedCount} saved download${completedCount !== 1 ? 's' : ''} from library and delete their files`}
+              >
+                <Trash2 size={12} />
+                Clear all downloads{completedCount > 0 ? ` (${completedCount})` : ''}
+              </button>
+            </div>
+
+            <p className="text-[11px] mt-3" style={{ color: 'var(--text-muted)', opacity: 0.6 }}>
+              "Clear all" removes completed downloads from the library and deletes their files from disk.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -269,6 +636,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.5.8 - Ship downloads and offline playback with anime support, hardened HLS downloads, AnimePahe fallback fixes, configurable storage, and working offline subtitles</p>
             <p>v1.5.7 - Fix anime Continue Watching cards so detail pages load episode and season data correctly</p>
             <p>v1.5.6 - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup on Windows</p>
             <p>v1.5.5 - Update Mac release helper packaging and fix Anime + Search behavior</p>

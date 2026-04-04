@@ -143,10 +143,37 @@ function extractCanonicalAnimeId(data = {}, fallbackAnimeId = '') {
 function normalizeAnimeInfoPayload(data = {}, fallbackAnimeId = '') {
     const canonicalAnimeId = extractCanonicalAnimeId(data, fallbackAnimeId)
     const rawEpisodes = Array.isArray(data?.episodes) ? data.episodes : []
-    const episodes = rawEpisodes
+    const normalizedEpisodes = rawEpisodes
         .map((number) => normalizeEpisodeItem(number, canonicalAnimeId || fallbackAnimeId))
         .filter(Boolean)
         .sort((a, b) => Number(a.number) - Number(b.number))
+
+    const episodeNumbers = normalizedEpisodes
+        .map((episode) => Number(episode?.number || 0))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    const minEpisode = episodeNumbers.length ? Math.min(...episodeNumbers) : 0
+    const maxEpisode = episodeNumbers.length ? Math.max(...episodeNumbers) : 0
+    const isContiguousOffsetRange =
+        episodeNumbers.length > 0 &&
+        minEpisode > 1 &&
+        maxEpisode - minEpisode + 1 === normalizedEpisodes.length
+
+    const episodes = normalizedEpisodes.map((episode, index) => {
+        if (!isContiguousOffsetRange) {
+            return episode
+        }
+
+        return {
+            ...episode,
+            number: index + 1,
+            title: `Episode ${index + 1}`,
+            raw: {
+                ...episode.raw,
+                absoluteEpisodeNumber: Number(episode?.raw?.rawEpisodeNumber || episode.number || 0),
+                normalizedEpisodeNumber: index + 1,
+            },
+        }
+    })
 
     return {
         canonicalAnimeId,

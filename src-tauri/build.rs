@@ -173,12 +173,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let repo_root = manifest_dir.parent().ok_or("missing repo root")?;
     let sidecar_dir = repo_root.join("vendor").join("nuvio-streams-addon");
+    let tools_dir = repo_root.join("vendor").join("tools");
     let node_path = resolve_node_binary()?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let archive_path = out_dir.join("nuvio-runtime.zip");
-    let runtime_fingerprint = fingerprint_directory(&sidecar_dir)?;
+    let mut runtime_fingerprint = fingerprint_directory(&sidecar_dir)?;
+    if tools_dir.exists() {
+        runtime_fingerprint ^= fingerprint_directory(&tools_dir)?;
+    }
 
     println!("cargo:rerun-if-changed={}", sidecar_dir.display());
+    if tools_dir.exists() {
+        println!("cargo:rerun-if-changed={}", tools_dir.display());
+    }
     println!("cargo:rerun-if-changed={}", node_path.display());
     println!("cargo:rustc-env=NUVIO_RUNTIME_BUILD_ID={runtime_fingerprint:016x}");
 
@@ -194,6 +201,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         &sidecar_dir,
         "vendor/nuvio-streams-addon",
     )?;
+    if tools_dir.exists() {
+        zip_directory(
+            &mut zip,
+            &tools_dir,
+            "vendor/tools",
+        )?;
+    }
     zip_file(
         &mut zip,
         &node_path,

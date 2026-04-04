@@ -12,17 +12,54 @@ document.documentElement.setAttribute('data-theme', saved)
 
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom/client'
+import { invoke } from '@tauri-apps/api/core'
 import App from './App'
 import UpdateToast from './components/UI/UpdateToast'
 import useAppStore from './store/useAppStore'
+import useDownloadStore from './store/useDownloadStore'
+import { getDownloadsStorageInfo, setVideoDownloadMaxConcurrent } from './lib/videoDownloads'
 
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-const APP_VERSION = '1.5.7'
+const APP_VERSION = '1.5.8'
 const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream-test/main/updates/latest.json'
 const UPDATE_CHECK_TIMEOUT_MS = 15000
 const UPDATE_INITIAL_DELAY_MS = 5000
 const UPDATE_RETRY_DELAYS_MS = [10000, 20000, 45000, 90000, 180000]
 const UPDATE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000
+
+function scheduleNonCritical(task, delay = 250) {
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(() => task(), { timeout: 1500 })
+    return () => window.cancelIdleCallback(handle)
+  }
+
+  const handle = window.setTimeout(task, delay)
+  return () => window.clearTimeout(handle)
+}
+
+async function reconcileCompletedDownloadFileSize(payload, updateDownload) {
+  const id = String(payload?.id || '').trim()
+  const filePath = String(payload?.filePath || payload?.file_path || '').trim()
+  if (!id || !filePath) return
+
+  try {
+    const metadata = await invoke('get_local_file_metadata', { filePath })
+    const exists = Boolean(metadata?.exists)
+    const isFile = Boolean(metadata?.isFile)
+    const sizeBytes = Number(metadata?.sizeBytes || 0)
+
+    if (!exists || !isFile || !Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+      return
+    }
+
+    updateDownload(id, {
+      bytesDownloaded: sizeBytes,
+      totalBytes: sizeBytes,
+    })
+  } catch (error) {
+    console.warn('[downloads] failed to reconcile completed download size', error)
+  }
+}
 
 function compareVersions(a, b) {
   const pa = a.split('.').map(Number)
@@ -53,6 +90,13 @@ function Root() {
   const setUpdateState = useAppStore(s => s.setUpdateState)
   const setUpdateInfo = useAppStore(s => s.setUpdateInfo)
   const setDownloadProgress = useAppStore(s => s.setDownloadProgress)
+  const applyVideoDownloadProgress = useDownloadStore(s => s.applyProgressEvent)
+  const applyVideoDownloadStatus = useDownloadStore(s => s.applyStatusEvent)
+  const applyVideoDownloadCompleted = useDownloadStore(s => s.applyCompletedEvent)
+  const applyVideoDownloadFailed = useDownloadStore(s => s.applyFailedEvent)
+  const setDownloadsStorageInfo = useDownloadStore(s => s.setStorageInfo)
+  const updateDownload = useDownloadStore(s => s.updateDownload)
+  const maxConcurrentDownloads = useDownloadStore(s => s.maxConcurrent)
   const updateState = useAppStore(s => s.updateState)
   const updateVersion = useAppStore(s => s.updateVersion)
   const updateNotes = useAppStore(s => s.updateNotes)
@@ -76,6 +120,145 @@ function Root() {
       if (unlisten) unlisten()
     }
   }, [isSpecialWindow, setDownloadProgress])
+
+  useEffect(() => {
+    if (isSpecialWindow || !isTauri) return undefined
+
+    let active = true
+    let unlisteners = []
+
+    import('@tauri-apps/api/event')
+      .then(async ({ listen }) => {
+        const nextUnlisteners = await Promise.all([
+          listen('video-download-progress', (event) => {
+            applyVideoDownloadProgress(event.payload || {})
+          }),
+          listen('video-download-status', (event) => {
+            applyVideoDownloadStatus(event.payload || {})
+          }),
+          listen('video-download-completed', (event) => {
+            const payload = event.payload || {}
+            applyVideoDownloadCompleted(payload)
+            void reconcileCompletedDownloadFileSize(payload, updateDownload)
+          }),
+          listen('video-download-failed', (event) => {
+            applyVideoDownloadFailed(event.payload || {})
+          }),
+          listen('downloads-storage-info', (event) => {
+            setDownloadsStorageInfo(event.payload || {})
+          }),
+        ])
+
+        if (!active) {
+          nextUnlisteners.forEach((unlistenFn) => unlistenFn())
+          return
+        }
+
+        unlisteners = nextUnlisteners
+      })
+      .catch((error) => {
+        console.warn('[downloads] failed to attach media download listeners', error)
+      })
+
+    return () => {
+      active = false
+      unlisteners.forEach((unlistenFn) => unlistenFn())
+      unlisteners = []
+    }
+  }, [
+    applyVideoDownloadCompleted,
+    applyVideoDownloadFailed,
+    applyVideoDownloadProgress,
+    applyVideoDownloadStatus,
+    isSpecialWindow,
+    setDownloadsStorageInfo,
+    updateDownload,
+  ])
+
+  useEffect(() => {
+    if (isSpecialWindow || !isTauri) return undefined
+
+    let cancelled = false
+    const cancelScheduledTask = scheduleNonCritical(() => {
+      getDownloadsStorageInfo()
+        .then((payload) => {
+          if (!cancelled && payload) {
+            setDownloadsStorageInfo(payload)
+          }
+        })
+        .catch((error) => {
+          console.warn('[downloads] failed to load storage info', error)
+        })
+    })
+
+    return () => {
+      cancelled = true
+      cancelScheduledTask()
+    }
+  }, [isSpecialWindow, setDownloadsStorageInfo])
+
+  useEffect(() => {
+    if (isSpecialWindow || !isTauri) return undefined
+
+    let cancelled = false
+    const cancelScheduledTask = scheduleNonCritical(() => {
+      const completedItems = useDownloadStore.getState().items
+        .filter((item) => item?.status === 'completed' && item?.filePath)
+
+      Promise.allSettled(completedItems.map(async (item) => {
+        const payload = await invoke('get_local_file_metadata', {
+          filePath: item.filePath,
+        })
+
+        const exists = Boolean(payload?.exists)
+        const isFile = Boolean(payload?.isFile)
+        const sizeBytes = Number(payload?.sizeBytes || 0)
+
+        if (!exists || !isFile || !Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+          return
+        }
+
+        const knownSize = Math.max(
+          Number(item?.totalBytes || 0),
+          Number(item?.bytesDownloaded || 0),
+        )
+
+        if (sizeBytes === knownSize) {
+          return
+        }
+
+        if (!cancelled) {
+          updateDownload(item.id, {
+            bytesDownloaded: sizeBytes,
+            totalBytes: sizeBytes,
+          })
+        }
+      }))
+        .catch((error) => {
+          console.warn('[downloads] failed to reconcile completed download metadata', error)
+        })
+    }, 300)
+
+    return () => {
+      cancelled = true
+      cancelScheduledTask()
+    }
+  }, [isSpecialWindow, updateDownload])
+
+  useEffect(() => {
+    if (isSpecialWindow || !isTauri) return undefined
+
+    const cancelScheduledTask = scheduleNonCritical(() => {
+      setVideoDownloadMaxConcurrent(maxConcurrentDownloads > 0 ? maxConcurrentDownloads : null)
+        .catch((error) => {
+          console.warn('[downloads] failed to sync max concurrent setting', error)
+        })
+    }, 150)
+
+    return () => {
+      cancelScheduledTask()
+    }
+  }, [isSpecialWindow, maxConcurrentDownloads])
 
   useEffect(() => {
     if (isSpecialWindow) return undefined
@@ -157,7 +340,7 @@ function Root() {
 
         const downloadUrl = data.platforms?.['windows-x86_64']?.url
         if (!downloadUrl) {
-          // No Windows download URL ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â not on a supported update platform, treat as up-to-date
+          // No Windows download URL ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â not on a supported update platform, treat as up-to-date
           setUpdateState('up-to-date')
           scheduleCheck(UPDATE_REFRESH_INTERVAL_MS)
           return

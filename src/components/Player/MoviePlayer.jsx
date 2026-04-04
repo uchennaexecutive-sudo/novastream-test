@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Hls from 'hls.js'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import {
   Captions,
   Maximize,
@@ -67,6 +67,8 @@ const parseSubtitles = (text) => text
     }
   })
   .filter(item => item?.text)
+
+const isSubtitleFilePath = (value) => /\.(srt|vtt|ass|ssa|sub)$/i.test(String(value || '').trim())
 
 const SUBTITLE_TOKEN_STOPWORDS = new Set([
   'the',
@@ -451,6 +453,7 @@ export default function MoviePlayer({
   season = 1,
   episode = 1,
   resumeAt = 0,
+  offlinePlayback = null,
   onClose,
 }) {
   const videoRef = useRef(null)
@@ -499,6 +502,58 @@ export default function MoviePlayer({
   const [subtitleEnabled, setSubtitleEnabled] = useState(false)
   const [subtitleMode, setSubtitleMode] = useState('none')
   const [selectedSubtitleTrackKey, setSelectedSubtitleTrackKey] = useState('auto')
+  const [resolvedOfflineSubtitlePath, setResolvedOfflineSubtitlePath] = useState(null)
+  const offlineMode = Boolean(offlinePlayback?.filePath)
+  const offlineStream = useMemo(() => {
+    if (!offlineMode || !offlinePlayback?.filePath || !isTauri()) return null
+
+    const subtitleTracks = resolvedOfflineSubtitlePath
+      ? [{
+        url: resolvedOfflineSubtitlePath,
+        label: offlinePlayback.subtitleLabel || 'Offline',
+        language: 'en',
+        source: 'offline',
+      }]
+      : []
+
+    return {
+      url: offlinePlayback.filePath,
+      provider: 'Offline',
+      quality: 'Downloaded',
+      streamType: 'mp4',
+      subtitles: subtitleTracks,
+      headers: {},
+    }
+  }, [offlineMode, offlinePlayback, resolvedOfflineSubtitlePath])
+
+  useEffect(() => {
+    if (!offlineMode || !offlinePlayback?.filePath || !isTauri()) {
+      setResolvedOfflineSubtitlePath(null)
+      return undefined
+    }
+
+    if (isSubtitleFilePath(offlinePlayback?.subtitleFilePath)) {
+      setResolvedOfflineSubtitlePath(offlinePlayback.subtitleFilePath)
+      return undefined
+    }
+
+    let cancelled = false
+    invoke('find_local_subtitle_sidecar', { filePath: offlinePlayback.filePath })
+      .then((filePath) => {
+        if (!cancelled) {
+          setResolvedOfflineSubtitlePath(filePath || null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedOfflineSubtitlePath(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [offlineMode, offlinePlayback?.filePath, offlinePlayback?.subtitleFilePath])
 
   const stream = streams[streamIndex] || null
   const streamType = inferStreamType(stream)
@@ -622,6 +677,10 @@ export default function MoviePlayer({
   }, [streamIndex, streams.length])
 
   const loadResolverStreams = useCallback(async ({ forceRefresh = false, excludeUrls = [] } = {}) => {
+    if (offlineMode) {
+      return Boolean(offlineStream)
+    }
+
     const requestId = ++streamLoadRequestIdRef.current
 
     setLoading(true)
@@ -660,7 +719,7 @@ export default function MoviePlayer({
       setErrorDetail(streamError instanceof Error ? streamError.message : String(streamError))
       return false
     }
-  }, [contentType, currentEpisode, currentSeason, imdbId, tmdbId])
+  }, [contentType, currentEpisode, currentSeason, imdbId, offlineMode, offlineStream, tmdbId])
 
   const tryExpandedFallback = useCallback((detail) => {
     if (expandedFallbackUsedRef.current) {
@@ -700,6 +759,15 @@ export default function MoviePlayer({
   }, [contentType, loadResolverStreams, streams])
 
   const handleStreamFailure = useCallback((detail) => {
+    if (offlineMode) {
+      clearStartupTimer()
+      setLoading(false)
+      setMediaLoading(false)
+      setError('Could not open offline file')
+      setErrorDetail(detail || 'The downloaded file could not be played locally')
+      return
+    }
+
     const failureKey = `${streamIndex}:${stream?.url || ''}`
     if (handledFailureKeyRef.current === failureKey) {
       return
@@ -720,9 +788,21 @@ export default function MoviePlayer({
     }
 
     tryExpandedFallback(detail)
-  }, [moveToNextStream, stream, streamIndex, streamType, streams, tryExpandedFallback])
+  }, [moveToNextStream, offlineMode, stream, streamIndex, streamType, streams, tryExpandedFallback])
 
   const retryCurrentState = useCallback(() => {
+    if (offlineMode) {
+      setStreams(offlineStream ? [offlineStream] : [])
+      setStreamIndex(0)
+      setError('')
+      setErrorDetail('')
+      setLoading(false)
+      setLoadingStage('Loading offline file...')
+      setMediaLoading(true)
+      setRetryNonce(value => value + 1)
+      return
+    }
+
     if (error && streamIndex < streams.length - 1) {
       moveToNextStream()
       return
@@ -736,7 +816,7 @@ export default function MoviePlayer({
     setLoading(true)
     setLoadingStage('Finding stream...')
     setRetryNonce(value => value + 1)
-  }, [error, moveToNextStream, streamIndex, streams.length])
+  }, [error, moveToNextStream, offlineMode, offlineStream, streamIndex, streams.length])
 
   const togglePlayback = () => {
     const video = videoRef.current
@@ -856,6 +936,12 @@ export default function MoviePlayer({
   }, [contentType, currentSeason, tmdbId])
 
   useEffect(() => {
+    if (offlineMode) {
+      setFallbackSubtitleTracks([])
+      setSubtitleCues([])
+      return undefined
+    }
+
     let cancelled = false
 
     async function loadFallbackSubtitles() {
@@ -882,7 +968,7 @@ export default function MoviePlayer({
     return () => {
       cancelled = true
     }
-  }, [contentType, currentEpisode, currentSeason, imdbId, retryNonce, tmdbId])
+  }, [contentType, currentEpisode, currentSeason, imdbId, offlineMode, retryNonce, tmdbId])
 
   useEffect(() => {
     const providerSubtitleTracks = Array.isArray(stream?.subtitles) ? stream.subtitles : []
@@ -916,13 +1002,24 @@ export default function MoviePlayer({
   }, [fallbackSubtitleTracks, stream])
 
   useEffect(() => {
+    if (offlineMode) {
+      expandedFallbackUsedRef.current = false
+      setStreams(offlineStream ? [offlineStream] : [])
+      setStreamIndex(0)
+      setError('')
+      setErrorDetail('')
+      setLoading(false)
+      setLoadingStage('Loading offline file...')
+      return undefined
+    }
+
     expandedFallbackUsedRef.current = false
     void loadResolverStreams()
 
     return () => {
       streamLoadRequestIdRef.current += 1
     }
-  }, [loadResolverStreams, retryNonce])
+  }, [loadResolverStreams, offlineMode, offlineStream, retryNonce])
 
   useEffect(() => {
     handledFailureKeyRef.current = ''
@@ -969,7 +1066,15 @@ export default function MoviePlayer({
     }
 
     let cancelled = false
-    const subtitleRequest = window.__TAURI_INTERNALS__
+    const isLocalAssetTrack = String(trackUrl).startsWith('asset:')
+      || String(trackUrl).includes('asset.localhost')
+    const isOfflineLocalSubtitle = offlineMode
+      && preferredTrack?.source === 'offline'
+      && !/^https?:\/\//i.test(String(trackUrl))
+      && !isLocalAssetTrack
+    const subtitleRequest = isOfflineLocalSubtitle
+      ? invoke('read_local_text_file', { filePath: trackUrl })
+      : window.__TAURI_INTERNALS__ && !isLocalAssetTrack
       ? invoke('fetch_movie_text', { url: trackUrl })
       : fetch(trackUrl).then(response => {
         if (!response.ok) throw new Error('Subtitle fetch failed')
@@ -1003,7 +1108,7 @@ export default function MoviePlayer({
     return () => {
       cancelled = true
     }
-  }, [fallbackSubtitleTracks, isFallbackSubtitleMode, selectedSubtitleTrackKey, stream, subtitleEnabled, subtitleMode, subtitleTracks])
+  }, [fallbackSubtitleTracks, isFallbackSubtitleMode, offlineMode, selectedSubtitleTrackKey, stream, subtitleEnabled, subtitleMode, subtitleTracks])
 
   useEffect(() => {
     if (!stream?.url) return
@@ -1142,6 +1247,41 @@ export default function MoviePlayer({
       }
     }
 
+    const isLocalAssetStream = offlineMode
+      || stream.url.startsWith('asset:')
+      || stream.url.includes('asset.localhost')
+
+    if (isLocalAssetStream) {
+      invoke('register_media_proxy_file', {
+        filePath: offlinePlayback?.filePath || stream.url,
+        contentType: 'video/mp4',
+      })
+        .then((proxyUrl) => {
+          if (disposed) return
+          directMediaUrlRef.current = proxyUrl
+          video.src = proxyUrl
+          video.load()
+          video.play().catch(() => {})
+        })
+        .catch((proxyError) => {
+          if (disposed) return
+          handleStartupFailure(
+            proxyError instanceof Error ? proxyError.message : String(proxyError)
+          )
+        })
+
+      return () => {
+        disposed = true
+        clearStartupTimer()
+        video.pause()
+        video.removeAttribute('src')
+        video.load()
+        if (directMediaUrlRef.current) {
+          directMediaUrlRef.current = ''
+        }
+      }
+    }
+
     invoke('register_media_proxy_stream', {
       url: stream.url,
       headers: stream.headers || {},
@@ -1171,7 +1311,7 @@ export default function MoviePlayer({
         directMediaUrlRef.current = ''
       }
     }
-  }, [handleStreamFailure, markStartupReady, stream, streamType])
+  }, [handleStreamFailure, markStartupReady, offlineMode, stream, streamType])
 
   useEffect(() => {
     const video = videoRef.current

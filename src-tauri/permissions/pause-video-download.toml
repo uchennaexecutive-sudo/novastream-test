@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-pause-video-download"
+description = "Allows the app to pause active or queued media downloads through the Rust command."
+commands.allow = ["pause_video_download"]

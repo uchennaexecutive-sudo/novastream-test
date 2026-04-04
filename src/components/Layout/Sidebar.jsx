@@ -1,7 +1,7 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useState } from 'react'
-import { Home, Film, Tv2, Swords, Palette, Bookmark, History, Settings, LogIn } from 'lucide-react'
+import { Home, Film, Tv2, Swords, Palette, Bookmark, Download, History, Settings, LogIn } from 'lucide-react'
 import useAuthStore from '../../store/useAuthStore'
 import { dicebearUrl } from '../../lib/supabaseClient'
 
@@ -17,6 +17,7 @@ const navItems = [
 
 const bottomItems = [
   { path: '/watchlist', label: 'Watchlist', Icon: Bookmark },
+  { path: '/downloads', label: 'Downloads', Icon: Download },
   { path: '/history', label: 'History', Icon: History },
   { path: '/settings', label: 'Settings', Icon: Settings },
 ]

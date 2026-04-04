@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-find-local-subtitle-sidecar"
+description = "Allow resolving a local subtitle sidecar for an offline video file"
+commands.allow = ["find_local_subtitle_sidecar"]

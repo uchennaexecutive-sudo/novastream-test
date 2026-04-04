@@ -239,6 +239,22 @@ Recommended path:
 - keep progress tracking working for offline playback too
 - save local subtitles when selected so offline playback does not depend on the network
 
+### Subtitle Persistence
+
+Subtitle handling should be treated as a first-class part of offline playback, not a small follow-up detail.
+
+Why:
+- if a user downloads a movie or episode expecting subtitles and they disappear offline, the download experience is broken
+- the current online player flow can fetch subtitle text at playback time, but offline playback cannot depend on remote subtitle URLs
+
+Recommended v1 rule:
+- download the selected subtitle track alongside the video when subtitles are enabled for offline use
+- store `subtitleFilePath`, subtitle label/language metadata, and format in the catalog entry
+- load the subtitle from local disk during offline playback via `convertFileSrc` the same way the video is loaded
+- if no subtitle was downloaded, show offline playback as video-only instead of implying subtitle support
+
+This means subtitle persistence should be implemented as part of Phase D, not treated as optional polish after offline playback already exists.
+
 ## UI Component Direction
 
 Likely files/components:
@@ -335,7 +351,10 @@ Goal:
 1. Use `isDownloaded` checks in detail pages
 2. Add "Play Offline" button behavior
 3. Use `convertFileSrc(localFilePath)` in `MoviePlayer.jsx` and `AnimePlayer.jsx`
-4. Save subtitle files locally when selected
+4. Add subtitle persistence as a required offline path:
+   - download the chosen `.srt` / `.vtt` file beside the video
+   - save `subtitleFilePath` plus subtitle metadata in the catalog
+   - make offline playback prefer local subtitle files over remote subtitle URLs
 5. Verify progress tracking still works offline
 
 ### Phase E - Storage management and polish

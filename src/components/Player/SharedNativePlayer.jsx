@@ -584,11 +584,20 @@ export default function SharedNativePlayer({
       }
     }
 
+    const isLocalFilePath =
+      !isHlsStream &&
+      !/^https?:\/\//i.test(streamUrl) &&
+      !/^blob:/i.test(streamUrl) &&
+      !/^data:/i.test(streamUrl) &&
+      !/^asset:/i.test(streamUrl) &&
+      !streamUrl.includes('asset.localhost')
+
     const needsManagedFileFetch =
       !isHlsStream &&
       (
         Boolean(streamSessionId) ||
-        Boolean(streamHeaders && Object.keys(streamHeaders).length)
+        Boolean(streamHeaders && Object.keys(streamHeaders).length) ||
+        isLocalFilePath
       )
 
     console.warn('[SharedNativePlayer] managed file decision', {
@@ -597,6 +606,7 @@ export default function SharedNativePlayer({
       streamSessionId,
       hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
       needsManagedFileFetch,
+      isLocalFilePath,
     })
 
     if (needsManagedFileFetch) {
@@ -610,13 +620,21 @@ export default function SharedNativePlayer({
       }, 25000)
 
       withPromiseTimeout(
-        invoke('register_media_proxy_stream', {
-          url: streamUrl,
-          headers: streamHeaders || {},
-          sessionId: streamSessionId || null,
-        }),
+        invoke(
+          isLocalFilePath ? 'register_media_proxy_file' : 'register_media_proxy_stream',
+          isLocalFilePath
+            ? {
+              filePath: streamUrl,
+              contentType: 'video/mp4',
+            }
+            : {
+              url: streamUrl,
+              headers: streamHeaders || {},
+              sessionId: streamSessionId || null,
+            }
+        ),
         10000,
-        'Register media proxy stream'
+        isLocalFilePath ? 'Register media proxy file' : 'Register media proxy stream'
       )
         .then((proxyUrl) => {
           if (disposed) return
@@ -624,6 +642,7 @@ export default function SharedNativePlayer({
           console.warn('[SharedNativePlayer] managed proxy ready', {
             streamUrl,
             proxyUrl,
+            isLocalFilePath,
             hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
             sessionId: streamSessionId || null,
           })
@@ -638,6 +657,7 @@ export default function SharedNativePlayer({
           console.warn('[SharedNativePlayer] managed proxy failed', {
             streamUrl,
             detail,
+            isLocalFilePath,
             hasHeaders: Boolean(streamHeaders && Object.keys(streamHeaders).length),
             sessionId: streamSessionId || null,
           })

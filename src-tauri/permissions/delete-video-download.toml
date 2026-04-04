@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-delete-video-download"
+description = "Allows the app to delete completed media downloads through the Rust command."
+commands.allow = ["delete_video_download"]

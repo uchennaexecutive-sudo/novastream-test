@@ -1,0 +1,6 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-download-location"
+description = "Allows changing the download location."
+commands.allow = ["set_download_location"]

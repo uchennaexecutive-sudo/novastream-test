@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-cancel-video-download"
+description = "Allows the app to cancel queued or active media downloads through the Rust command."
+commands.allow = ["cancel_video_download"]

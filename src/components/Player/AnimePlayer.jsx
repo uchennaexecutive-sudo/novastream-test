@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { ANIWATCH_BASE_URL, clearAnimePlaybackCache } from '../../lib/consumet'
 import { getEnabledAnimeAddonProviders } from '../../lib/animeAddons'
 import {
   resolveAnimeProviderStates,
   resolveEpisodeStreamCandidates,
 } from '../../lib/animeAddons/resolveAnimeStreams'
+import { resolveAnimeDownloadStream } from '../../lib/animeDownloads'
 import { saveProgress } from '../../lib/progress'
 import SharedNativePlayer from './SharedNativePlayer'
 
@@ -94,6 +95,7 @@ function getCandidateMeta(candidate = {}) {
 export default function AnimePlayer({
   animeTitle,
   animeAltTitle = '',
+  animeSearchTitles = [],
   contentId,
   season,
   episode,
@@ -101,6 +103,7 @@ export default function AnimePlayer({
   backdrop,
   resumeAt = 0,
   prefetchedAnime = null,
+  offlinePlayback = null,
   onClose,
 }) {
   const retryTimerRef = useRef(null)
@@ -133,12 +136,14 @@ export default function AnimePlayer({
   const [subtitleTracks, setSubtitleTracks] = useState([])
   const [subtitleCues, setSubtitleCues] = useState([])
   const [subtitleEnabled, setSubtitleEnabled] = useState(true)
+  const [resolvedOfflineSubtitlePath, setResolvedOfflineSubtitlePath] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadingStage, setLoadingStage] = useState('Finding anime...')
   const [error, setError] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
   const [retryNonce, setRetryNonce] = useState(0)
   const [resolverTick, setResolverTick] = useState(0)
+  const offlineMode = Boolean(offlinePlayback?.filePath)
 
   const apiHost = useMemo(() => {
     try {
@@ -147,6 +152,22 @@ export default function AnimePlayer({
       return ANIWATCH_BASE_URL
     }
   }, [])
+
+  const resolvedAnimeTitles = useMemo(() => {
+    const seen = new Set()
+    const output = []
+
+    for (const value of [animeTitle, animeAltTitle, ...(Array.isArray(animeSearchTitles) ? animeSearchTitles : [])]) {
+      const title = String(value || '').replace(/\s+/g, ' ').trim()
+      if (!title) continue
+      const key = title.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      output.push(title)
+    }
+
+    return output
+  }, [animeAltTitle, animeSearchTitles, animeTitle])
 
   const currentEpisodeMeta = useMemo(
     () => episodes.find(item => Number(item.number) === Number(currentEpisode)) || null,
@@ -270,6 +291,15 @@ export default function AnimePlayer({
   }, [resetPlaybackState])
 
   const handleStreamFailure = useCallback((detail) => {
+    if (offlineMode) {
+      clearRetryTimer()
+      setLoading(false)
+      setLoadingStage('')
+      setError('Could not open offline file')
+      setErrorDetail(detail || 'The downloaded file could not be played locally')
+      return
+    }
+
     const episodeKey = String(Number(currentEpisode || 0))
     const failedSet = failedUrlsByEpisodeRef.current[episodeKey] || new Set()
 
@@ -318,7 +348,7 @@ export default function AnimePlayer({
     setLoadingStage('')
     setError('Could not load stream')
     setErrorDetail(detail || 'All available stream candidates failed')
-  }, [activeCandidate, animeTitle, currentEpisode])
+  }, [activeCandidate, animeTitle, currentEpisode, offlineMode])
 
   const handlePlaybackSnapshot = useCallback((snapshot) => {
     lastPlaybackRef.current = snapshot
@@ -354,6 +384,49 @@ export default function AnimePlayer({
   }, [episodes, persistProgress, resetPlaybackState])
 
   useEffect(() => {
+    if (offlineMode) {
+      clearRetryTimer()
+      streamAttemptRef.current = 0
+      candidateIndexRef.current = 0
+      candidateListRef.current = []
+      failedUrlsByEpisodeRef.current = {}
+      successfulProviderIdRef.current = ''
+      lockedProviderIdRef.current = ''
+      lockedEpisodeRef.current = null
+      lastPlaybackRef.current = {
+        progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
+        durationSeconds: 0,
+      }
+      setCurrentEpisode(Math.max(1, Number(episode) || 1))
+      setResumePosition(Math.max(0, Math.floor(Number(resumeAt) || 0)))
+      setEpisodes([])
+      setLoading(false)
+      setLoadingStage('Loading offline file...')
+      setError('')
+      setErrorDetail('')
+      setStreamData({
+        rawUrl: offlinePlayback.filePath || '',
+        streamType: 'mp4',
+        providerLabel: 'Offline',
+        providerId: 'offline',
+        quality: 'Downloaded',
+        resolution: 0,
+        streamSessionId: null,
+      })
+      const nextSubtitleTracks = resolvedOfflineSubtitlePath && isTauri()
+        ? [{
+          file: resolvedOfflineSubtitlePath,
+          url: resolvedOfflineSubtitlePath,
+          label: offlinePlayback.subtitleLabel || 'Offline',
+          lang: 'en',
+          source: 'offline',
+        }]
+        : []
+      setSubtitleTracks(nextSubtitleTracks)
+      setSubtitleEnabled(nextSubtitleTracks.length > 0)
+      return undefined
+    }
+
     clearRetryTimer()
     streamAttemptRef.current = 0
     candidateIndexRef.current = 0
@@ -368,7 +441,36 @@ export default function AnimePlayer({
     }
     setCurrentEpisode(Math.max(1, Number(episode) || 1))
     setResumePosition(Math.max(0, Math.floor(Number(resumeAt) || 0)))
-  }, [episode, resumeAt])
+  }, [episode, offlineMode, offlinePlayback, resolvedOfflineSubtitlePath, resumeAt])
+
+  useEffect(() => {
+    if (!offlineMode || !offlinePlayback?.filePath || !isTauri()) {
+      setResolvedOfflineSubtitlePath(null)
+      return undefined
+    }
+
+    if (offlinePlayback?.subtitleFilePath) {
+      setResolvedOfflineSubtitlePath(offlinePlayback.subtitleFilePath)
+      return undefined
+    }
+
+    let cancelled = false
+    invoke('find_local_subtitle_sidecar', { filePath: offlinePlayback.filePath })
+      .then((filePath) => {
+        if (!cancelled) {
+          setResolvedOfflineSubtitlePath(filePath || null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedOfflineSubtitlePath(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [offlineMode, offlinePlayback?.filePath, offlinePlayback?.subtitleFilePath])
 
   useEffect(() => {
     invoke('get_anime_debug_log_path')
@@ -381,6 +483,8 @@ export default function AnimePlayer({
   }, [])
 
   useEffect(() => {
+    if (offlineMode) return undefined
+
     let cancelled = false
 
     async function loadProviders() {
@@ -394,8 +498,7 @@ export default function AnimePlayer({
       setError('')
       setErrorDetail('')
 
-      const titles = [animeTitle, animeAltTitle].filter(Boolean)
-      const states = await resolveAnimeProviderStates({ titles })
+      const states = await resolveAnimeProviderStates({ titles: resolvedAnimeTitles })
 
       if (cancelled) return
 
@@ -466,9 +569,11 @@ export default function AnimePlayer({
     })
 
     return () => { cancelled = true }
-  }, [animeAltTitle, animeTitle, prefetchedAnime, resetPlaybackState, retryNonce])
+  }, [offlineMode, prefetchedAnime, resetPlaybackState, resolvedAnimeTitles, retryNonce])
 
   useEffect(() => {
+    if (offlineMode) return undefined
+
     let cancelled = false
     clearRetryTimer()
 
@@ -496,7 +601,7 @@ export default function AnimePlayer({
       setErrorDetail('')
       resetPlaybackState()
 
-      const candidates = await resolveEpisodeStreamCandidates({
+      let candidates = await resolveEpisodeStreamCandidates({
         providerStates,
         episodeNumber: Number(currentEpisode),
         preferredProviderId:
@@ -508,12 +613,45 @@ export default function AnimePlayer({
 
       if (cancelled) return
 
+      if (!candidates.length) {
+        try {
+          const fallbackStream = await resolveAnimeDownloadStream({
+            title: animeTitle,
+            altTitle: animeAltTitle,
+            extraTitles: resolvedAnimeTitles,
+            episodeNumber: Number(currentEpisode),
+            preferredProviderId:
+              (lockedEpisodeRef.current === Number(currentEpisode) && lockedProviderIdRef.current) ||
+              successfulProviderIdRef.current ||
+              '',
+          })
+
+          if (fallbackStream?.streamUrl) {
+            candidates = [{
+              id: `fallback::${fallbackStream.providerId || 'anime'}::${Number(currentEpisode)}::${fallbackStream.streamUrl}`,
+              providerId: fallbackStream.providerId || '',
+              providerLabel: fallbackStream.providerId || '',
+              url: fallbackStream.streamUrl,
+              streamType: fallbackStream.streamType || 'unknown',
+              quality: fallbackStream.qualityLabel || '',
+              resolution: Number(fallbackStream.resolution || 0),
+              headers: fallbackStream.headers || {},
+              subtitles: fallbackStream.subtitleUrl
+                ? [{ url: fallbackStream.subtitleUrl, file: fallbackStream.subtitleUrl, lang: 'English', default: true }]
+                : [],
+              score: 0,
+            }]
+          }
+        } catch {
+          // Keep the original no-candidate error below if the broader fallback also fails.
+        }
+      }
+
       candidateListRef.current = candidates
 
       if (!candidates.length) {
         throw new Error(`Episode ${Number(currentEpisode)} not found on available providers`)
       }
-
       if (candidateIndexRef.current >= candidates.length) {
         candidateIndexRef.current = 0
       }
@@ -598,7 +736,7 @@ export default function AnimePlayer({
     })
 
     return () => { cancelled = true }
-  }, [currentEpisode, resetPlaybackState, resolverTick, scheduleFreshStreamRetry])
+  }, [currentEpisode, offlineMode, resetPlaybackState, resolverTick, scheduleFreshStreamRetry])
 
   useEffect(() => {
     const preferredTrack = subtitleTracks.find(track => String(track.lang || '').toLowerCase().includes('english')) || subtitleTracks[0]
@@ -615,7 +753,15 @@ export default function AnimePlayer({
     }
 
     let cancelled = false
-    const subtitleRequest = window.__TAURI_INTERNALS__
+    const isLocalAssetTrack = String(trackUrl).startsWith('asset:')
+      || String(trackUrl).includes('asset.localhost')
+    const isOfflineLocalSubtitle = offlineMode
+      && preferredTrack?.source === 'offline'
+      && !/^https?:\/\//i.test(String(trackUrl))
+      && !isLocalAssetTrack
+    const subtitleRequest = isOfflineLocalSubtitle
+      ? invoke('read_local_text_file', { filePath: trackUrl })
+      : window.__TAURI_INTERNALS__ && !isLocalAssetTrack
       ? invoke('fetch_anime_text', {
         url: trackUrl,
         headers: hlsHeadersRef.current || {},
@@ -635,7 +781,7 @@ export default function AnimePlayer({
       })
 
     return () => { cancelled = true }
-  }, [subtitleEnabled, subtitleTracks])
+  }, [offlineMode, subtitleEnabled, subtitleTracks])
 
   useEffect(() => () => {
     clearRetryTimer()

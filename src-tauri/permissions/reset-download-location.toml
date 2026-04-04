@@ -1,0 +1,6 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reset-download-location"
+description = "Allows resetting the download location to the default."
+commands.allow = ["reset_download_location"]

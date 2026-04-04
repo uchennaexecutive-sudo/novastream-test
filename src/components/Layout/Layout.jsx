@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef } from 'react'
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import { useReducedMotion } from 'framer-motion'
 import BackgroundOrbs from './BackgroundOrbs'
 import Sidebar from './Sidebar'
 import TitleBar from './TitleBar'
@@ -8,16 +8,6 @@ import TopBar from './TopBar'
 import useAppStore from '../../store/useAppStore'
 import { saveScroll, getScroll, hasScroll } from '../../lib/sessionCache'
 
-const pageVariants = {
-  initial: { opacity: 0, y: 20, filter: 'blur(4px)' },
-  animate: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] } },
-  exit: { opacity: 0, y: -10, filter: 'blur(4px)', transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } },
-}
-
-const pageTransition = {
-  duration: 0.4,
-  ease: [0.4, 0, 0.2, 1],
-}
 const TOPBAR_HEIGHT = 56
 
 export default function Layout() {
@@ -25,7 +15,6 @@ export default function Layout() {
   const appReducedMotion = useAppStore(s => s.preferences.reduceAnimations)
   const location = useLocation()
   const sysReducedMotion = useReducedMotion()
-  const reducedMotion = sysReducedMotion || appReducedMotion
   const mainRef = useRef(null)
   const prevPathRef = useRef(location.pathname)
 
@@ -41,17 +30,24 @@ export default function Layout() {
 
     prevPathRef.current = curr
 
+    const restoreOrResetScroll = () => {
+      if (!mainRef.current) return
+
+      if (hasScroll(curr)) {
+        mainRef.current.scrollTop = getScroll(curr)
+      } else {
+        // New routes should open at the top instead of inheriting the previous page's deep scroll.
+        mainRef.current.scrollTop = 0
+      }
+    }
+
     // First attempt: immediate (works when page data is cached / renders instantly)
     requestAnimationFrame(() => {
-      if (mainRef.current && hasScroll(curr)) {
-        mainRef.current.scrollTop = getScroll(curr)
-      }
+      restoreOrResetScroll()
     })
     // Second attempt: fallback after content has had time to render
     const timer = setTimeout(() => {
-      if (mainRef.current && hasScroll(curr)) {
-        mainRef.current.scrollTop = getScroll(curr)
-      }
+      restoreOrResetScroll()
     }, 120)
     return () => clearTimeout(timer)
   }, [location.pathname])
@@ -84,19 +80,15 @@ export default function Layout() {
           height: '100vh',
         }}
       >
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            variants={reducedMotion ? {} : pageVariants}
-            initial={reducedMotion ? false : 'initial'}
-            animate="animate"
-            exit={reducedMotion ? {} : 'exit'}
-            transition={pageTransition}
-            style={{ paddingTop: TOPBAR_HEIGHT }}
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+        <div
+          key={location.pathname}
+          style={{
+            paddingTop: TOPBAR_HEIGHT,
+            opacity: sysReducedMotion || appReducedMotion ? 1 : 1,
+          }}
+        >
+          <Outlet />
+        </div>
       </main>
     </div>
   )

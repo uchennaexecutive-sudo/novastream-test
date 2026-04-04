@@ -13,19 +13,28 @@ import {
 
 const PROVIDER_ID = ANIME_PROVIDER_IDS.ANIMEPAHE
 const PROVIDER_LABEL = ANIME_PROVIDER_LABELS[PROVIDER_ID]
-const BASE_URL = 'https://animepahe.si'
+const BASE_URL = 'https://animepahe.com'
 const HOME_URL = `${BASE_URL}/`
 const BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0',
 }
 
 const providerSessionByAnimeId = new Map()
-let globalProviderSessionId = null
+let sessionWindowQueue = Promise.resolve()
 const RETRYABLE_SESSION_ERROR_PATTERNS = [
     'Resolver session window did not finish loading',
     'timeout',
     'channel closed',
 ]
+
+function enqueueSessionWindowTask(task) {
+    const nextTask = sessionWindowQueue
+        .catch(() => {})
+        .then(() => task())
+
+    sessionWindowQueue = nextTask.catch(() => {})
+    return nextTask
+}
 
 function uniqueTitles(titles = []) {
     const seen = new Set()
@@ -81,14 +90,12 @@ function resolveProviderSession(animeId = '', preferredSessionId = null) {
         return providerSessionByAnimeId.get(cacheKey)
     }
 
-    return globalProviderSessionId || null
+    return null
 }
 
 function rememberProviderSession(animeId = '', sessionId = null) {
     const normalizedSessionId = String(sessionId || '').trim()
     if (!normalizedSessionId) return null
-
-    globalProviderSessionId = normalizedSessionId
 
     const cacheKey = String(animeId || '').trim().toLowerCase()
     if (cacheKey) {
@@ -103,10 +110,11 @@ function clearProviderSession(animeId = '') {
     if (cacheKey) {
         providerSessionByAnimeId.delete(cacheKey)
     }
+}
 
-    if (!cacheKey || providerSessionByAnimeId.size === 0) {
-        globalProviderSessionId = null
-    }
+function looksLikeJsonPayload(text = '') {
+    const preview = String(text || '').trim()
+    return preview.startsWith('{') || preview.startsWith('[')
 }
 
 function isRetryableSessionError(error) {
@@ -135,16 +143,18 @@ async function fetchProviderTextWithSession(
                 clearProviderSession(animeId)
             }
 
-            const result = await invoke('fetch_anime_text_with_session', {
-                url,
-                headers: {
-                    ...BROWSER_HEADERS,
-                    ...headers,
-                },
-                method,
-                body,
-                sessionId,
-            })
+            const result = await enqueueSessionWindowTask(() => (
+                invoke('fetch_anime_text_with_session', {
+                    url,
+                    headers: {
+                        ...BROWSER_HEADERS,
+                        ...headers,
+                    },
+                    method,
+                    body,
+                    sessionId,
+                })
+            ))
 
             const text = typeof result?.text === 'string' ? result.text : ''
             const nextSessionId = rememberProviderSession(
@@ -175,6 +185,33 @@ async function fetchProviderTextWithSession(
     throw lastError || new Error('AnimePahe session fetch failed')
 }
 
+async function fetchProviderTextDirect(
+    url,
+    headers = {},
+    method = 'GET',
+    body = null
+) {
+    const result = await invoke('fetch_anime_text', {
+        url,
+        headers: {
+            ...BROWSER_HEADERS,
+            ...headers,
+        },
+        method,
+        body,
+    })
+
+    if (typeof result === 'string') {
+        return result
+    }
+
+    if (result && typeof result.text === 'string') {
+        return result.text
+    }
+
+    return ''
+}
+
 async function fetchProviderTextWithOptionalPageFallback(
     url,
     headers = {},
@@ -183,6 +220,24 @@ async function fetchProviderTextWithOptionalPageFallback(
     animeId = '',
     preferredSessionId = null
 ) {
+    try {
+        const directText = await fetchProviderTextDirect(url, headers, method, body)
+        if (directText) {
+            return {
+                text: directText,
+                sessionId: resolveProviderSession(animeId, preferredSessionId),
+            }
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('HTTP 404')) {
+            return {
+                text: '',
+                sessionId: resolveProviderSession(animeId, preferredSessionId),
+            }
+        }
+    }
+
     try {
         return await fetchProviderTextWithSession(
             url,
@@ -211,16 +266,18 @@ async function fetchIsolatedTextWithSession(
     method = 'GET',
     body = null
 ) {
-    const result = await invoke('fetch_anime_text_with_session', {
-        url,
-        headers: {
-            ...BROWSER_HEADERS,
-            ...headers,
-        },
-        method,
-        body,
-        sessionId: null,
-    })
+    const result = await enqueueSessionWindowTask(() => (
+        invoke('fetch_anime_text_with_session', {
+            url,
+            headers: {
+                ...BROWSER_HEADERS,
+                ...headers,
+            },
+            method,
+            body,
+            sessionId: null,
+        })
+    ))
 
     return {
         text: typeof result?.text === 'string' ? result.text : '',
@@ -234,19 +291,66 @@ async function fetchProviderJsonWithSession(
     animeId = '',
     preferredSessionId = null
 ) {
-    const result = await fetchProviderTextWithSession(
-        url,
-        headers,
-        'GET',
-        null,
-        animeId,
-        preferredSessionId
-    )
+    let lastError = null
 
-    return {
-        payload: JSON.parse(result.text || '{}'),
-        sessionId: result.sessionId,
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+            if (attempt === 0) {
+                try {
+                    const directText = await fetchProviderTextDirect(url, headers, 'GET', null)
+                    if (looksLikeJsonPayload(directText)) {
+                        return {
+                            payload: JSON.parse(directText || '{}'),
+                            sessionId: resolveProviderSession(animeId, preferredSessionId),
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`[animeAddons/${PROVIDER_ID}] direct json fetch failed`, {
+                        animeId,
+                        url,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                }
+            }
+
+            if (attempt > 0) {
+                clearProviderSession(animeId)
+            }
+
+            const result = await fetchProviderTextWithSession(
+                url,
+                headers,
+                'GET',
+                null,
+                animeId,
+                preferredSessionId
+            )
+
+            if (!looksLikeJsonPayload(result.text)) {
+                throw new Error('AnimePahe JSON request returned non-JSON content')
+            }
+
+            return {
+                payload: JSON.parse(result.text || '{}'),
+                sessionId: result.sessionId,
+            }
+        } catch (error) {
+            lastError = error
+
+            if (attempt >= 2) {
+                throw error
+            }
+
+            console.warn(`[animeAddons/${PROVIDER_ID}] json fetch retry`, {
+                animeId,
+                url,
+                attempt: attempt + 1,
+                error: error instanceof Error ? error.message : String(error),
+            })
+        }
     }
+
+    throw lastError || new Error('AnimePahe JSON request failed')
 }
 
 async function warmProviderSession(animeId = '', preferredSessionId = null) {
@@ -379,34 +483,71 @@ async function fetchAllEpisodes(animeId = '', releaseId = '', preferredSessionId
         'X-Requested-With': 'XMLHttpRequest',
     }
 
-    const firstPage = await fetchProviderJsonWithSession(
-        buildReleasesUrl(releaseId || animeId, 1),
-        requestHeaders,
-        animeId,
-        preferredSessionId
-    )
+    const normalizedAnimeId = String(animeId || '').trim()
+    const normalizedReleaseId = String(releaseId || '').trim()
+    const prefersAnimeSessionId =
+        normalizedAnimeId
+        && normalizedAnimeId !== normalizedReleaseId
+        && /[a-f0-9]{8}-/i.test(normalizedAnimeId)
 
-    let sessionId = firstPage.sessionId
-    const items = Array.isArray(firstPage.payload?.data) ? firstPage.payload.data : []
-    const lastPage = Number(firstPage.payload?.last_page || 1) || 1
+    const orderedCandidates = prefersAnimeSessionId
+        ? [normalizedAnimeId, normalizedReleaseId]
+        : [normalizedReleaseId, normalizedAnimeId]
 
-    for (let page = 2; page <= lastPage; page += 1) {
-        const nextPage = await fetchProviderJsonWithSession(
-            buildReleasesUrl(releaseId || animeId, page),
-            requestHeaders,
-            animeId,
-            sessionId
-        )
-        sessionId = nextPage.sessionId || sessionId
-        if (Array.isArray(nextPage.payload?.data)) {
-            items.push(...nextPage.payload.data)
+    const releaseCandidates = [...new Set(
+        orderedCandidates.filter(Boolean)
+    )]
+
+    let lastError = null
+
+    for (const releaseCandidate of releaseCandidates) {
+        try {
+            const firstPage = await fetchProviderJsonWithSession(
+                buildReleasesUrl(releaseCandidate, 1),
+                requestHeaders,
+                animeId,
+                preferredSessionId
+            )
+
+            let sessionId = firstPage.sessionId
+            const items = Array.isArray(firstPage.payload?.data) ? [...firstPage.payload.data] : []
+            const lastPage = Number(firstPage.payload?.last_page || 1) || 1
+
+            for (let page = 2; page <= lastPage; page += 1) {
+                const nextPage = await fetchProviderJsonWithSession(
+                    buildReleasesUrl(releaseCandidate, page),
+                    requestHeaders,
+                    animeId,
+                    sessionId
+                )
+                sessionId = nextPage.sessionId || sessionId
+                if (Array.isArray(nextPage.payload?.data)) {
+                    items.push(...nextPage.payload.data)
+                }
+            }
+
+            const normalizedEpisodes = normalizeEpisodeSequence(items, animeId)
+            if (normalizedEpisodes.length > 0) {
+                return {
+                    episodes: normalizedEpisodes,
+                    sessionId,
+                }
+            }
+        } catch (error) {
+            lastError = error
+            console.warn(`[animeAddons/${PROVIDER_ID}] release candidate failed`, {
+                animeId,
+                releaseCandidate,
+                error: error instanceof Error ? error.message : String(error),
+            })
         }
     }
 
-    return {
-        episodes: normalizeEpisodeSequence(items, animeId),
-        sessionId,
+    if (lastError) {
+        throw lastError
     }
+
+    return { episodes: [], sessionId: preferredSessionId || null }
 }
 
 function parseResolutionButtons(html = '') {
@@ -687,19 +828,28 @@ const animepaheProvider = {
         const sessionId = await warmProviderSession(match.animeId, null)
         let animeInfo = {
             animeId: match.animeId,
-            releaseId: String(match.animeId || '').trim(),
+            releaseId:
+                String(match?.raw?.releaseId || match?.raw?.id || match.animeId || '').trim(),
             title: match.title || match.matchedTitle || match.animeId,
             image: String(match?.raw?.image || '').trim(),
         }
         let finalSessionId = sessionId
 
-        const releases = await fetchAllEpisodes(
+        let releases = await fetchAllEpisodes(
             match.animeId,
             animeInfo.releaseId || match.animeId,
             finalSessionId
         )
 
-        if (!animeInfo.image || !animeInfo.title || animeInfo.title === match.animeId) {
+        const shouldRefreshAnimePage =
+            !animeInfo.image
+            || !animeInfo.title
+            || animeInfo.title === match.animeId
+            || !animeInfo.releaseId
+            || !Array.isArray(releases?.episodes)
+            || releases.episodes.length === 0
+
+        if (shouldRefreshAnimePage) {
             try {
                 const animePage = await fetchProviderTextWithOptionalPageFallback(
                     buildAnimePageUrl(match.animeId),
@@ -724,6 +874,27 @@ const animepaheProvider = {
                 console.warn(`[animeAddons/${PROVIDER_ID}] anime page fetch failed during buildProviderState`, {
                     animeId: match.animeId,
                     fallbackReleaseId: match.animeId,
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            }
+        }
+
+        const resolvedReleaseId = animeInfo.releaseId || match.animeId
+        const releasesNeedRetry =
+            (!Array.isArray(releases?.episodes) || releases.episodes.length === 0)
+            || String(releases?.sessionId || '').trim() === ''
+
+        if (resolvedReleaseId && releasesNeedRetry) {
+            try {
+                releases = await fetchAllEpisodes(
+                    match.animeId,
+                    resolvedReleaseId,
+                    finalSessionId
+                )
+            } catch (error) {
+                console.warn(`[animeAddons/${PROVIDER_ID}] release fetch retry failed during buildProviderState`, {
+                    animeId: match.animeId,
+                    releaseId: resolvedReleaseId,
                     error: error instanceof Error ? error.message : String(error),
                 })
             }
@@ -763,7 +934,7 @@ const animepaheProvider = {
 
             let sessionId = await warmProviderSession(animeId, resolveProviderSession(animeId))
             const playPageUrl = buildPlayPageUrl(animeId, episodeSession)
-            const playPage = await fetchProviderTextWithSession(
+            const playPage = await fetchProviderTextWithOptionalPageFallback(
                 playPageUrl,
                 { Referer: buildAnimePageUrl(animeId) },
                 'GET',

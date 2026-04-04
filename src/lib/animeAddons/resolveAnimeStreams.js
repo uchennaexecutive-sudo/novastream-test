@@ -77,16 +77,21 @@ function uniqueTitles(titles = []) {
 
         const variants = [
             title,
+            title.replace(/\bSeason\s+\d+\b.*$/gi, ''),
             title.replace(/\s*:\s*.+$/, ''),
             title.replace(/\s+-\s+.+$/, ''),
+            title.split(':')[0] || '',
+            title.split('-')[0] || '',
             title.replace(/\bPart\s+\d+\b/gi, ''),
             title.replace(/\bCour\s+\d+\b/gi, ''),
-            title.replace(/\bSeason\s+\d+\b.*$/gi, ''),
             title.replace(/\([^)]*\)/g, ''),
         ]
 
         for (const variant of variants) {
-            const clean = String(variant || '').replace(/\s+/g, ' ').trim()
+            const clean = String(variant || '')
+                .replace(/\s+/g, ' ')
+                .replace(/[:\-–—\s]+$/g, '')
+                .trim()
             if (!clean) continue
             const key = clean.toLowerCase()
             if (seen.has(key)) continue
@@ -132,7 +137,7 @@ function scoreMatch(match, titles = []) {
             score += descriptorOverlap * 50
 
             if (descriptorOverlap === 0) {
-                score -= 120
+                score -= 35
             }
         }
 
@@ -221,7 +226,9 @@ export async function resolveAnimeProviderStates({
             const maxSearchTitles =
                 provider?.id === 'gogoanime'
                     ? 6
-                    : 2
+                    : provider?.id === 'animepahe'
+                        ? 5
+                        : 3
             const searchTitles = uniqueTitles(titles).slice(0, maxSearchTitles)
             console.warn(`[animeAddons] search titles`, {
                 providerId: provider?.id || '',
@@ -281,11 +288,14 @@ export async function resolveEpisodeStreamCandidates({
     episodeNumber,
     preferredProviderId = '',
     failedUrls = [],
+    providers = null,
 } = {}) {
     const failedUrlSet = new Set((failedUrls || []).filter(Boolean))
     const candidates = []
-    const enabledProviders = getEnabledAnimeAddonProviders()
-    const providerMap = new Map(enabledProviders.map((provider) => [provider.id, provider]))
+    const activeProviders = Array.isArray(providers) && providers.length
+        ? providers
+        : getEnabledAnimeAddonProviders()
+    const providerMap = new Map(activeProviders.map((provider) => [provider.id, provider]))
 
     for (const state of providerStates) {
         try {

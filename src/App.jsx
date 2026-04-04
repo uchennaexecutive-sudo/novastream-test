@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import React, { lazy, Suspense, useState, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
 import Home from './pages/Home'
 import Auth from './pages/Auth'
@@ -15,10 +15,75 @@ const Animation = lazy(() => import('./pages/Animation'))
 const Detail = lazy(() => import('./pages/Detail'))
 const IframePlayerWindow = lazy(() => import('./pages/IframePlayerWindow'))
 const BrowserFetchBridge = lazy(() => import('./pages/BrowserFetchBridge'))
+const Downloads = lazy(() => import('./pages/Downloads'))
 const Watchlist = lazy(() => import('./pages/Watchlist'))
 const History = lazy(() => import('./pages/History'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Profile = lazy(() => import('./pages/Profile'))
+
+class RouteErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, message: '' }
+  }
+
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      message: error?.message || 'A page error occurred.',
+    }
+  }
+
+  componentDidCatch(error) {
+    console.error('[RouteErrorBoundary]', error)
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false, message: '' })
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center px-6">
+          <div
+            className="max-w-md w-full rounded-2xl p-6 text-center"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--card-shadow)',
+            }}
+          >
+            <h2
+              className="font-display font-semibold text-xl mb-2"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Could not open this page
+            </h2>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>
+              {this.state.message}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 rounded-xl text-sm font-semibold"
+              style={{
+                background: 'var(--accent)',
+                color: '#fff',
+                boxShadow: '0 0 18px var(--accent-glow)',
+              }}
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
 
 function RouteLoader() {
   return (
@@ -80,6 +145,27 @@ export default function App() {
   return (
     <>
       <BrowserRouter>
+        <AppRoutes isSpecialWindow={isSpecialWindow} searchOpen={searchOpen} />
+      </BrowserRouter>
+
+      {/* Sign-in overlay — triggered from sidebar Sign In button after onboarding was skipped */}
+      {authModalOpen && (
+        <Auth
+          onComplete={() => setAuthModalOpen(false)}
+          closeable
+          onClose={() => setAuthModalOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
+function AppRoutes({ isSpecialWindow, searchOpen }) {
+  const location = useLocation()
+
+  return (
+    <>
+      <RouteErrorBoundary resetKey={location.pathname}>
         <Suspense fallback={<RouteLoader />}>
           <Routes>
             <Route path="/player-window" element={<IframePlayerWindow />} />
@@ -91,6 +177,7 @@ export default function App() {
               <Route path="/anime" element={<Anime />} />
               <Route path="/animation" element={<Animation />} />
               <Route path="/detail/:type/:id" element={<Detail />} />
+              <Route path="/downloads" element={<Downloads />} />
               <Route path="/watchlist" element={<Watchlist />} />
               <Route path="/history" element={<History />} />
               <Route path="/settings" element={<Settings />} />
@@ -98,17 +185,8 @@ export default function App() {
             </Route>
           </Routes>
         </Suspense>
-        {!isSpecialWindow && searchOpen && <SearchOverlay />}
-      </BrowserRouter>
-
-      {/* Sign-in overlay — triggered from sidebar Sign In button after onboarding was skipped */}
-      {authModalOpen && (
-        <Auth
-          onComplete={() => setAuthModalOpen(false)}
-          closeable
-          onClose={() => setAuthModalOpen(false)}
-        />
-      )}
+      </RouteErrorBoundary>
+      {!isSpecialWindow && searchOpen && <SearchOverlay />}
     </>
   )
 }

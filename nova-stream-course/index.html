@@ -1,0 +1,2840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How Nova Stream Works — An Interactive Course</title>
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Nova Stream accent: deep teal — reflects the cinematic dark-glass aesthetic -->
+  <style>
+    :root {
+      --color-accent:       #2A7B9B;
+      --color-accent-hover: #1F6280;
+      --color-accent-light: #E4F2F7;
+      --color-accent-muted: #5A9DB8;
+    }
+  </style>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">How Nova Stream Works</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="The Big Picture" role="tab" aria-label="Module 1: The Big Picture"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Meet the Cast" role="tab" aria-label="Module 2: Meet the Cast"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="The Movie Engine" role="tab" aria-label="Module 3: The Movie Engine"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="The Anime Pipeline" role="tab" aria-label="Module 4: The Anime Pipeline"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Your Account &amp; Sync" role="tab" aria-label="Module 5: Your Account &amp; Sync"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <!-- ─── MODULE HEADER ─────────────────────────────────────────────────── -->
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">The Big Picture</h1>
+      <p class="module-subtitle">What Nova Stream is, how it&rsquo;s built, and what happens when you press Play</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 1 — What is Nova Stream?
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-24)">
+
+        <div class="callout callout-accent animate-in" style="margin-bottom: var(--space-8)">
+          <div class="callout-icon">🚀</div>
+          <div class="callout-content">
+            <strong class="callout-title">Opening Hook</strong>
+            <p>You just pressed Play on a movie. In the next 3 seconds, 4 completely different systems fired up &mdash; a
+              <span class="term" data-tooltip="The JavaScript library that draws every button, card, and page on screen.">React</span>
+              UI, a
+              <span class="term" data-tooltip="The desktop framework that wraps the React app in a real Windows/macOS executable.">Tauri</span>
+              shell, a
+              <span class="term" data-tooltip="A systems programming language that handles heavy lifting — fetching streams, downloading updates, and bypassing browser restrictions — running as a native process on your computer.">Rust</span>
+              engine, and a local streaming server. Here&rsquo;s how they all work together.</p>
+          </div>
+        </div>
+
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          What is Nova Stream?
+        </h2>
+
+        <p class="animate-in" style="font-size: var(--text-lg); line-height: var(--leading-loose); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 680px;">
+          Nova Stream is a <strong style="color: var(--color-text)">premium streaming desktop application</strong> for Windows and macOS. It looks and feels like Netflix, but runs as a native app installed on your computer. You browse, you press Play, and a video starts &mdash; no browser tab, no Flash plugin, no web dependency.
+        </p>
+
+        <!-- 4 Content Type Cards -->
+        <div class="pattern-cards animate-in">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">🎬</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Movies</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Browse, search, and watch feature films. Streams are resolved on the fly by a local server running on your machine, not a remote CDN.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">📺</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Series</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Full episode navigation, season switching, and a resume system that remembers exactly where you left off — per episode, not just per show.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">⛩️</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Anime</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Powered by
+              <span class="term" data-tooltip="AniList is an anime and manga database that Nova Stream uses as the source of truth for anime identity, metadata, and discovery — instead of TMDB.">AniList</span>
+              with its own separate playback engine and scraping logic that&rsquo;s isolated from the movie/series path.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">✨</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Animation</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Uses the same stream resolver as movies but with a tuned provider preference so it doesn&rsquo;t compete with movie-specific fast paths.</p>
+          </div>
+        </div>
+
+        <!-- What makes it NOT a website -->
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-10)">
+          <div class="callout-icon">💻</div>
+          <div class="callout-content">
+            <strong class="callout-title">It&rsquo;s a real app, not a website</strong>
+            <p>Nova Stream can access your file system, run native code, download updates silently, and make network requests that a web browser would refuse. This is the key difference &mdash; and it changes everything about how it&rsquo;s built.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 2 — Three Layers of the App
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-24)">
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          Three Layers of the App
+        </h2>
+        <p class="animate-in" style="font-size: var(--text-base); line-height: var(--leading-normal); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 660px;">
+          Think of it like a spaceship. The cockpit (React) is what the pilot touches. Mission control (Tauri) is the bridge that makes the ship real. The engines (Rust) do the propulsion no human could do by hand.
+        </p>
+
+        <!-- Layer diagram -->
+        <div class="animate-in" style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-10);">
+
+          <!-- Layer 1: React -->
+          <div style="background: linear-gradient(135deg, #FDEEE9 0%, #FDF9F3 100%); border: 2px solid var(--color-actor-1); border-radius: var(--radius-lg); padding: var(--space-6); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: var(--space-3); right: var(--space-4); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-actor-1); opacity: 0.6;">Layer 1 — What You See</div>
+            <div style="display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3);">
+              <div style="width: 48px; height: 48px; background: var(--color-actor-1); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">🎨</div>
+              <div>
+                <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--color-actor-1); margin-bottom: var(--space-1);">
+                  <span class="term" data-tooltip="React is a JavaScript library for building user interfaces. It re-draws only the parts of the screen that change, which makes interfaces feel fast and responsive.">React</span>
+                  +
+                  <span class="term" data-tooltip="Zustand is a tiny state management library. Think of it as a shared whiteboard that every component can read and write. When the whiteboard changes, every component that reads it updates automatically.">Zustand</span>
+                  +
+                  <span class="term" data-tooltip="Framer Motion is an animation library for React. It makes UI elements smoothly slide, fade, and scale instead of snapping around.">Framer Motion</span>
+                </h3>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Every button, card, sidebar, player control, and page you see. React draws the UI. Zustand remembers state (watchlist, theme, search open/closed). Framer Motion makes it move smoothly.</p>
+              </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: var(--space-2);">
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">Pages (Home, Detail, Movies…)</span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">Components (Sidebar, Player, Search)</span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">Zustand Stores</span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">
+                <span class="term" data-tooltip="Vite is the build tool that bundles all JavaScript files into a single fast package. Think of it as a film processing lab: it takes raw footage (source files) and produces a polished reel (the app bundle).">Vite</span>
+                build system
+              </span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">
+                <span class="term" data-tooltip="TailwindCSS is a styling framework that provides hundreds of utility CSS classes. Instead of writing .big-red-button { font-size: 18px; color: red; }, you just write class='text-lg text-red-500'.">TailwindCSS</span>
+                styles
+              </span>
+            </div>
+          </div>
+
+          <!-- Bridge arrow -->
+          <div style="display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-2) 0;">
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, transparent, var(--color-border))"></div>
+            <div style="background: var(--color-bg-code); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: var(--space-2) var(--space-4); border-radius: var(--radius-full); white-space: nowrap; box-shadow: var(--shadow-md);">
+              ⚡ invoke() — the magic border
+            </div>
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, var(--color-border), transparent)"></div>
+          </div>
+
+          <!-- Layer 2: Tauri Bridge -->
+          <div style="background: linear-gradient(135deg, #F0F7FB 0%, #E4F2F7 100%); border: 2px solid var(--color-actor-2); border-radius: var(--radius-lg); padding: var(--space-6); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: var(--space-3); right: var(--space-4); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-actor-2); opacity: 0.6;">Layer 2 — The Bridge</div>
+            <div style="display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3);">
+              <div style="width: 48px; height: 48px; background: var(--color-actor-2); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">🌉</div>
+              <div>
+                <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--color-actor-2); margin-bottom: var(--space-1);">
+                  <span class="term" data-tooltip="Tauri is a framework for building desktop apps. It renders your React UI in the operating system's native webview (like a built-in browser), while also opening a direct channel into Rust code running natively on your machine.">Tauri 2</span>
+                  Bridge
+                </h3>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Wraps React in a real Windows/macOS app window. Most importantly, it opens a two-way channel — called
+                  <span class="term" data-tooltip="invoke() is the Tauri function that React calls to execute Rust code. It's like calling a coworker in a different office: you send them a task name and some arguments, and eventually they send back a result.">invoke()</span>
+                  — that lets JavaScript call Rust functions as if they were just regular code.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bridge arrow 2 -->
+          <div style="display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-2) 0;">
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, transparent, var(--color-border))"></div>
+            <div style="background: var(--color-bg-code); color: #A6E3A1; font-family: var(--font-mono); font-size: var(--text-xs); padding: var(--space-2) var(--space-4); border-radius: var(--radius-full); white-space: nowrap; box-shadow: var(--shadow-md);">
+              🔧 native OS calls &amp; file access
+            </div>
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, var(--color-border), transparent)"></div>
+          </div>
+
+          <!-- Layer 3: Rust -->
+          <div style="background: linear-gradient(135deg, #1E1E2E 0%, #2A2A3E 100%); border: 2px solid #7B6DAA; border-radius: var(--radius-lg); padding: var(--space-6); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: var(--space-3); right: var(--space-4); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: #CBA6F7; opacity: 0.6;">Layer 3 — The Engine</div>
+            <div style="display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3);">
+              <div style="width: 48px; height: 48px; background: var(--color-actor-3); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">⚙️</div>
+              <div>
+                <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: #CBA6F7; margin-bottom: var(--space-1);">
+                  <span class="term" data-tooltip="Rust is a systems programming language that compiles to native machine code. It's blazing fast, memory-safe, and can do things a browser tab cannot — like managing files, making raw network requests, or spawning background processes.">Rust</span>
+                  Engine
+                </h3>
+                <p style="font-size: var(--text-sm); color: #BAB0C4; line-height: var(--leading-normal);">Does the heavy lifting that a browser literally cannot: fetches video streams that block web requests, downloads 50MB updates without freezing the UI, manages scraping sessions, and runs the
+                  <span class="term" data-tooltip="A sidecar is a helper process that runs alongside the main app. Nova Stream runs a local Nuvio server as a sidecar at port 7779 — it's a mini streaming resolver that the Rust engine talks to.">Nuvio sidecar</span>
+                  server.</p>
+              </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: var(--space-2);">
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Stream resolver</span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">
+                <span class="term" data-tooltip="HLS (HTTP Live Streaming) is the video format used for most modern streaming. Instead of one giant file, HLS breaks a video into tiny .ts segments and serves them through a playlist file (.m3u8). Rust fetches and proxies these because browsers often block them due to CORS rules.">HLS</span>
+                manifest fetcher
+              </span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Update downloader</span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Session manager</span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Nuvio sidecar manager</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- "Why Rust?" callout -->
+        <div class="callout callout-info animate-in">
+          <div class="callout-icon">🔩</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why Rust? The honest answer.</strong>
+            <p>Some things — like grabbing a video stream that blocks browsers, or downloading a 50MB update without freezing the UI — need to run in a native process, not inside a web tab. Rust is the language that makes that possible while keeping the app safe and fast.
+              <span class="term" data-tooltip="CORS (Cross-Origin Resource Sharing) is a browser security rule that blocks JavaScript from fetching resources from different domains unless the server explicitly allows it. Rust bypasses CORS entirely because it's not a browser.">CORS</span>
+              restrictions that would stop a web app cold are completely irrelevant to Rust.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 3 — The "Press Play" Flow Animation
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-24)">
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          What Happens When You Press Play?
+        </h2>
+        <p class="animate-in" style="font-size: var(--text-base); line-height: var(--leading-normal); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 660px;">
+          Six actors, three seconds, one video. Step through this animation to see how React, Rust, and the Nuvio sidecar hand off control to get a stream on screen.
+        </p>
+
+        <div class="flow-animation animate-in" data-steps='[
+          {"highlight":"flow-actor-1","label":"You click Play on the Detail page. React detects the click."},
+          {"highlight":"flow-actor-2","label":"React calls getMovieStreams() in movieStreams.js — a helper that knows how to talk to Rust.","packet":true,"from":"1","to":"2"},
+          {"highlight":"flow-actor-3","label":"movieStreams.js calls invoke(&apos;fetch_movie_resolver_streams&apos;) — crossing the Tauri bridge from JavaScript into Rust.","packet":true,"from":"2","to":"3"},
+          {"highlight":"flow-actor-4","label":"Rust checks if the Nuvio sidecar is running at port 7779. If not, it starts it silently in the background.","packet":true,"from":"3","to":"4"},
+          {"highlight":"flow-actor-5","label":"The Nuvio sidecar queries its provider network. Rust validates the returned URLs — rejecting junk, HTML pages, and dead links.","packet":true,"from":"4","to":"5"},
+          {"highlight":"flow-actor-3","label":"Rust returns the best validated stream URL back across the Tauri bridge to React.","packet":true,"from":"5","to":"3"},
+          {"highlight":"flow-actor-1","label":"React opens MoviePlayer.jsx with the stream URL. You see the video.","packet":true,"from":"3","to":"1"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon" style="background: var(--color-actor-1); color: white;">UI</div>
+              <span>React UI</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon" style="background: var(--color-actor-4); color: white;">JS</div>
+              <span>movieStreams.js</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon" style="background: var(--color-actor-3); color: white;">⚙</div>
+              <span>Rust Engine</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon" style="background: var(--color-actor-5); color: white;">🖥</div>
+              <span>Nuvio Sidecar</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-5">
+              <div class="flow-actor-icon" style="background: var(--color-actor-2); color: white;">🌐</div>
+              <span>Video Host</span>
+            </div>
+          </div>
+
+          <div class="flow-packet" id="flow-packet"></div>
+          <div class="flow-step-label" id="flow-label">Click &ldquo;Next Step&rdquo; to trace the journey of a single Play click.</div>
+
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+
+        <!-- Code translation of the invoke() call -->
+        <div class="translation-block animate-in" style="margin-top: var(--space-8)">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code>
+<span class="code-line"><span class="code-comment">// src/lib/movieStreams.js</span></span>
+<span class="code-line"><span class="code-keyword">const</span> streams = <span class="code-keyword">await</span> <span class="code-function">invoke</span>(</span>
+<span class="code-line">  <span class="code-string">&apos;fetch_movie_resolver_streams&apos;</span>,</span>
+<span class="code-line">  {</span>
+<span class="code-line">    <span class="code-property">tmdb_id</span>: <span class="code-string">&apos;27205&apos;</span>,</span>
+<span class="code-line">    <span class="code-property">media_type</span>: <span class="code-string">&apos;movie&apos;</span></span>
+<span class="code-line">  }</span>
+<span class="code-line">);</span>
+            </code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label" style="position: relative; top: auto; right: auto; display: block; margin-bottom: var(--space-3);">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl" style="font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: var(--space-2);">Cross the bridge — hand this task off from JavaScript to the Rust engine.</p>
+              <p class="tl" style="font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: var(--space-2);">Tell Rust which Rust function to run: the stream resolver.</p>
+              <p class="tl" style="font-size: var(--color-accent); font-weight: 600; font-size: var(--text-sm); margin-bottom: var(--space-2);">Pass along the movie&rsquo;s ID number from
+                <span class="term" data-tooltip="TMDB (The Movie Database) is the external API Nova Stream uses as the source of truth for movie and series metadata — posters, titles, cast, trailers, and more.">TMDB</span>
+                &mdash; so Rust knows exactly which movie to find a stream for.</p>
+              <p class="tl" style="font-size: var(--text-sm); color: var(--color-text-secondary);">Rust goes to work. React waits. When Rust returns a URL, the player opens.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 4 — Group Chat: React Meets Rust
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-16)">
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          React Meets Rust — The Group Chat
+        </h2>
+        <p class="animate-in" style="font-size: var(--text-base); line-height: var(--leading-normal); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 660px;">
+          Every time you press Play, this conversation happens invisibly in milliseconds. Here it is, translated into something more familiar.
+        </p>
+
+        <div class="chat-window" id="chat-module1">
+          <div class="chat-messages">
+
+            <!-- msg 0: React -->
+            <div class="chat-message" data-msg="0" data-sender="actor-1" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1); color: white; font-weight: 700;">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React UI</span>
+                <p>Hey Rust, the user just clicked Play. I need a stream URL for
+                  <span class="term" data-tooltip="TMDB ID 27205 is the database entry for a movie in The Movie Database. Nova Stream uses these numeric IDs to look up stream sources.">TMDB ID 27205</span>
+                  (movie).</p>
+              </div>
+            </div>
+
+            <!-- msg 1: Rust -->
+            <div class="chat-message" data-msg="1" data-sender="actor-2" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-3); color: white; font-weight: 700;">Rs</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3)">Rust Engine</span>
+                <p>On it. First let me convert that to an
+                  <span class="term" data-tooltip="An IMDb ID is the identifier used by the Internet Movie Database (e.g., tt0816692). Many streaming providers use IMDb IDs instead of TMDB IDs, so Nova Stream converts between them when needed.">IMDb ID</span>
+                  , then I&apos;ll check if Nuvio is running...</p>
+              </div>
+            </div>
+
+            <!-- msg 2: Nuvio -->
+            <div class="chat-message" data-msg="2" data-sender="actor-3" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5); color: white; font-weight: 700;">N</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Nuvio Sidecar</span>
+                <p>Already up at port 7779. Querying providers now — trying Vixsrc first, then MoviesMod as fallback...</p>
+              </div>
+            </div>
+
+            <!-- msg 3: Nuvio result -->
+            <div class="chat-message" data-msg="3" data-sender="actor-3" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5); color: white; font-weight: 700;">N</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Nuvio Sidecar</span>
+                <p>Found a valid
+                  <span class="term" data-tooltip="HLS (HTTP Live Streaming) is a video delivery format that breaks a video into tiny segments served from a playlist file. It allows adaptive quality, live streaming, and easier CDN delivery.">HLS</span>
+                  stream from Vixsrc. Sending you the
+                  <span class="term" data-tooltip="An m3u8 file is the playlist file for HLS video. It lists all the tiny video segments in order so the player knows what to download next.">m3u8</span>
+                  manifest URL.</p>
+              </div>
+            </div>
+
+            <!-- msg 4: Rust validates -->
+            <div class="chat-message" data-msg="4" data-sender="actor-2" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-3); color: white; font-weight: 700;">Rs</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3)">Rust Engine</span>
+                <p>Validated. Not an opaque token, not HTML, not a dead link. The URL checks out. Sending it back to React now.</p>
+              </div>
+            </div>
+
+            <!-- msg 5: React opens player -->
+            <div class="chat-message" data-msg="5" data-sender="actor-1" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1); color: white; font-weight: 700;">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React UI</span>
+                <p>Got it. Opening MoviePlayer.jsx with that stream URL. The user is watching now. Total time: ~2 seconds.</p>
+              </div>
+            </div>
+
+          </div><!-- end .chat-messages -->
+
+          <!-- Typing indicator -->
+          <div class="chat-typing" id="chat-module1-typing" style="display:none">
+            <div class="chat-avatar" id="chat-module1-typing-avatar" style="background: var(--color-actor-3); color: white; font-weight: 700;">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div><!-- end .chat-window -->
+
+        <!-- Architecture overview callout -->
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-8)">
+          <div class="callout-icon">🌐</div>
+          <div class="callout-content">
+            <strong class="callout-title">External services in the picture</strong>
+            <p>Nova Stream also calls out to four external services:
+              <span class="term" data-tooltip="TMDB (The Movie Database) — the API that provides all movie/series metadata: posters, descriptions, cast, trailers, and genre info.">TMDB</span>
+              for movie metadata,
+              <span class="term" data-tooltip="AniList is an anime and manga database API. Nova Stream uses it for anime discovery, search, and identity — separate from the TMDB path.">AniList</span>
+              for anime data,
+              <span class="term" data-tooltip="The Nuvio sidecar is a local server that Nova Stream launches on your machine at port 7779. It talks to external streaming providers to find valid video URLs for movies and series.">Nuvio</span>
+              for stream resolution, and
+              <span class="term" data-tooltip="Supabase is a cloud database service. Nova Stream uses it optionally — if you create an account, your watchlist, history, progress, and theme settings are synced to Supabase so they work across devices.">Supabase</span>
+              for optional user account sync. The app works without an account; Supabase is only used when you sign in.</p>
+          </div>
+        </div>
+
+      </div><!-- end Screen 4 -->
+
+    </div><!-- end .module-body -->
+  </div><!-- end .module-content -->
+</section>
+<section class="module" id="module-2" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ─────────────────────────────────────────────── -->
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Meet the Cast</h1>
+      <p class="module-subtitle">Every file, every actor, and exactly what job they do</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 1 — The Production Crew
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Your production crew</h2>
+
+        <p>
+          Before you can direct a film production, you need to know who does what.
+          Same here — Nova Stream has about 15 key "characters", each with a very
+          specific job. Knowing them means you can tell an AI assistant
+          <em>exactly</em> where to make changes instead of hoping it guesses right.
+        </p>
+        <p>
+          Think of the codebase as a film set. Every department has a clear role
+          and nobody steps on anyone else's toes.
+        </p>
+
+        <!-- 5-category crew cards -->
+        <div class="pattern-cards stagger-children" style="margin-top: var(--space-8)">
+
+          <!-- Pages -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-1)">
+            <div class="pattern-icon" style="background: rgba(217,79,48,0.1)">🎬</div>
+            <div class="pattern-title" style="color: var(--color-actor-1)">Pages</div>
+            <p class="pattern-desc">
+              The <strong>sets</strong> — full-screen views the user navigates between.
+              Each page is one React component in <code>src/pages/</code>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>Home.jsx</code>, <code>Detail.jsx</code>
+            </p>
+          </div>
+
+          <!-- Components -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-2)">
+            <div class="pattern-icon" style="background: rgba(42,123,155,0.1)">🎭</div>
+            <div class="pattern-title" style="color: var(--color-actor-2)">Components</div>
+            <p class="pattern-desc">
+              The <strong>props &amp; costumes</strong> — reusable UI pieces that
+              appear across multiple pages. Live in <code>src/components/</code>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>MoviePlayer.jsx</code>, <code>Sidebar.jsx</code>
+            </p>
+          </div>
+
+          <!-- Stores -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-3)">
+            <div class="pattern-icon" style="background: rgba(123,109,170,0.1)">📓</div>
+            <div class="pattern-title" style="color: var(--color-actor-3)">Stores</div>
+            <p class="pattern-desc">
+              The <strong>production diary</strong> — the app's shared memory.
+              Any page can read or update these.
+              Powered by <span class="term" data-definition="Zustand is a tiny state-management library for React. Instead of passing data through layers of components, any component can read and update a shared 'store' object directly.">Zustand</span>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>useAppStore.js</code>, <code>useAuthStore.js</code>
+            </p>
+          </div>
+
+          <!-- Lib -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-4)">
+            <div class="pattern-icon" style="background: rgba(212,168,67,0.1)">🔬</div>
+            <div class="pattern-title" style="color: var(--color-actor-4)">Lib</div>
+            <p class="pattern-desc">
+              The <strong>specialist consultants</strong> — helper files that talk
+              to external services. One file per service in <code>src/lib/</code>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>tmdb.js</code>, <code>anilist.js</code>, <code>progress.js</code>
+            </p>
+          </div>
+
+          <!-- Rust -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-2)">
+            <div class="pattern-icon" style="background: rgba(42,123,155,0.1)">⚙️</div>
+            <div class="pattern-title" style="color: var(--color-actor-2)">Rust Commands</div>
+            <p class="pattern-desc">
+              The <strong>special effects department</strong> — does things JavaScript
+              cannot: bypassing <span class="term" data-definition="CORS (Cross-Origin Resource Sharing) is a browser security rule that blocks JavaScript from fetching data from a different domain than the webpage. Rust runs outside the browser, so it is exempt.">CORS</span>,
+              opening hidden browser windows, streaming files to disk.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              All live in <code>src-tauri/src/main.rs</code>
+            </p>
+          </div>
+
+        </div><!-- /pattern-cards -->
+
+        <!-- The one-file-one-job callout -->
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-8)">
+          <span class="callout-icon">💡</span>
+          <div class="callout-content">
+            <span class="callout-title">The golden rule: one file, one job</span>
+            <p>
+              <code>tmdb.js</code> only talks to TMDB. <code>MoviePlayer.jsx</code> only
+              renders the player. <code>useAppStore.js</code> only manages app-level state.
+              This means when something breaks, you know which file to open.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 1 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 2 — Visual File Tree
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The full cast list</h2>
+        <p>
+          Every key file, organised by department. Hover a filename to see its one-line job description.
+        </p>
+
+        <!-- Styled file-tree with tooltips inline -->
+        <div style="
+          background: var(--color-surface);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-md);
+          padding: var(--space-6) var(--space-8);
+          margin: var(--space-6) 0;
+          overflow-x: auto;
+        ">
+
+          <!-- Pages -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(217,79,48,0.1);
+                color: var(--color-actor-1);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">🎬 Pages — src/pages/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">Home.jsx</span>
+                <span class="badge-desc">Hero carousel (5 trending, 8s auto-advance) + 9 content rows including Continue Watching</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Detail.jsx</span>
+                <span class="badge-desc">Title detail page: backdrop, poster, cast, trailer, episode selector, similar titles — and the anime vs movie branching logic</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Movies.jsx</span>
+                <span class="badge-desc">Genre-filtered paginated grid of movies from <span class="term" data-definition="TMDB (The Movie Database) is the API Nova Stream uses to fetch movie and TV metadata: posters, cast, trailers, and search results.">TMDB</span></span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Series.jsx</span>
+                <span class="badge-desc">Same layout as Movies.jsx but shows TV series instead</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Anime.jsx</span>
+                <span class="badge-desc"><span class="term" data-definition="AniList is a GraphQL API that provides anime metadata, browse lists, and search. Nova Stream uses AniList for all anime discovery and identity — not TMDB.">AniList</span>-powered browse with Trending / Popular / Top Rated tabs, genre filters, and infinite scroll</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Animation.jsx</span>
+                <span class="badge-desc">Animation films browse — uses the same resolver path as movies</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Watchlist.jsx</span>
+                <span class="badge-desc">Saved titles grid — backed by <span class="term" data-definition="localStorage is a browser/WebView storage API that persists data across sessions on the same device. Nova Stream uses it as the guest-tier storage layer, with Supabase cloud as the signed-in tier.">localStorage</span> for guests, <span class="term" data-definition="Supabase is Nova Stream's cloud backend — an open-source Firebase alternative. It provides a Postgres database, real-time sync, and authentication.">Supabase</span> cloud when signed in</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Settings.jsx</span>
+                <span class="badge-desc">Theme picker, playback preferences, update status with live download progress bar</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Profile.jsx</span>
+                <span class="badge-desc">Avatar, inline username edit, watch stats, change password, sign out</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Auth.jsx</span>
+                <span class="badge-desc">Sign up / sign in / forgot password — animated cinematic background, frictionless onboarding</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Components -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(42,123,155,0.1);
+                color: var(--color-actor-2);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">🎭 Components — src/components/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">Layout/Sidebar.jsx</span>
+                <span class="badge-desc">Collapses to 72px, expands to 240px on hover. Shows avatar if signed in, "Sign in" button if guest.</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Layout/TopBar.jsx</span>
+                <span class="badge-desc">Full-width top bar with search icon and the window drag region</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Layout/TitleBar.jsx</span>
+                <span class="badge-desc">Custom overlay minimize / maximize / close buttons — needed because the OS window chrome is hidden (<code>decorations: false</code>)</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Player/MoviePlayer.jsx</span>
+                <span class="badge-desc">Native video player for movies, series, and animation. Custom controls, subtitle toggle, auto-fallback to next stream if current one fails.</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Player/AnimePlayer.jsx</span>
+                <span class="badge-desc">Separate native player for anime — same controls but sources come from Gogoanime / AnimePahe providers</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Search/SearchOverlay.jsx</span>
+                <span class="badge-desc">Debounced TMDB + AniList multi-search with grouped results (Movies / Series / Anime) and keyboard navigation</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stores -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(123,109,170,0.1);
+                color: var(--color-actor-3);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">📓 Stores — src/store/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">useAppStore.js</span>
+                <span class="badge-desc">Theme, playback preferences, sidebar state, search open/closed, update state (checking / downloading / ready), download progress 0–100</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">useAuthStore.js</span>
+                <span class="badge-desc">Current user, session, profile, auth loading state. Methods: init(), signUp(), signIn(), signOut(), updateProfile()</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">useDownloadStore.js</span>
+                <span class="badge-desc">Video download queue, per-download progress, and device storage info</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Lib -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(212,168,67,0.1);
+                color: var(--color-actor-4);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">🔬 Lib — src/lib/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">tmdb.js</span>
+                <span class="badge-desc">Queries The Movie Database API for movie/series metadata, cast, trailers, and search results</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">anilist.js</span>
+                <span class="badge-desc">Queries the <span class="term" data-definition="GraphQL is an API query language where you describe exactly what data you want in your request, instead of getting a fixed blob back. AniList's entire API is GraphQL.">AniList GraphQL</span> API for anime browse, search, and identity. Includes retry logic for rate limits.</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">animeMapper.js</span>
+                <span class="badge-desc">Separates seasonal anime from long-running shows like One Piece, and groups extras into Movies / OVA / ONA / Specials</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">supabase.js</span>
+                <span class="badge-desc">Watchlist / history / progress read-write with <span class="term" data-definition="Write-through sync means every local write (add to watchlist, save progress) is also immediately sent to the cloud database. No separate 'upload' step — the cloud is always current.">write-through sync</span> to Supabase cloud</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">progress.js</span>
+                <span class="badge-desc">Saves and loads the video playback position — localStorage for guests, Supabase when signed in</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">movieStreams.js</span>
+                <span class="badge-desc">Thin wrapper that calls the Rust command <code>fetch_movie_resolver_streams</code> via <span class="term" data-definition="invoke() is the Tauri bridge function — it lets JavaScript call a named Rust function as if it were an async JavaScript function. The call crosses from the browser layer into native code.">invoke()</span></span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">sessionCache.js</span>
+                <span class="badge-desc">In-memory cache so navigating back to a page feels instant — no re-fetch needed</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Rust -->
+          <div>
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(42,123,155,0.1);
+                color: var(--color-actor-2);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">⚙️ Rust — src-tauri/src/main.rs</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_movie_resolver_streams</span>
+                <span class="badge-desc">Queries the Nuvio <span class="term" data-definition="A sidecar is a small helper process that runs alongside the main app. Nova Stream ships a local Node.js server (Nuvio) as a sidecar — the main app starts it in the background and queries it for stream URLs.">sidecar</span> for stream URLs, validates them, returns the best candidates</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_movie_manifest</span>
+                <span class="badge-desc">Proxies <span class="term" data-definition="HLS (HTTP Live Streaming) is the format used by most video CDNs. A video is split into short segments described by a .m3u8 manifest file. The player reads the manifest, then fetches each segment in order.">HLS</span> .m3u8 manifest files — bypasses CORS so the player can read them</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_movie_segment</span>
+                <span class="badge-desc">Proxies HLS video segments and encryption keys — same CORS bypass, for every chunk of video data</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_anime_text_with_session</span>
+                <span class="badge-desc">Session-aware HTTP fetch for anime providers — maintains cookies so provider sites don't block the request</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">resolve_embed_stream</span>
+                <span class="badge-desc">Opens a hidden browser window, injects a capture script, and extracts the real stream URL from an embed page</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">download_update</span>
+                <span class="badge-desc">Streams the app update file to disk, emitting progress events (0–100%) for the Settings page progress bar</span>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /file-tree card -->
+      </div><!-- /screen 2 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 3 — Code Translation: Zustand Store
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Reading real code — the Zustand store</h2>
+
+        <p>
+          Here is what a <span class="term" data-definition="Zustand is a tiny state-management library for React. Instead of passing data through layers of components, any component can read and update a shared 'store' object directly.">Zustand</span> store looks like in practice.
+          This one handles the app's theme — and shows the <span class="term" data-definition="Write-through sync means every local write (add to watchlist, save progress) is also immediately sent to the cloud database. No separate 'upload' step — the cloud is always current.">write-through sync</span> pattern in one elegant block.
+        </p>
+
+        <!-- Translation block -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086">useAppStore.js</span>
+<code><span class="code-line"><span class="code-keyword">import</span> { create } <span class="code-keyword">from</span> <span class="code-string">'zustand'</span></span>
+<span class="code-line"><span class="code-keyword">import</span> { syncProfileSetting } <span class="code-keyword">from</span> <span class="code-string">'../lib/supabase'</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-function">useAppStore</span> = <span class="code-function">create</span>((<span class="code-property">set</span>, <span class="code-property">get</span>) <span class="code-operator">=></span> ({</span>
+<span class="code-line">  <span class="code-property">theme</span>: <span class="code-function">localStorage</span>.<span class="code-function">getItem</span>(<span class="code-string">'nova-theme'</span>)</span>
+<span class="code-line">         <span class="code-operator">||</span> <span class="code-string">'nova-dark'</span>,</span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-property">setTheme</span>: (<span class="code-property">id</span>) <span class="code-operator">=></span> {</span>
+<span class="code-line">    <span class="code-property">document</span>.<span class="code-property">documentElement</span></span>
+<span class="code-line">      .<span class="code-function">setAttribute</span>(<span class="code-string">'data-theme'</span>, <span class="code-property">id</span>)</span>
+<span class="code-line">    <span class="code-function">localStorage</span>.<span class="code-function">setItem</span>(<span class="code-string">'nova-theme'</span>, <span class="code-property">id</span>)</span>
+<span class="code-line">    <span class="code-function">set</span>({ <span class="code-property">theme</span>: <span class="code-property">id</span> })</span>
+<span class="code-line">    <span class="code-function">syncProfileSetting</span>({ <span class="code-property">theme</span>: <span class="code-property">id</span> })</span>
+<span class="code-line">  },</span></code>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <p class="tl"><strong>Line 1:</strong> Import Zustand — the shared memory manager</p>
+              <p class="tl"><strong>Line 2:</strong> Import the helper that syncs settings to the cloud</p>
+              <p class="tl"><strong>Line 4:</strong> Create a store — a shared object the whole app can read and update</p>
+              <p class="tl"><strong>Line 5–6:</strong> The current theme is read from <span class="term" data-definition="localStorage is a browser/WebView storage API that persists data across sessions on the same device. Nova Stream uses it as the guest-tier storage layer, with Supabase cloud as the signed-in tier.">localStorage</span> so it survives app restarts</p>
+              <p class="tl"><strong>Lines 8–14:</strong> When someone changes the theme: update the DOM immediately → save to localStorage → update the store → sync to cloud. All four steps in one action.</p>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Key insight callout -->
+        <div class="callout callout-accent animate-in">
+          <span class="callout-icon">🧠</span>
+          <div class="callout-content">
+            <span class="callout-title">The Zustand pattern</span>
+            <p>
+              State lives in one place. Actions like <code>setTheme</code> update it
+              everywhere at once — React components, <span class="term" data-definition="localStorage is a browser/WebView storage API that persists data across sessions on the same device. Nova Stream uses it as the guest-tier storage layer, with Supabase cloud as the signed-in tier.">localStorage</span>,
+              and the cloud. No tangled prop-passing across layers of components.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 3 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 4 — invoke() Bridge + Group Chat
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The bridge between JavaScript and Rust</h2>
+
+        <p>
+          React runs inside a browser layer. Rust runs natively on the OS. The
+          only way they communicate is through a function called
+          <span class="term" data-definition="invoke() is the Tauri bridge function — it lets JavaScript call a named Rust function as if it were an async JavaScript function. The call crosses from the browser layer into native code and returns a Promise.">invoke()</span>.
+          Here is what that looks like in <code>src/lib/movieStreams.js</code>.
+        </p>
+
+        <!-- Translation block: invoke() -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086">movieStreams.js</span>
+<code><span class="code-line"><span class="code-keyword">import</span> { invoke } <span class="code-keyword">from</span> <span class="code-string">'@tauri-apps/api/core'</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">async function</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">  <span class="code-property">tmdbId</span>, <span class="code-property">contentType</span>, <span class="code-property">season</span>,</span>
+<span class="code-line">  <span class="code-property">episode</span>, <span class="code-property">imdbId</span>, <span class="code-property">options</span> = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">invoke</span>(<span class="code-string">'fetch_movie_resolver_streams'</span>, {</span>
+<span class="code-line">    <span class="code-property">payload</span>: {</span>
+<span class="code-line">      <span class="code-property">tmdbId</span>: <span class="code-function">String</span>(<span class="code-property">tmdbId</span>),</span>
+<span class="code-line">      <span class="code-property">contentType</span>,</span>
+<span class="code-line">      <span class="code-property">season</span>:    <span class="code-property">season</span> <span class="code-operator">??</span> <span class="code-keyword">null</span>,</span>
+<span class="code-line">      <span class="code-property">episode</span>:   <span class="code-property">episode</span> <span class="code-operator">??</span> <span class="code-keyword">null</span>,</span>
+<span class="code-line">      <span class="code-property">imdbId</span>:    <span class="code-property">imdbId</span> <span class="code-operator">||</span> <span class="code-keyword">null</span>,</span>
+<span class="code-line">      <span class="code-property">excludeUrls</span>: <span class="code-function">Array</span>.<span class="code-function">isArray</span>(</span>
+<span class="code-line">        <span class="code-property">options</span>.<span class="code-property">excludeUrls</span></span>
+<span class="code-line">      ) ? <span class="code-property">options</span>.<span class="code-property">excludeUrls</span> : [],</span>
+<span class="code-line">    },</span>
+<span class="code-line">  })</span>
+<span class="code-line">}</span></code>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <p class="tl"><strong>Line 1:</strong> Import <span class="term" data-definition="invoke() is the Tauri bridge function — it lets JavaScript call a named Rust function as if it were an async JavaScript function. The call crosses from the browser layer into native code and returns a Promise.">invoke()</span> — the magic doorbell that rings into Rust</p>
+              <p class="tl"><strong>Line 3–6:</strong> A JavaScript function that accepts movie details as inputs</p>
+              <p class="tl"><strong>Line 7:</strong> <code>invoke()</code> is the single line that crosses from JavaScript into Rust — everything after this is handled natively</p>
+              <p class="tl"><strong>Lines 8–15:</strong> Package the movie details into a structured payload Rust can understand — IDs, type, season, episode number</p>
+              <p class="tl"><strong>Result:</strong> Rust queries the Nuvio sidecar, validates stream URLs, and returns the best candidates as a JavaScript Promise</p>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Group Chat: the invoke() call in action -->
+        <h3 style="
+          font-family: var(--font-display);
+          font-size: var(--text-xl);
+          font-weight: 600;
+          margin: var(--space-8) 0 var(--space-3);
+          color: var(--color-text);
+        ">Watch the bridge in action</h3>
+        <p style="margin-bottom: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-sm)">
+          This is what happens the moment a user clicks "Play" on The Dark Knight.
+          Hit <strong>Next</strong> to step through the conversation.
+        </p>
+
+        <div class="chat-window" id="chat-module2">
+
+          <div class="chat-messages">
+
+            <!-- msg 0: React -->
+            <div class="chat-message" data-sender="react" data-msg="0" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">R</div>
+              <div class="chat-bubble" style="background: rgba(217,79,48,0.08); border: 1px solid rgba(217,79,48,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React — MoviePlayer.jsx</span>
+                <p>User clicked Play on <em>The Dark Knight</em> (TMDB ID 155). I need stream URLs. Calling <code>fetchResolvedStreams(155, 'movie')</code>…</p>
+              </div>
+            </div>
+
+            <!-- msg 1: invoke bridge -->
+            <div class="chat-message" data-sender="bridge" data-msg="1" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">⚡</div>
+              <div class="chat-bubble" style="background: rgba(212,168,67,0.08); border: 1px solid rgba(212,168,67,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-4)">invoke() — The Bridge</span>
+                <p>Crossing from JavaScript into Rust with payload: <code>{ tmdbId: "155", contentType: "movie" }</code>. Stand by…</p>
+              </div>
+            </div>
+
+            <!-- msg 2: Rust -->
+            <div class="chat-message" data-sender="rust" data-msg="2" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Rs</div>
+              <div class="chat-bubble" style="background: rgba(42,123,155,0.08); border: 1px solid rgba(42,123,155,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Rust — fetch_movie_resolver_streams</span>
+                <p>Received payload. Converting TMDB 155 → IMDb ID. Starting local Nuvio <span class="term" data-definition="A sidecar is a small helper process that runs alongside the main app. Nova Stream ships a local Node.js server (Nuvio) as a sidecar — the main app starts it in the background and queries it for stream URLs.">sidecar</span> health-check at <code>127.0.0.1:7779</code>…</p>
+              </div>
+            </div>
+
+            <!-- msg 3: Rust -->
+            <div class="chat-message" data-sender="rust" data-msg="3" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Rs</div>
+              <div class="chat-bubble" style="background: rgba(42,123,155,0.08); border: 1px solid rgba(42,123,155,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Rust — fetch_movie_resolver_streams</span>
+                <p>Querying primary provider → fast providers → full fallback. Rejecting opaque token URLs and dead direct hosts. Validating <span class="term" data-definition="HLS (HTTP Live Streaming) is the format used by most video CDNs. A video is split into short segments described by a .m3u8 manifest file. The player reads the manifest, then fetches each segment in order.">HLS</span> candidates…</p>
+              </div>
+            </div>
+
+            <!-- msg 4: Rust -->
+            <div class="chat-message" data-sender="rust" data-msg="4" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Rs</div>
+              <div class="chat-bubble" style="background: rgba(42,123,155,0.08); border: 1px solid rgba(42,123,155,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Rust — fetch_movie_resolver_streams</span>
+                <p>Found 3 valid stream candidates. Ranked by provider preference (Vixsrc first). Returning results to JavaScript.</p>
+              </div>
+            </div>
+
+            <!-- msg 5: React -->
+            <div class="chat-message" data-sender="react" data-msg="5" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">R</div>
+              <div class="chat-bubble" style="background: rgba(217,79,48,0.08); border: 1px solid rgba(217,79,48,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React — MoviePlayer.jsx</span>
+                <p>Got the stream list. Loading top candidate into the native video element. Opening <code>MoviePlayer</code> — enjoy <em>The Dark Knight</em>.</p>
+              </div>
+            </div>
+
+          </div><!-- /chat-messages -->
+
+          <!-- Typing indicator -->
+          <div class="chat-typing" id="chat-module2-typing" style="display:none">
+            <div class="chat-avatar" id="chat-module2-typing-avatar" style="background: var(--color-actor-1)">R</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="chat-controls">
+            <button class="btn btn-primary chat-next-btn">Next message</button>
+            <button class="btn chat-all-btn">Show all</button>
+            <button class="btn chat-reset-btn">Reset</button>
+            <span class="chat-progress">0 / 6 messages</span>
+          </div>
+
+        </div><!-- /chat-window -->
+
+        <!-- Closing insight -->
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-8)">
+          <span class="callout-icon">🔗</span>
+          <div class="callout-content">
+            <span class="callout-title">Why this matters when making changes</span>
+            <p>
+              If you want to change <em>what</em> is displayed, edit a <strong>Page</strong>.
+              If you want to change the player UI, edit a <strong>Component</strong>.
+              If you want to change what the app remembers, edit a <strong>Store</strong>.
+              If you want to change a network call, edit a <strong>Lib</strong> file.
+              If you need native capabilities, the answer is always <strong>Rust</strong>.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 4 -->
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
+</section>
+<section class="module" id="module-3" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">The Movie Engine</h1>
+      <p class="module-subtitle">How pressing Play launches a 3-stage intelligence operation to find your stream</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 1 — The Talent Agency: Metaphor + Stage Overview
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Talent Agency Problem</h2>
+
+        <p>
+          Clicking Play on a movie does not just open a video file. It launches a 3-stage intelligence operation —
+          a local server, a <span class="term" data-definition="The Rust backend process — Nova Stream's native engine that runs HTTP requests, manages files, and handles things a browser is not allowed to do.">Rust</span> validator, and a cascade of
+          <span class="term" data-definition="A third-party service that finds and hosts video streams for a given title — examples include Vixsrc, ShowBox, and MoviesDrive.">provider</span> queries — all completing in under 8 seconds.
+        </p>
+
+        <p>
+          Think of it like a talent agency casting an actor for a role. They call their top client first.
+          If unavailable, they call a fast shortlist. If still nothing, they go through the full roster.
+          The first one that says "yes" gets the part.
+        </p>
+
+        <!-- Stage cards -->
+        <div class="pattern-cards stagger-children" style="margin-top: var(--space-8);">
+
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-accent);">
+            <div class="pattern-icon" style="background: var(--color-accent-light); color: var(--color-accent);">
+              &#9733;
+            </div>
+            <p class="pattern-title">Stage 1 — Primary</p>
+            <p class="pattern-desc">
+              One provider. One call. <code style="font-family: var(--font-mono); font-size: 0.8em; background: var(--color-bg-warm); padding: 1px 5px; border-radius: 4px;">vixsrc</code> is tried alone.
+              Most popular titles resolve here instantly.
+            </p>
+            <p style="margin-top: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted);">Timeout: ~8s</p>
+          </div>
+
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-info);">
+            <div class="pattern-icon" style="background: var(--color-info-light); color: var(--color-info);">
+              &#9654;&#9654;
+            </div>
+            <p class="pattern-title">Stage 2 — Fast Set</p>
+            <p class="pattern-desc">
+              Four providers tried quickly in parallel:
+              <code style="font-family: var(--font-mono); font-size: 0.8em; background: var(--color-bg-warm); padding: 1px 5px; border-radius: 4px;">vixsrc, moviesmod, 4khdhub, moviesdrive</code>.
+            </p>
+            <p style="margin-top: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted);">Timeout: 18s</p>
+          </div>
+
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-success);">
+            <div class="pattern-icon" style="background: var(--color-success-light); color: var(--color-success);">
+              &#128196;
+            </div>
+            <p class="pattern-title">Stage 3 — Full Fallback</p>
+            <p class="pattern-desc">
+              All 12 providers tried including
+              <code style="font-family: var(--font-mono); font-size: 0.8em; background: var(--color-bg-warm); padding: 1px 5px; border-radius: 4px;">showbox, vidsrc, soapertv</code> and more.
+            </p>
+            <p style="margin-top: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted);">Timeout: 75s</p>
+          </div>
+
+        </div>
+
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-8);">
+          <span class="callout-icon">&#9889;</span>
+          <div class="callout-content">
+            <span class="callout-title">Why 3 stages?</span>
+            <p>
+              Speed vs. coverage. Most titles work on stage 1 or 2 in under 5 seconds.
+              Stage 3 is the nuclear option for obscure titles that need all 12 providers tried.
+              The cascade means common titles stay fast while rare titles still get found.
+            </p>
+          </div>
+        </div>
+
+        <!-- Provider preference note -->
+        <div class="badge-list animate-in" style="margin-top: var(--space-6);">
+          <div class="badge-item">
+            <span class="badge-code">vixsrc</span>
+            <span class="badge-desc">Preferred primary — most reliable stream quality</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">moviesmod</span>
+            <span class="badge-desc">Fast set member — strong coverage for recent releases</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">moviesdrive</span>
+            <span class="badge-desc">Fast set member — good for international titles</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">4khdhub</span>
+            <span class="badge-desc">Fast set member — deprioritised behind the above three</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">showbox / vidsrc</span>
+            <span class="badge-desc">Full fallback only — broad but slower to resolve</span>
+          </div>
+        </div>
+
+      </div><!-- /screen 1 -->
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 2 — The Full Flow: Data Flow Animation
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Full Resolver Flow</h2>
+
+        <p>
+          Sixteen steps happen between the Play button and the first video frame.
+          Step through each one to see which actor is doing the work and what data is moving.
+        </p>
+
+        <!-- FLOW ANIMATION ──────────────────────────────────────── -->
+        <div
+          class="flow-animation"
+          id="flow-movie-engine"
+          data-steps='[
+            {"highlight":"actor-1","label":"Step 1 — The user presses Play on a Detail page. MoviePlayer.jsx mounts and begins the resolver sequence."},
+            {"highlight":"actor-1","packet":true,"from":"actor-1","to":"actor-2","label":"Step 2 — React calls invoke(fetch_movie_resolver_streams). Control crosses the JS/Rust bridge, carrying TMDB ID, content type, and any known IMDb ID."},
+            {"highlight":"actor-2","label":"Step 3 — Rust receives the request and checks whether it has an IMDb ID. If not, it calls the TMDB external_ids API to convert the TMDB ID into an IMDb ID."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-3","label":"Step 4 — Rust starts (or health-checks) the local Nuvio sidecar at http://127.0.0.1:7779. If it is not running, Rust launches it and waits up to 45 seconds."},
+            {"highlight":"actor-3","label":"Step 5 — Stage 1: Rust queries /movie/primary-provider on the Nuvio sidecar. The sidecar asks the single top provider (vixsrc) for a stream URL."},
+            {"highlight":"actor-3","packet":true,"from":"actor-3","to":"actor-4","label":"Step 6 — Stage 2 (if Stage 1 fails): Rust queries /movie/fast-providers with four providers in parallel. Each provider is given 18 seconds to respond."},
+            {"highlight":"actor-4","packet":true,"from":"actor-4","to":"actor-3","label":"Step 7 — Stage 3 (if Stage 2 fails): Rust queries /movie/full-fallback with all 12 providers. The full fallback gets 75 seconds — patience pays off for hard-to-find titles."},
+            {"highlight":"actor-2","label":"Step 8 — Rust validates every URL it receives. Opaque tokens, junk URLs, HTML pages, and dead hosts are all rejected. Only real HLS or direct-media URLs pass."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-1","label":"Step 9 — Rust returns ranked stream candidates to React. The best validated URL is at the top of the list."},
+            {"highlight":"actor-1","packet":true,"from":"actor-1","to":"actor-5","label":"Step 10 — React passes the winning stream URL to MoviePlayer.jsx. The player calls fetch_movie_manifest to get the HLS manifest."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-5","label":"Step 11 — Rust fetches the HLS manifest through the Nuvio sidecar and rewrites every segment URL so that future segment requests also route through Rust."},
+            {"highlight":"actor-5","packet":true,"from":"actor-5","to":"actor-2","label":"Step 12 — The video player requests HLS segments. Each request goes to Rust via fetch_movie_segment, which fetches the segment and any encryption keys from the HLS host."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-6","label":"Step 13 — Rust streams the segment data to the native video element. The player decrypts and buffers it for playback."},
+            {"highlight":"actor-6","label":"Step 14 — Video plays in the native player. Simultaneously, fetch_movie_subtitles is hitting Wyzie sub service to pull English subtitle candidates."},
+            {"highlight":"actor-6","label":"Step 15 — Subtitle results are normalised by movieSubtitles.js. The player parses SRT/VTT cues and exposes the SUB ON / SUB OFF toggle."},
+            {"highlight":"actor-6","label":"Step 16 — Progress is saved every 10 seconds. If the stream fails mid-play, the player auto-falls back to the next validated candidate from the ranked list."}
+          ]'
+        >
+
+          <!-- Actors row -->
+          <div class="flow-actors">
+
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon" style="color: var(--color-actor-1);">&#9654;</div>
+              <span>Play Button</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">MoviePlayer.jsx</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon" style="color: var(--color-actor-2);">&#9881;</div>
+              <span>Rust Engine</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">main.rs</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon" style="color: var(--color-actor-3);">&#128260;</div>
+              <span>Nuvio Sidecar</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">:7779</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon" style="color: var(--color-actor-4);">&#127768;</div>
+              <span>Provider</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">vixsrc / etc.</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-5">
+              <div class="flow-actor-icon" style="color: var(--color-actor-5);">&#127760;</div>
+              <span>HLS Host</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">CDN segments</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-6">
+              <div class="flow-actor-icon" style="color: #D4A843;">&#127916;</div>
+              <span>Native Player</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">video element</span>
+            </div>
+
+          </div>
+
+          <!-- Animated packet -->
+          <div class="flow-packet" id="flow-packet-movie"></div>
+
+          <!-- Step label -->
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+
+          <!-- Controls -->
+          <div class="flow-controls">
+            <button class="flow-next-btn" style="padding: var(--space-2) var(--space-5); border-radius: var(--radius-sm); border: none; background: var(--color-accent); color: white; font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; cursor: pointer;">Next Step &#8594;</button>
+            <button class="flow-reset-btn" style="padding: var(--space-2) var(--space-5); border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); font-family: var(--font-body); font-size: var(--text-sm); cursor: pointer;">Reset</button>
+            <span class="flow-progress"></span>
+          </div>
+
+        </div><!-- /flow-animation -->
+
+        <div class="callout callout-info animate-in">
+          <span class="callout-icon">&#128161;</span>
+          <div class="callout-content">
+            <span class="callout-title">The Subtitle Parallel Track</span>
+            <p>
+              While the stream is loading, Rust simultaneously calls the
+              <span class="term" data-definition="Wyzie is an external subtitle aggregator at sub.wyzie.io. It searches multiple subtitle databases and returns ranked candidates for a given title.">Wyzie</span>
+              subtitle service. Subtitles do not block playback — they arrive alongside the video and snap
+              into the player when ready. Movies use subdl/opensubtitles sources; series use gestdown;
+              animation uses jimaku and animetosho.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 2 -->
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 3 — Code Translation: movieStreams.js
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Reading the Code: movieStreams.js</h2>
+
+        <p>
+          This file is the entire bridge between React and the Rust stream engine.
+          It is intentionally thin — 41 lines with no business logic. Every important decision
+          lives in Rust.
+        </p>
+
+        <div class="translation-block animate-in">
+          <!-- Left: code -->
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">movieStreams.js</span>
+<code><span class="code-line"><span class="code-keyword">import</span> { <span class="code-function">invoke</span> } <span class="code-keyword">from</span> <span class="code-string">'@tauri-apps/api/core'</span></span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">async function</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">  tmdbId, contentType,</span>
+<span class="code-line">  season, episode,</span>
+<span class="code-line">  imdbId, options = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">invoke</span>(</span>
+<span class="code-line">    <span class="code-string">'fetch_movie_resolver_streams'</span>,</span>
+<span class="code-line">    { payload: {</span>
+<span class="code-line">      tmdbId: <span class="code-function">String</span>(tmdbId),</span>
+<span class="code-line">      contentType,</span>
+<span class="code-line">      season: season ?? <span class="code-keyword">null</span>,</span>
+<span class="code-line">      episode: episode ?? <span class="code-keyword">null</span>,</span>
+<span class="code-line">      imdbId: imdbId || <span class="code-keyword">null</span>,</span>
+<span class="code-line">      forceRefresh: <span class="code-function">Boolean</span>(options.forceRefresh),</span>
+<span class="code-line">      excludeUrls: <span class="code-function">Array.isArray</span>(options.excludeUrls)</span>
+<span class="code-line">        ? options.excludeUrls : [],</span>
+<span class="code-line">      excludeProviders: <span class="code-function">Array.isArray</span>(options.excludeProviders)</span>
+<span class="code-line">        ? options.excludeProviders : [],</span>
+<span class="code-line">    }}</span>
+<span class="code-line">  )</span>
+<span class="code-line">}</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">export async function</span> <span class="code-function">getMovieStreams</span>(</span>
+<span class="code-line">  tmdbId, imdbId = <span class="code-keyword">null</span>, options = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">    tmdbId, <span class="code-string">'movie'</span>,</span>
+<span class="code-line">    <span class="code-keyword">null</span>, <span class="code-keyword">null</span>, imdbId, options</span>
+<span class="code-line">  )</span>
+<span class="code-line">}</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">export async function</span> <span class="code-function">getSeriesStreams</span>(</span>
+<span class="code-line">  tmdbId, season, episode,</span>
+<span class="code-line">  imdbId = <span class="code-keyword">null</span>, options = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">    tmdbId, <span class="code-string">'series'</span>,</span>
+<span class="code-line">    season, episode, imdbId, options</span>
+<span class="code-line">  )</span>
+<span class="code-line">}</span>
+</code>
+          </div>
+
+          <!-- Right: translation -->
+          <div class="translation-english">
+            <span class="translation-label">In plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>Line 1</strong> — Import <code style="font-family: var(--font-mono); font-size: 0.85em;">invoke</code> — the single function that opens a portal from React into Rust.</div>
+              <div class="tl"><strong>Lines 3-21</strong> — Build the complete request object with every detail Rust needs: what content, what ID system, which season and episode if applicable.</div>
+              <div class="tl"><strong>Line 8</strong> — <span class="term" data-definition="invoke() is the Tauri function that calls a named Rust command from JavaScript. React pauses here — awaiting — until Rust finishes and returns data.">invoke()</span> is the exact moment control passes to Rust. React waits here, paused, until Rust is done.</div>
+              <div class="tl"><strong>Lines 15-20</strong> — <code style="font-family: var(--font-mono); font-size: 0.85em;">excludeUrls</code> and <code style="font-family: var(--font-mono); font-size: 0.85em;">excludeProviders</code> let the player skip streams that already failed — enabling automatic fallback.</div>
+              <div class="tl"><strong>Lines 23-29</strong> — <code style="font-family: var(--font-mono); font-size: 0.85em;">getMovieStreams</code> is a thin wrapper. Movies have no season or episode, so those are hard-coded <code style="font-family: var(--font-mono); font-size: 0.85em;">null</code>.</div>
+              <div class="tl"><strong>Lines 31-39</strong> — <code style="font-family: var(--font-mono); font-size: 0.85em;">getSeriesStreams</code> is the same idea but adds season and episode numbers to the payload.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in">
+          <span class="callout-icon">&#128269;</span>
+          <div class="callout-content">
+            <span class="callout-title">Notice how thin this file is</span>
+            <p>
+              Just 41 lines — and zero business logic. React does not know which providers exist,
+              how validation works, or what a
+              <span class="term" data-definition="HLS (HTTP Live Streaming) is a protocol that splits video into small segments (.ts files) and uses a manifest file (.m3u8) to tell the player which segments to download and in what order.">HLS</span>
+              manifest is. It just packages the request and hands it to Rust via <code style="font-family: var(--font-mono); font-size: 0.85em;">invoke()</code>.
+              All the complexity lives in Rust, where it belongs.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 3 -->
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 4 — Code Translation: Rust Provider Strategy
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Reading the Code: The Rust Provider Strategy</h2>
+
+        <p>
+          The 3-stage cascade is defined as six constants at the top of <code style="font-family: var(--font-mono); font-size: 0.85em;">main.rs</code>.
+          Changing provider order or timeouts is a one-line edit — the rest of the engine adapts automatically.
+        </p>
+
+        <div class="translation-block animate-in">
+          <!-- Left: Rust code -->
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">main.rs (lines 55-66)</span>
+<code><span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_PRIMARY_PROVIDER_MOVIE</span>:</span>
+<span class="code-line">  <span class="code-keyword">&amp;str</span> = <span class="code-string">"vixsrc"</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_FAST_PROVIDER_SET_MOVIE</span>:</span>
+<span class="code-line">  <span class="code-keyword">&amp;str</span> = <span class="code-string">"vixsrc,moviesmod,</span></span>
+<span class="code-line">          <span class="code-string">4khdhub,moviesdrive"</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_FULL_PROVIDER_SET_MOVIE</span>:</span>
+<span class="code-line">  <span class="code-keyword">&amp;str</span> = <span class="code-string">"vixsrc,moviesmod,</span></span>
+<span class="code-line">    <span class="code-string">4khdhub,moviesdrive,moviebox,</span></span>
+<span class="code-line">    <span class="code-string">hdhub4u,topmovies,soapertv,</span></span>
+<span class="code-line">    <span class="code-string">vidzee,mp4hydra,vidsrc,showbox"</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_FAST_STAGE_TIMEOUT_SECS</span>:</span>
+<span class="code-line">  <span class="code-keyword">u64</span> = <span class="code-number">18</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_STREAM_FETCH_TIMEOUT_SECS</span>:</span>
+<span class="code-line">  <span class="code-keyword">u64</span> = <span class="code-number">75</span>;</span>
+</code>
+          </div>
+
+          <!-- Right: translation -->
+          <div class="translation-english">
+            <span class="translation-label">In plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>PRIMARY</strong> — Vixsrc is trusted above all others. It gets a solo attempt before any other provider is involved.</div>
+              <div class="tl"><strong>FAST SET</strong> — Four providers tried together in the second stage. They are the same reliable names, plus two strong alternates, given 18 seconds total.</div>
+              <div class="tl"><strong>FULL SET</strong> — All 12 providers, including slower and more obscure ones like <code style="font-family: var(--font-mono); font-size: 0.85em;">showbox</code> and <code style="font-family: var(--font-mono); font-size: 0.85em;">mp4hydra</code>. The nuclear option.</div>
+              <div class="tl"><strong>18 seconds</strong> — The fast stage deadline. Short enough to stay snappy; long enough for a slow provider to reply.</div>
+              <div class="tl"><strong>75 seconds</strong> — The full fallback budget. Patience matters here — some providers are slow starters but do have the stream.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Why Rust section -->
+        <div class="animate-in" style="margin-top: var(--space-10);">
+          <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-4);">Why does Rust do this — not React?</h3>
+
+          <div class="icon-rows">
+            <div class="icon-row">
+              <div class="icon-circle" style="background: var(--color-error-light); color: var(--color-error);">&#128683;</div>
+              <div>
+                <strong>Browsers block cross-origin requests</strong>
+                <p>
+                  A web page calling a
+                  <span class="term" data-definition="A provider is a third-party streaming service. Most of them do not add CORS headers, which means a browser will refuse to make requests to them — even if the URL is valid.">provider</span>
+                  URL directly triggers a
+                  <span class="term" data-definition="CORS (Cross-Origin Resource Sharing) is a browser security rule that blocks web pages from making HTTP requests to domains other than their own, unless the target server explicitly allows it.">CORS</span>
+                  error. The browser refuses to fetch it. The request never leaves the tab.
+                </p>
+              </div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success);">&#9989;</div>
+              <div>
+                <strong>Rust runs outside the browser sandbox</strong>
+                <p>
+                  Rust is a native process. It is not a web page, so CORS rules do not apply.
+                  It can make HTTP requests to any host, carry custom headers, and handle
+                  <span class="term" data-definition="A stream manifest (.m3u8 file) is the index for an HLS video stream. It lists all the segment files and their URLs, so the player knows what to download next.">manifests</span>
+                  and
+                  <span class="term" data-definition="HLS segments are small video chunks (usually 2-10 seconds each). The player downloads them sequentially and stitches them together for continuous playback.">segments</span>
+                  that a browser iframe would refuse.
+                </p>
+              </div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-circle" style="background: var(--color-info-light); color: var(--color-info);">&#128260;</div>
+              <div>
+                <strong>Rust proxies the entire HLS pipeline</strong>
+                <p>
+                  After finding a stream, Rust rewrites the
+                  <span class="term" data-definition="An HLS manifest (.m3u8 file) is rewritten so that every segment URL now points back to Rust instead of the original CDN. This means all segment fetches go through Rust, which can add headers, handle auth, and log errors.">manifest</span>
+                  so every segment and encryption key request passes through it.
+                  The native video element thinks it is talking to a local server — no CORS, no auth issues.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning animate-in">
+          <span class="callout-icon">&#128274;</span>
+          <div class="callout-content">
+            <span class="callout-title">The CORS Problem in one sentence</span>
+            <p>
+              Browsers block cross-origin requests as a security feature.
+              Rust bypasses this entirely — it is a native process, not a web page,
+              so it can fetch from anywhere. This is why the entire stream resolver
+              lives in Rust and not in a <code style="font-family: var(--font-mono); font-size: 0.85em;">.js</code> file.
+            </p>
+          </div>
+        </div>
+
+        <!-- Recap of the sidecar's role -->
+        <div class="animate-in" style="margin-top: var(--space-8);">
+          <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-4);">What is the Nuvio Sidecar?</h3>
+
+          <p>
+            The
+            <span class="term" data-definition="A sidecar is a small helper process that runs alongside the main app. In Nova Stream, the Nuvio sidecar is a local Node.js server at port 7779 that knows how to query streaming providers and return validated stream URLs.">sidecar</span>
+            is a small local server — embedded inside the Nova Stream install — that handles the actual provider queries.
+            Rust manages its lifecycle: starts it on first play, keeps it alive, and restarts it if it crashes.
+          </p>
+
+          <div class="step-cards">
+            <div class="step-card">
+              <div class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm); flex-shrink: 0;">1</div>
+              <div>
+                <strong>Embedded in the app</strong>
+                <p style="margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm);">
+                  The Nuvio runtime is bundled inside the Nova Stream installer. No separate install required.
+                </p>
+              </div>
+            </div>
+            <div class="step-card">
+              <div class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm); flex-shrink: 0;">2</div>
+              <div>
+                <strong>Starts silently</strong>
+                <p style="margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm);">
+                  On Windows it runs hidden in the background, logging to <code style="font-family: var(--font-mono); font-size: 0.85em;">%TEMP%\nova-stream-nuvio-sidecar.log</code>.
+                </p>
+              </div>
+            </div>
+            <div class="step-card">
+              <div class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm); flex-shrink: 0;">3</div>
+              <div>
+                <strong>Self-healing</strong>
+                <p style="margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm);">
+                  If the extracted runtime is deleted, the app recreates it automatically on the next launch.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /screen 4 -->
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
+</section>
+<section class="module" id="module-4" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">The Anime Pipeline</h1>
+      <p class="module-subtitle">Why anime needs its own system — and how two detective agencies find your stream</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 1 · Why Anime Is Different
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">Why Anime Needs Its Own Pipeline</h2>
+
+        <p>
+          Movies have a universal ID system — every platform agrees on
+          <span class="term" data-definition="IMDb (Internet Movie Database) assigns a unique tt-prefixed ID to every movie and TV show. Because it is the industry standard, almost every streaming platform maps to the same IMDb ID, making cross-platform lookups trivial.">IMDb IDs</span>.
+          Anime has no such luxury. Three separate databases each think they own the truth — and none of them agree with each other.
+        </p>
+
+        <!-- Identity system visual -->
+        <div class="animate-in" style="margin: var(--space-8) 0;">
+          <div style="
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-4);
+          ">
+            <!-- TMDB card -->
+            <div style="
+              background: var(--color-surface);
+              border-radius: var(--radius-md);
+              padding: var(--space-5);
+              box-shadow: var(--shadow-sm);
+              border-top: 3px solid var(--color-info);
+              position: relative;
+            ">
+              <div style="
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                color: var(--color-info);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                margin-bottom: var(--space-2);
+              ">TMDB</div>
+              <div style="font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); margin-bottom: var(--space-3);">Attack on Titan</div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); background: var(--color-bg-warm); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2);">tv/45923</div>
+              <div style="font-size: var(--text-xs); color: var(--color-text-secondary);">
+                Used for movies &amp; series globally. Anime entries are present but inconsistent — season groupings can be wrong.
+              </div>
+            </div>
+
+            <!-- AniList card -->
+            <div style="
+              background: var(--color-surface);
+              border-radius: var(--radius-md);
+              padding: var(--space-5);
+              box-shadow: var(--shadow-sm);
+              border-top: 3px solid var(--color-actor-3);
+              position: relative;
+            ">
+              <div style="
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                color: var(--color-actor-3);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                margin-bottom: var(--space-2);
+              ">AniList</div>
+              <div style="font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); margin-bottom: var(--space-3);">Shingeki no Kyojin</div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); background: var(--color-bg-warm); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2);">anilistId: 16498</div>
+              <div style="font-size: var(--text-xs); color: var(--color-text-secondary);">
+                The authoritative anime database. Canonical IDs, proper
+                <span class="term" data-definition="Romanization is the process of transliterating Japanese (or other non-Latin) text into the Latin alphabet. 'Shingeki no Kyojin' is the romanization of the original Japanese title; 'Attack on Titan' is the English localization.">romanizations</span>,
+                season groupings, and franchise relationships.
+              </div>
+            </div>
+
+            <!-- Provider card -->
+            <div style="
+              background: var(--color-surface);
+              border-radius: var(--radius-md);
+              padding: var(--space-5);
+              box-shadow: var(--shadow-sm);
+              border-top: 3px solid var(--color-actor-2);
+              position: relative;
+            ">
+              <div style="
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                color: var(--color-actor-2);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                margin-bottom: var(--space-2);
+              ">Gogoanime / AnimePahe</div>
+              <div style="font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); margin-bottom: var(--space-3);">attack-on-titan</div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); background: var(--color-bg-warm); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2);">/category/attack-on-titan</div>
+              <div style="font-size: var(--text-xs); color: var(--color-text-secondary);">
+                Each provider has its own
+                <span class="term" data-definition="A slug is a URL-friendly identifier used by websites — lowercase letters and hyphens instead of spaces. 'attack-on-titan' and 'shingeki-no-kyojin' might both refer to the same show on different providers.">slug</span>-based
+                identity. No relation to TMDB or AniList IDs. Must be discovered via
+                <span class="term" data-definition="Fuzzy matching is a technique for finding text that approximately matches a pattern, rather than requiring an exact match. It is useful when names are spelled slightly differently across databases.">fuzzy matching</span>.
+              </div>
+            </div>
+          </div>
+
+          <!-- Mismatch callout arrow row -->
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-3);
+            margin-top: var(--space-4);
+            padding: var(--space-3) var(--space-5);
+            background: var(--color-surface);
+            border-radius: var(--radius-sm);
+            border: 1px dashed var(--color-border);
+          ">
+            <span style="font-size: 1.1rem;">⚠️</span>
+            <span style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+              These three systems do not share IDs. Same anime, three different identities, zero shared keys.
+            </span>
+          </div>
+        </div>
+
+        <!-- Three provider pattern cards -->
+        <div class="pattern-cards animate-in stagger-children">
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-3);">
+            <div class="pattern-icon" style="background: rgba(123,109,170,0.12); color: var(--color-actor-3);">🗂️</div>
+            <div class="pattern-title">AniList</div>
+            <p class="pattern-desc">Canonical anime identity. Browse, search, season grouping, and franchise relationships all start here. Provides the authoritative title list used for provider matching.</p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-2);">
+            <div class="pattern-icon" style="background: rgba(42,123,155,0.12); color: var(--color-actor-2);">🔍</div>
+            <div class="pattern-title">Gogoanime</div>
+            <p class="pattern-desc">Primary stream provider. Gets first crack at every episode via its own search and slug system. Fast and reliable for most titles. Scraped in-project, not via external API.</p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-4);">
+            <div class="pattern-icon" style="background: rgba(212,168,67,0.12); color: var(--color-actor-4);">🛡️</div>
+            <div class="pattern-title">AnimePahe</div>
+            <p class="pattern-desc">Fallback provider. Activates only when Gogoanime cannot resolve an episode. Requires session-aware
+            <span class="term" data-definition="Scraping means programmatically reading and parsing the HTML of a website to extract data, rather than using an official API. It is necessary when a site has no public API.">scraping</span>
+            and browser
+            <span class="term" data-definition="A cookie is a small piece of data a website stores in your browser to remember your session. Some sites reject requests that do not carry a valid cookie, so scrapers must simulate a real browser session.">cookies</span>.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">💡</div>
+          <div class="callout-content">
+            <span class="callout-title">Why a Separate Pipeline?</span>
+            <p>
+              Movies have IMDb IDs on every platform. Anime identities are fragmented across databases that do not talk to each other. A shared movie pipeline would never find the right episode — so anime gets its own dedicated resolver stack.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 1 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 2 · The Detective Agencies — Flow Animation
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">The Detective Agencies</h2>
+
+        <p>
+          Think of the two providers as rival detective agencies assigned to the same case.
+          <span class="term" data-definition="Gogoanime is one of the largest anime streaming sites. Nova Stream's in-project scraper searches it, resolves episode server pages, and extracts HLS stream URLs without relying on any external API.">Gogoanime</span>
+          gets first crack at every episode — they are fast and handle most titles cleanly.
+          <span class="term" data-definition="AnimePahe is an anime streaming site known for smaller, high-quality file sizes. It requires an active browser session (cookies) and is used as a fallback when Gogoanime cannot provide a stream.">AnimePahe</span>
+          is on standby: if Gogo reports "case unsolvable," Pahe takes over from scratch with their own methods.
+        </p>
+        <p>
+          Crucially, every new episode resets the assignment — both agencies start fresh, so a past AnimePahe win does not lock future episodes out of Gogoanime.
+        </p>
+
+        <!-- Flow Animation -->
+        <div class="flow-animation animate-in" id="flow-anime-pipeline"
+          data-steps='[
+            {"highlight":"flow-actor-1","label":"User presses Play. AnimePlayer mounts with AniList identity: titles array, year, and episode number."},
+            {"highlight":"flow-actor-2","label":"resolveAnimeStreams.js receives the AniList identity and begins provider resolution — Gogoanime first.","packet":true,"from":"actor-1","to":"actor-2"},
+            {"highlight":"flow-actor-3","label":"Gogoanime scraper searches by title. Each result is scored with scoreMatch() — exact title wins, dubbed tracks are penalized if not requested.","packet":true,"from":"actor-2","to":"actor-3"},
+            {"highlight":"flow-actor-3","label":"Gogoanime wins the match. It fetches the full episode list, then resolves the embed page for the target episode."},
+            {"highlight":"flow-actor-4","label":"Rust resolves the embed and captures the HLS stream URL from the live page. Session headers are applied.","packet":true,"from":"actor-3","to":"actor-4"},
+            {"highlight":"flow-actor-6","label":"Stream candidate passes quality guardrails (no CAM, no junk wrappers). Best candidate forwarded to native player.","packet":true,"from":"actor-4","to":"actor-6"},
+            {"highlight":"flow-actor-5","label":"Gogoanime fails for this episode. resolveAnimeStreams falls through to AnimePahe. Provider stickiness is NOT carried over.","packet":true,"from":"actor-3","to":"actor-5"},
+            {"highlight":"flow-actor-4","label":"AnimePahe warms a browser session, searches, fetches the play page, and resolves resolution options. Rust handles cookie management.","packet":true,"from":"actor-5","to":"actor-4"},
+            {"highlight":"flow-actor-6","label":"AnimePahe stream confirmed. Direct MP4 preferred over HLS where available. Native player receives the stream.","packet":true,"from":"actor-4","to":"actor-6"}
+          ]'>
+
+          <!-- Actor row -->
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">▶</div>
+              <span>AnimePlayer</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">⚡</div>
+              <span>resolveAnime<br>Streams.js</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">🔍</div>
+              <span>Gogoanime</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon" style="border-color: var(--color-accent); color: var(--color-accent);">🦀</div>
+              <span>Rust Session<br>Manager</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-5">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">🛡️</div>
+              <span>AnimePahe</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-6">
+              <div class="flow-actor-icon" style="border-color: var(--color-success); color: var(--color-success);">🎬</div>
+              <span>Native<br>Player</span>
+            </div>
+          </div>
+
+          <!-- Packet dot -->
+          <div class="flow-packet" id="flow-packet-4"></div>
+
+          <!-- Step label -->
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+
+          <!-- Controls -->
+          <div class="flow-controls">
+            <button class="btn btn-primary flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 9</span>
+          </div>
+
+        </div><!-- /flow-animation -->
+
+        <!-- Stickiness reset callout -->
+        <div class="callout callout-info animate-in">
+          <div class="callout-icon">🔄</div>
+          <div class="callout-content">
+            <span class="callout-title">Episode Stickiness Reset</span>
+            <p>
+              Each new episode navigation clears the provider lock. If Episode 3 required AnimePahe, Episode 4 still tries Gogoanime first. No episode is pre-judged based on what a sibling episode needed.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 2 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 3 · Code Translation — The Scoring System
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">The Scoring System</h2>
+
+        <p>
+          When Gogoanime searches for "Naruto Shippuden," it gets back dozens of results — dubbed versions, spin-offs, wrong seasons.
+          The <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-code); color: #CBA6F7; padding: 2px 6px; border-radius: 4px;">scoreMatch()</code>
+          function in <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-code); color: #89B4FA; padding: 2px 6px; border-radius: 4px;">resolveAnimeStreams.js</code>
+          scores every result so the closest one wins.
+        </p>
+
+        <!-- Translation block -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">resolveAnimeStreams.js</span>
+<span class="code-line"><span class="code-keyword">function</span> <span class="code-function">scoreMatch</span>(match, titles = []) {</span>
+<span class="code-line">  <span class="code-keyword">const</span> baseTitle = <span class="code-function">normalizeText</span>(</span>
+<span class="code-line">    match?.title || match?.matchedTitle || <span class="code-string">''</span></span>
+<span class="code-line">  )</span>
+<span class="code-line">  <span class="code-keyword">if</span> (!baseTitle) <span class="code-keyword">return</span> <span class="code-number">-1</span></span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">const</span> descriptorTokens = <span class="code-function">extractDescriptorTokens</span>(titles)</span>
+<span class="code-line">  <span class="code-keyword">const</span> descriptorOverlap = <span class="code-function">countTokenOverlap</span>(</span>
+<span class="code-line">    baseTitle, descriptorTokens</span>
+<span class="code-line">  )</span>
+<span class="code-line">  <span class="code-keyword">const</span> requestsDub = titles.<span class="code-function">some</span>(</span>
+<span class="code-line">    (t) =&gt; <span class="code-operator">/\bdub\b/i</span>.<span class="code-function">test</span>(<span class="code-function">String</span>(t || <span class="code-string">''</span>))</span>
+<span class="code-line">  )</span>
+<span class="code-line">  <span class="code-keyword">const</span> isDubMatch =</span>
+<span class="code-line">    <span class="code-operator">/\bdub\b/i</span>.<span class="code-function">test</span>(match?.title || <span class="code-string">''</span>) ||</span>
+<span class="code-line">    <span class="code-operator">/-dub$/i</span>.<span class="code-function">test</span>(match?.animeId || <span class="code-string">''</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">let</span> best = <span class="code-number">-1</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">const</span> rawTitle <span class="code-keyword">of</span> titles) {</span>
+<span class="code-line">    <span class="code-keyword">const</span> title = <span class="code-function">normalizeText</span>(rawTitle)</span>
+<span class="code-line">    <span class="code-keyword">if</span> (!title) <span class="code-keyword">continue</span></span>
+<span class="code-line">    <span class="code-keyword">let</span> score = <span class="code-number">0</span></span>
+<span class="code-line">    <span class="code-keyword">if</span> (baseTitle === title)  score += <span class="code-number">200</span></span>
+<span class="code-line">    <span class="code-keyword">else if</span> (baseTitle.<span class="code-function">startsWith</span>(title)) score += <span class="code-number">120</span></span>
+<span class="code-line">    <span class="code-keyword">else if</span> (baseTitle.<span class="code-function">includes</span>(title))   score += <span class="code-number">80</span></span>
+<span class="code-line">    <span class="code-keyword">if</span> (descriptorTokens.length) {</span>
+<span class="code-line">      score += descriptorOverlap * <span class="code-number">50</span></span>
+<span class="code-line">      <span class="code-keyword">if</span> (descriptorOverlap === <span class="code-number">0</span>) score -= <span class="code-number">120</span></span>
+<span class="code-line">    }</span>
+<span class="code-line">    <span class="code-keyword">if</span> (requestsDub) {</span>
+<span class="code-line">      <span class="code-keyword">if</span> (isDubMatch) score += <span class="code-number">40</span></span>
+<span class="code-line">      <span class="code-keyword">else</span> score -= <span class="code-number">40</span></span>
+<span class="code-line">    } <span class="code-keyword">else</span> {</span>
+<span class="code-line">      <span class="code-keyword">if</span> (isDubMatch) score -= <span class="code-number">60</span></span>
+<span class="code-line">    }</span>
+<span class="code-line">    <span class="code-keyword">if</span> (score &gt; best) best = score</span>
+<span class="code-line">  }</span>
+<span class="code-line">  <span class="code-keyword">return</span> best</span>
+<span class="code-line">}</span>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>normalizeText()</strong> — strips punctuation and lowercases both titles so "Attack on Titan!" and "attack on titan" compare as equal.</div>
+              <div class="tl"><strong>descriptorTokens</strong> — keywords that distinguish a season or arc, like "Shippuden," "Final Season," or "Part 2." These must appear in the result too.</div>
+              <div class="tl"><strong>score += 200</strong> — exact title match. The gold standard. A perfect hit against any title in the AniList titles array wins outright.</div>
+              <div class="tl"><strong>score += 120</strong> — the result title starts with our search term. Common when a provider appends extra words like "Season 2."</div>
+              <div class="tl"><strong>score += 80</strong> — our term appears somewhere inside the result. Weaker signal but still valid.</div>
+              <div class="tl"><strong>descriptorOverlap * 50</strong> — each matching season/arc keyword adds 50 points. No overlap at all subtracts 120 — the result is probably a different arc entirely.</div>
+              <div class="tl"><strong>isDubMatch penalty -60</strong> — if the user did not ask for a dub and this result is a dub version, subtract 60 points. Subtitles are the default preference.</div>
+              <div class="tl"><strong>return best</strong> — the function runs across every title variant (English, romaji, synonyms) and returns the highest score achieved.</div>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Scoring callout -->
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">🎯</div>
+          <div class="callout-content">
+            <span class="callout-title">The Scoring System Is Critical</span>
+            <p>
+              "Naruto Shippuden" returns dozens of results on Gogoanime — dubbed versions, movies, wrong arcs.
+              Without scoring, a dubbed version or the wrong season could win silently. The point system ensures the closest title with the right audio track always comes out on top.
+            </p>
+          </div>
+        </div>
+
+        <!-- Score breakdown visual -->
+        <div class="animate-in" style="margin: var(--space-8) 0;">
+          <div style="
+            font-family: var(--font-display);
+            font-size: var(--text-sm);
+            font-weight: 700;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: var(--space-4);
+          ">Score Breakdown Example</div>
+          <div class="badge-list">
+            <div class="badge-item" style="border-color: var(--color-success);">
+              <span class="badge-code" style="color: #A6E3A1; min-width: 60px; text-align: center;">+200</span>
+              <span class="badge-desc">Exact title match — "Naruto: Shippuden" === "Naruto: Shippuden"</span>
+            </div>
+            <div class="badge-item" style="border-color: var(--color-success);">
+              <span class="badge-code" style="color: #A6E3A1; min-width: 60px; text-align: center;">+120</span>
+              <span class="badge-desc">Starts-with match — result is "Naruto Shippuden Season 2," request is "Naruto Shippuden"</span>
+            </div>
+            <div class="badge-item">
+              <span class="badge-code" style="color: #89B4FA; min-width: 60px; text-align: center;">+50</span>
+              <span class="badge-desc">Per matching descriptor
+              <span class="term" data-definition="A token is a single meaningful word or phrase extracted from a title. 'Shippuden', 'Final', 'Part 2' are tokens that help distinguish seasons from one another.">token</span>
+              — "Shippuden" appears in both request and result</span>
+            </div>
+            <div class="badge-item" style="border-color: var(--color-error);">
+              <span class="badge-code" style="color: #F38BA8; min-width: 60px; text-align: center;">-60</span>
+              <span class="badge-desc">Dub penalty — result is a dubbed version, but user requested subtitles</span>
+            </div>
+            <div class="badge-item" style="border-color: var(--color-error);">
+              <span class="badge-code" style="color: #F38BA8; min-width: 60px; text-align: center;">-120</span>
+              <span class="badge-desc">Zero descriptor overlap — result has no "Shippuden," likely a different arc entirely</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /screen 3 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 4 · Session-Aware Fetching + Group Chat
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">Session-Aware Fetching</h2>
+
+        <p>
+          AnimePahe is a
+          <span class="term" data-definition="A provider in Nova Stream is a streaming source — a website that hosts anime episodes. Each provider has its own scraper, search logic, and stream resolution path.">provider</span>
+          that requires a live browser
+          <span class="term" data-definition="A session is a period of authenticated interaction with a server, maintained through a session cookie. Without a valid session, the server may return empty results or redirect to a login page.">session</span>
+          — it rejects requests that arrive without the right cookies.
+          Rust acts as a persistent browser, maintaining that session across every request for the same title.
+        </p>
+        <p>
+          If a
+          <span class="term" data-definition="A cookie is a small piece of data stored by the browser that identifies your session to a website. Some sites check for a valid cookie before serving content.">cookie</span>
+          expires mid-stream, the session manager detects the error, clears the stale session, and silently retries with a fresh one — up to three attempts.
+        </p>
+
+        <!-- Translation block — session fetch -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">animepahe.js</span>
+<span class="code-line"><span class="code-keyword">async function</span> <span class="code-function">fetchProviderTextWithSession</span>(</span>
+<span class="code-line">  url, headers = {}, method = <span class="code-string">'GET'</span>,</span>
+<span class="code-line">  body = <span class="code-keyword">null</span>,</span>
+<span class="code-line">  animeId = <span class="code-string">''</span>, preferredSessionId = <span class="code-keyword">null</span></span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">let</span> lastError = <span class="code-keyword">null</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">let</span> attempt = <span class="code-number">0</span>; attempt &lt; <span class="code-number">3</span>; attempt++) {</span>
+<span class="code-line">    <span class="code-keyword">const</span> useFreshSession = attempt &gt; <span class="code-number">0</span></span>
+<span class="code-line">    <span class="code-keyword">const</span> sessionId = useFreshSession</span>
+<span class="code-line">      ? <span class="code-keyword">null</span></span>
+<span class="code-line">      : <span class="code-function">resolveProviderSession</span>(animeId, preferredSessionId)</span>
+<span class="code-line">    <span class="code-keyword">try</span> {</span>
+<span class="code-line">      <span class="code-keyword">if</span> (useFreshSession)</span>
+<span class="code-line">        <span class="code-function">clearProviderSession</span>(animeId)</span>
+<span class="code-line">      <span class="code-keyword">const</span> result = <span class="code-keyword">await</span> <span class="code-function">invoke</span>(<span class="code-string">'fetch_anime_text_with_session'</span>, {</span>
+<span class="code-line">        url, headers: { ...BROWSER_HEADERS, ...headers },</span>
+<span class="code-line">        method, body, sessionId,</span>
+<span class="code-line">      })</span>
+<span class="code-line">      <span class="code-keyword">const</span> text = <span class="code-keyword">typeof</span> result?.text === <span class="code-string">'string'</span></span>
+<span class="code-line">        ? result.text : <span class="code-string">''</span></span>
+<span class="code-line">      <span class="code-keyword">const</span> nextSessionId =</span>
+<span class="code-line">        <span class="code-function">rememberProviderSession</span>(</span>
+<span class="code-line">          animeId, result?.sessionId || sessionId</span>
+<span class="code-line">        )</span>
+<span class="code-line">      <span class="code-keyword">return</span> { text, sessionId: nextSessionId }</span>
+<span class="code-line">    } <span class="code-keyword">catch</span> (error) {</span>
+<span class="code-line">      lastError = error</span>
+<span class="code-line">      <span class="code-keyword">if</span> (!<span class="code-function">isRetryableSessionError</span>(error)</span>
+<span class="code-line">          || attempt &gt;= <span class="code-number">2</span>) <span class="code-keyword">throw</span> error</span>
+<span class="code-line">    }</span>
+<span class="code-line">  }</span>
+<span class="code-line">  <span class="code-keyword">throw</span> lastError || <span class="code-keyword">new</span> Error(<span class="code-string">'AnimePahe session fetch failed'</span>)</span>
+<span class="code-line">}</span>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>animeId</strong> — the title being fetched. Used as the key to look up any existing session cookie for this anime.</div>
+              <div class="tl"><strong>attempt loop (0–2)</strong> — tries up to three times. First attempt reuses the cached session; later attempts start fresh if it expired.</div>
+              <div class="tl"><strong>useFreshSession</strong> — on retry, this is true. The old session is cleared so a brand-new cookie is obtained instead.</div>
+              <div class="tl"><strong>invoke('fetch_anime_text_with_session')</strong> — calls into Rust, which makes the actual HTTP request carrying the session cookie as a browser would.</div>
+              <div class="tl"><strong>BROWSER_HEADERS</strong> — standard browser headers (User-Agent, Accept, Referer). Without these, the server would reject the request as a bot.</div>
+              <div class="tl"><strong>rememberProviderSession()</strong> — saves the session ID returned by the server so the next request reuses it, avoiding repeated session warmup.</div>
+              <div class="tl"><strong>isRetryableSessionError()</strong> — checks if the error is a session expiry (worth retrying) versus a hard failure (not worth retrying).</div>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Rust session flow info boxes -->
+        <div class="icon-rows animate-in stagger-children">
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: rgba(217,79,48,0.1); color: var(--color-accent);">🦀</div>
+            <div>
+              <strong>Rust as the Browser</strong>
+              <p>Rust's
+              <span class="term" data-definition="reqwest is a popular HTTP client library for Rust. Nova Stream uses it in its async (tokio) form to make non-blocking web requests from the Tauri backend.">reqwest</span>
+              client maintains a per-provider cookie jar keyed on anime ID. It behaves like a real browser session, so AnimePahe servers accept its requests.</p>
+            </div>
+          </div>
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: rgba(212,168,67,0.1); color: var(--color-actor-4);">🔁</div>
+            <div>
+              <strong>Three-Attempt Retry</strong>
+              <p>Attempt 1 uses the cached session. If it fails with a retryable error, attempt 2 clears the cache and starts a fresh session. Attempt 3 is the final try before throwing the error up.</p>
+            </div>
+          </div>
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: rgba(45,139,85,0.1); color: var(--color-success);">💾</div>
+            <div>
+              <strong>Session Caching</strong>
+              <p>After a successful fetch, the new session ID is saved to an in-memory map keyed by anime ID. The next episode request for the same show reuses the warm session instantly.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Group chat — AnimePahe session flow -->
+        <h3 class="screen-heading animate-in" style="font-size: var(--text-xl); margin-top: var(--space-12);">
+          Live Example: AnimePahe Resolves Episode 5
+        </h3>
+
+        <div class="chat-window animate-in" id="chat-module4">
+          <div class="chat-messages">
+
+            <!-- Typing indicator -->
+            <div class="chat-typing" style="display:none;">
+              <div class="chat-avatar" id="chat-module4-typing-avatar" style="background: var(--color-actor-1);">AP</div>
+              <div class="chat-typing-dots">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+              </div>
+            </div>
+
+            <!-- Message 0 -->
+            <div class="chat-message" data-sender="anime-player" data-msg="0" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-1);">AP</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1);">AnimePlayer</span>
+                <p>Gogoanime failed for Episode 5 of Demon Slayer. Falling through to AnimePahe. Starting fresh — no provider stickiness carried over.</p>
+              </div>
+            </div>
+
+            <!-- Message 1 -->
+            <div class="chat-message" data-sender="animepahe-js" data-msg="1" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-3);">PA</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3);">AnimePahe.js</span>
+                <p>Warming a browser
+                <span class="term" data-definition="A session is a continuous interaction with a website identified by a cookie. AnimePahe requires a valid session before it will serve episode data.">session</span>
+                first. Checking for a cached session ID for this anime...</p>
+              </div>
+            </div>
+
+            <!-- Message 2 -->
+            <div class="chat-message" data-sender="rust" data-msg="2" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-accent);">Ru</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-accent);">Rust</span>
+                <p>No cached session found. Opening a fresh session at animepahe.si — sending BROWSER_HEADERS with proper User-Agent and Referer.</p>
+              </div>
+            </div>
+
+            <!-- Message 3 -->
+            <div class="chat-message" data-sender="animepahe-server" data-msg="3" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-4);">SV</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4);">AnimePahe Server</span>
+                <p>Session accepted. Here is the play page HTML for Demon Slayer Episode 5 — contains resolution option buttons and
+                <span class="term" data-definition="An embed is an external page — usually an iframe — that hosts the video player. The actual stream URL is often hidden inside the embed page's JavaScript, not in the parent HTML.">embed</span>
+                links.</p>
+              </div>
+            </div>
+
+            <!-- Message 4 -->
+            <div class="chat-message" data-sender="animepahe-js" data-msg="4" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-3);">PA</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3);">AnimePahe.js</span>
+                <p>Found 3 resolution options: 360p, 720p, 1080p. Resolving the 1080p embed URL. Passing session ID back to Rust for the next fetch.</p>
+              </div>
+            </div>
+
+            <!-- Message 5 -->
+            <div class="chat-message" data-sender="rust" data-msg="5" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-accent);">Ru</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-accent);">Rust</span>
+                <p>Fetched embed page using saved session cookie. Extracted direct
+                <span class="term" data-definition="An MP4 is a standard video container format. A direct MP4 URL points to the video file itself, making it simpler to play than an HLS stream that requires playlist parsing and segment assembly.">MP4</span>
+                stream URL from Kwik player response — no
+                <span class="term" data-definition="HLS (HTTP Live Streaming) is a protocol that splits video into small segments described by a playlist file (.m3u8). The player fetches and assembles segments in sequence.">HLS</span>
+                assembly needed.</p>
+              </div>
+            </div>
+
+            <!-- Message 6 -->
+            <div class="chat-message" data-sender="anime-player" data-msg="6" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-1);">AP</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1);">AnimePlayer</span>
+                <p>Stream candidate validated. Direct MP4 preferred over HLS — passing to native player. Session cached for Episode 6 if needed.</p>
+              </div>
+            </div>
+
+          </div><!-- /chat-messages -->
+
+          <div class="chat-controls">
+            <button class="btn btn-primary chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Show All</button>
+            <button class="btn chat-reset-btn">Reset</button>
+            <span class="chat-progress">0 / 7 messages</span>
+          </div>
+        </div><!-- /chat-window -->
+
+        <!-- Final session management summary -->
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-8);">
+          <div class="callout-icon">🍪</div>
+          <div class="callout-content">
+            <span class="callout-title">Why This Works</span>
+            <p>
+              AnimePahe sees requests from Rust as an ordinary browser — proper headers, valid session cookie, realistic timing.
+              The session is cached per anime ID so warm-up cost is paid only once per title.
+              Expired sessions are silently healed with a fresh one, so the user never sees a cookie-related failure.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 4 -->
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
+</section>
+<section class="module" id="module-5" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Your Account &amp; The Sync Layer</h1>
+      <p class="module-subtitle">How your watchlist, history, and preferences follow you across devices</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 1 — The Two Notepads: Metaphor + Auth Flow
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Two Notepads — Always in Sync</h2>
+
+        <p>
+          Nova Stream works perfectly without an account — everything saves locally on your device.
+          But sign in, and something remarkable happens: your
+          <span class="term" data-definition="A browser-native key/value store that persists data on the current device only. Fast, always available, never requires a network. Guests in Nova Stream use only localStorage.">watchlist</span>,
+          history, playback position,
+          <span class="term" data-definition="The active look of the app: colour scheme, font weight, and background. Nova Stream ships 6 built-in themes — Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura.">theme</span>,
+          and preferences follow you everywhere.
+        </p>
+
+        <!-- Metaphor visual -->
+        <div class="animate-in" style="
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          gap: var(--space-6);
+          align-items: center;
+          background: var(--color-surface);
+          border-radius: var(--radius-lg);
+          padding: var(--space-8);
+          box-shadow: var(--shadow-md);
+          margin: var(--space-8) 0;
+        ">
+          <!-- Pocket notepad -->
+          <div style="text-align: center;">
+            <div style="
+              width: 72px; height: 88px;
+              background: var(--color-accent-light);
+              border: 2px solid var(--color-accent-muted);
+              border-radius: var(--radius-sm);
+              margin: 0 auto var(--space-3);
+              display: flex; flex-direction: column;
+              align-items: center; justify-content: center;
+              gap: 4px;
+              position: relative;
+            ">
+              <div style="width:40px; height:3px; background: var(--color-accent-muted); border-radius: 2px;"></div>
+              <div style="width:40px; height:3px; background: var(--color-accent-muted); border-radius: 2px;"></div>
+              <div style="width:40px; height:3px; background: var(--color-accent-muted); border-radius: 2px;"></div>
+              <div style="
+                position:absolute; top: -10px;
+                font-size: 1.4rem;
+              ">📓</div>
+            </div>
+            <strong style="font-family: var(--font-display); font-size: var(--text-base); display: block;">Pocket Notepad</strong>
+            <p style="font-size: var(--text-sm); color: var(--color-text-secondary); margin: var(--space-2) 0 0;">
+              <span class="term" data-definition="A browser-native key/value store that persists data on the current device only. Fast, always available, never requires a network.">localStorage</span><br>
+              Always available — instant, offline-first. Every action writes here first.
+            </p>
+          </div>
+
+          <!-- Arrow -->
+          <div style="display: flex; flex-direction: column; align-items: center; gap: var(--space-2); color: var(--color-text-muted);">
+            <div style="font-size: var(--text-xl);">⇄</div>
+            <span style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted);">sync</span>
+          </div>
+
+          <!-- Cloud journal -->
+          <div style="text-align: center;">
+            <div style="
+              width: 72px; height: 88px;
+              background: var(--color-info-light);
+              border: 2px solid var(--color-info);
+              border-radius: var(--radius-sm);
+              margin: 0 auto var(--space-3);
+              display: flex; flex-direction: column;
+              align-items: center; justify-content: center;
+              gap: 4px;
+              position: relative;
+            ">
+              <div style="width:40px; height:3px; background: var(--color-info); border-radius: 2px; opacity: 0.6;"></div>
+              <div style="width:40px; height:3px; background: var(--color-info); border-radius: 2px; opacity: 0.6;"></div>
+              <div style="width:40px; height:3px; background: var(--color-info); border-radius: 2px; opacity: 0.6;"></div>
+              <div style="
+                position:absolute; top: -10px;
+                font-size: 1.4rem;
+              ">☁️</div>
+            </div>
+            <strong style="font-family: var(--font-display); font-size: var(--text-base); display: block;">Cloud Journal</strong>
+            <p style="font-size: var(--text-sm); color: var(--color-text-secondary); margin: var(--space-2) 0 0;">
+              <span class="term" data-definition="An open-source backend-as-a-service that provides a Postgres database, authentication, and real-time subscriptions. Nova Stream uses it for optional account sign-in and cross-device sync.">Supabase</span><br>
+              Available on every device. On a new device, the journal catches you up.
+            </p>
+          </div>
+        </div>
+
+        <!-- Onboarding flow -->
+        <h3 style="font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-4);">First-Time Onboarding Flow</h3>
+        <p>The very first time you open the app, you walk through a short
+          <span class="term" data-definition="The sequence of screens a new user sees on first launch: Splash → Auth page → Avatar picker → Home. Shown exactly once, never repeated after the first run.">onboarding</span>
+          sequence — then it never appears again.
+        </p>
+
+        <div class="flow-steps animate-in" style="margin: var(--space-6) 0;">
+          <div class="flow-step">
+            <div class="flow-step-num">1</div>
+            <p>Splash screen<br><span style="color: var(--color-text-muted); font-size: var(--text-xs);">logo + loading</span></p>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-step-num">2</div>
+            <p>Auth page<br><span style="color: var(--color-text-muted); font-size: var(--text-xs);">sign up / sign in / skip</span></p>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-step-num">3</div>
+            <p>Avatar picker<br><span style="color: var(--color-text-muted); font-size: var(--text-xs);">choose your look</span></p>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-step-num">4</div>
+            <p>Home<br><span style="color: var(--color-text-muted); font-size: var(--text-xs);">you're in</span></p>
+          </div>
+        </div>
+
+        <!-- Pattern cards: Guest vs Signed-in -->
+        <div class="pattern-cards stagger-children animate-in">
+          <div class="pattern-card animate-in">
+            <div class="pattern-icon" style="background: var(--color-bg-warm);">🔒</div>
+            <div class="pattern-title">Guest Mode</div>
+            <p class="pattern-desc">
+              All data lives in <span class="term" data-definition="A browser-native key/value store that persists data on the current device only.">localStorage</span> — private to this device.
+              No sign-in required. Fully functional offline. Data never leaves your machine.
+            </p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-info);">
+            <div class="pattern-icon" style="background: var(--color-info-light);">🔄</div>
+            <div class="pattern-title">Signed-In Mode</div>
+            <p class="pattern-desc">
+              Write-through to <span class="term" data-definition="An open-source backend-as-a-service providing Postgres, auth, and real-time subscriptions. Nova Stream uses it for optional cross-device sync.">Supabase</span> + sync-down on start.
+              Your data follows you to every device automatically.
+            </p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-success);">
+            <div class="pattern-icon" style="background: var(--color-success-light);">🎨</div>
+            <div class="pattern-title">Avatar Picker</div>
+            <p class="pattern-desc">
+              60 avatar options powered by
+              <span class="term" data-definition="An open-source avatar generation API. Nova Stream uses it with 6 styles (bottts, pixel-art, adventurer, lorelei, thumbs, micah) × 10 seeds = 60 options.">DiceBear</span> —
+              6 styles × 10 seeds. Fetched via HTTP, stored in your
+              <span class="term" data-definition="A row in the Supabase `profiles` table that holds a user's avatar_style, avatar_seed, username, theme, and preferences.">profile</span>.
+            </p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in">
+          <span class="callout-icon">💡</span>
+          <div class="callout-content">
+            <span class="callout-title">No account required</span>
+            <p>This was a deliberate design choice — the app is fully functional offline and without sign-in. The account is a bonus layer, not a gate.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 2 — The Write-Through Pattern
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Write-Through Pattern</h2>
+
+        <p>
+          Every time you bookmark a title, Nova Stream uses a
+          <span class="term" data-definition="A caching strategy where every write goes to the local store immediately, and also propagates to the remote store in the background. The caller never waits for the remote write.">write-through</span>
+          pattern — the local save happens in the same frame as your click.
+          The cloud write happens later, quietly, without blocking the UI.
+        </p>
+
+        <!-- Code translation block -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: var(--color-text-muted);">supabase.js</span>
+<span class="code-line"><span class="code-keyword">export const</span> <span class="code-function">addToWatchlist</span> = <span class="code-keyword">async</span> (item) => {</span>
+<span class="code-line">  <span class="code-keyword">const</span> list = <span class="code-function">readStore</span>(WATCHLIST_KEY)</span>
+<span class="code-line">  <span class="code-keyword">const</span> entry = {</span>
+<span class="code-line">    id: item.tmdb_id,</span>
+<span class="code-line">    tmdb_id: item.tmdb_id,</span>
+<span class="code-line">    media_type: item.media_type,</span>
+<span class="code-line">    title: item.title,</span>
+<span class="code-line">    poster_path: item.poster_path,</span>
+<span class="code-line">    added_at: <span class="code-keyword">new</span> <span class="code-function">Date</span>().<span class="code-function">toISOString</span>(),</span>
+<span class="code-line">  }</span>
+<span class="code-line">  <span class="code-keyword">const</span> idx = list.<span class="code-function">findIndex</span>(i => i.tmdb_id === item.tmdb_id)</span>
+<span class="code-line">  <span class="code-keyword">if</span> (idx >= <span class="code-number">0</span>) list[idx] = entry</span>
+<span class="code-line">  <span class="code-keyword">else</span> list.<span class="code-function">unshift</span>(entry)</span>
+<span class="code-line">  <span class="code-function">writeStore</span>(WATCHLIST_KEY, list)</span>
+<span class="code-line">&nbsp;</span>
+<span class="code-line">  <span class="code-comment">// Write-through to Supabase</span></span>
+<span class="code-line">  <span class="code-keyword">const</span> userId = <span class="code-keyword">await</span> <span class="code-function">getUserId</span>()</span>
+<span class="code-line">  <span class="code-keyword">if</span> (userId) {</span>
+<span class="code-line">    supabase.<span class="code-function">from</span>(<span class="code-string">'watchlist'</span>)</span>
+<span class="code-line">      .<span class="code-function">upsert</span>({ user_id: userId, ... },</span>
+<span class="code-line">        { onConflict: <span class="code-string">'user_id,tmdb_id'</span> })</span>
+<span class="code-line">      .<span class="code-function">then</span>(({ error }) => {</span>
+<span class="code-line">        <span class="code-keyword">if</span> (error) console.<span class="code-function">warn</span>(<span class="code-string">'[watchlist] sync write failed'</span>)</span>
+<span class="code-line">      })</span>
+<span class="code-line">  }</span>
+<span class="code-line">}</span>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>readStore(WATCHLIST_KEY)</strong> — pull the current watchlist from localStorage into memory.</div>
+              <div class="tl"><strong>Build the entry</strong> — create a clean object with title, media type, poster, and a timestamp.</div>
+              <div class="tl"><strong>findIndex check</strong> — if this title is already in the list, update it in place rather than duplicating it.</div>
+              <div class="tl"><strong>unshift(entry)</strong> — if it's new, add it to the very front of the list (newest first).</div>
+              <div class="tl"><strong>writeStore(...)</strong> — save back to localStorage immediately. This is <span class="term" data-definition="Code that runs on the current thread and completes before the next line executes. The result is available instantly.">synchronous</span> — done in the same frame.</div>
+              <div class="tl"><strong>getUserId()</strong> — check if anyone is signed in. Guests skip the cloud step entirely.</div>
+              <div class="tl"><strong><span class="term" data-definition="An upsert is a database operation meaning 'update if the row exists, insert if it doesn't'. It avoids duplicate rows without needing a separate check.">upsert</span>(...)</strong> — write to Supabase's watchlist table. onConflict means: if (user_id, tmdb_id) already exists, update it instead of erroring.</div>
+              <div class="tl"><strong>.then(...)</strong> — this callback runs later, in the background. The local save already happened frames ago.</div>
+              <div class="tl"><strong>if (error) console.warn</strong> — if the cloud write fails, log it quietly. The local copy is safe. Nothing breaks for the user.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timeline visual -->
+        <div class="animate-in" style="
+          background: var(--color-surface);
+          border-radius: var(--radius-lg);
+          padding: var(--space-8);
+          box-shadow: var(--shadow-md);
+          margin: var(--space-8) 0;
+        ">
+          <h3 style="font-family: var(--font-display); font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-6);">Timeline: What happens when you click the bookmark</h3>
+
+          <div style="position: relative; padding-left: var(--space-8);">
+            <!-- Vertical line -->
+            <div style="
+              position: absolute; left: 16px; top: 0; bottom: 0;
+              width: 2px; background: var(--color-border-light);
+            "></div>
+
+            <!-- Event 1 -->
+            <div style="display: flex; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-6); position: relative;">
+              <div style="
+                position: absolute; left: -var(--space-8);
+                width: 12px; height: 12px; border-radius: 50%;
+                background: var(--color-accent);
+                left: -20px; top: 4px;
+                box-shadow: 0 0 0 3px var(--color-accent-light);
+              "></div>
+              <div>
+                <strong style="font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-accent);">0 ms — User clicks bookmark</strong>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); margin: var(--space-1) 0 0;">The UI responds instantly. The bookmark icon flips to filled.</p>
+              </div>
+            </div>
+
+            <!-- Event 2 -->
+            <div style="display: flex; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-6); position: relative;">
+              <div style="
+                position: absolute;
+                width: 12px; height: 12px; border-radius: 50%;
+                background: var(--color-accent);
+                left: -20px; top: 4px;
+                box-shadow: 0 0 0 3px var(--color-accent-light);
+              "></div>
+              <div>
+                <strong style="font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-accent);">0 ms — localStorage write (synchronous)</strong>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); margin: var(--space-1) 0 0;">
+                  <code style="background: var(--color-bg-code); color: #CBA6F7; padding: 2px 6px; border-radius: 4px; font-size: var(--text-xs);">writeStore(WATCHLIST_KEY, list)</code>
+                  — the data is safely on disk before the next line runs.
+                </p>
+              </div>
+            </div>
+
+            <!-- Event 3 -->
+            <div style="display: flex; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-6); position: relative;">
+              <div style="
+                position: absolute;
+                width: 12px; height: 12px; border-radius: 50%;
+                background: var(--color-info);
+                left: -20px; top: 4px;
+                box-shadow: 0 0 0 3px var(--color-info-light);
+              "></div>
+              <div>
+                <strong style="font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-info);">~5–50 ms — Supabase upsert (async, fire-and-forget)</strong>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); margin: var(--space-1) 0 0;">
+                  The network request is kicked off. The UI doesn't wait.
+                  <span class="term" data-definition="A pattern where a task is started and its result is never awaited or checked in the calling flow. The caller moves on immediately. Errors are caught inside the task itself, not bubbled up.">Fire-and-forget</span>
+                  means a success or failure here has no effect on the UI.
+                </p>
+              </div>
+            </div>
+
+            <!-- Event 4 -->
+            <div style="display: flex; align-items: flex-start; gap: var(--space-4); position: relative;">
+              <div style="
+                position: absolute;
+                width: 12px; height: 12px; border-radius: 50%;
+                background: var(--color-success);
+                left: -20px; top: 4px;
+                box-shadow: 0 0 0 3px var(--color-success-light);
+              "></div>
+              <div>
+                <strong style="font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-success);">Background — Cloud confirms (or silently fails)</strong>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); margin: var(--space-1) 0 0;">
+                  If Supabase confirms: both notepads agree. If it fails: the local notepad is untouched. Either way, the user already moved on.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info animate-in">
+          <span class="callout-icon">⚡</span>
+          <div class="callout-content">
+            <span class="callout-title">Fire and forget</span>
+            <p>The local save is
+              <span class="term" data-definition="Code that runs on the current thread and completes before the next line executes. The result is available instantly.">synchronous</span>
+              — it happens in the same frame as the click. The cloud write is
+              <span class="term" data-definition="Code that starts now but completes later, without blocking the current thread. The caller continues immediately while the async task runs in the background.">asynchronous</span>
+              — the UI never waits for it.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 3 — The Sync-Down Merge
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Sync-Down Merge</h2>
+
+        <p>
+          When you sign in — or when the app starts and finds an existing
+          <span class="term" data-definition="A signed token issued by Supabase after a successful sign-in. It proves your identity to the server and expires after a set time. Nova Stream restores sessions automatically on launch.">session</span>
+          — it calls <code style="background: var(--color-bg-code); color: #89B4FA; padding: 2px 8px; border-radius: 4px; font-size: var(--text-sm);">syncFromCloud()</code>.
+          This pulls your cloud data down and merges it carefully with whatever is already on the device.
+        </p>
+
+        <!-- Code translation block -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: var(--color-text-muted);">supabase.js</span>
+<span class="code-line"><span class="code-keyword">export const</span> <span class="code-function">syncFromCloud</span> = <span class="code-keyword">async</span> () => {</span>
+<span class="code-line">  <span class="code-keyword">const</span> userId = <span class="code-keyword">await</span> <span class="code-function">getUserId</span>()</span>
+<span class="code-line">  <span class="code-keyword">if</span> (!userId) <span class="code-keyword">return</span></span>
+<span class="code-line">&nbsp;</span>
+<span class="code-line">  <span class="code-keyword">try</span> {</span>
+<span class="code-line">    <span class="code-keyword">const</span> { data: cloudWatchlist, error: wErr } =</span>
+<span class="code-line">      <span class="code-keyword">await</span> supabase</span>
+<span class="code-line">        .<span class="code-function">from</span>(<span class="code-string">'watchlist'</span>)</span>
+<span class="code-line">        .<span class="code-function">select</span>(<span class="code-string">'*'</span>)</span>
+<span class="code-line">        .<span class="code-function">eq</span>(<span class="code-string">'user_id'</span>, userId)</span>
+<span class="code-line">        .<span class="code-function">order</span>(<span class="code-string">'added_at'</span>, { ascending: <span class="code-keyword">false</span> })</span>
+<span class="code-line">&nbsp;</span>
+<span class="code-line">    <span class="code-keyword">if</span> (!wErr &amp;&amp; cloudWatchlist?.length) {</span>
+<span class="code-line">      <span class="code-keyword">const</span> local    = <span class="code-function">readStore</span>(WATCHLIST_KEY)</span>
+<span class="code-line">      <span class="code-keyword">const</span> cloudIds = <span class="code-keyword">new</span> <span class="code-function">Set</span>(cloudWatchlist.<span class="code-function">map</span>(i => i.tmdb_id))</span>
+<span class="code-line">      <span class="code-keyword">const</span> localOnly = local.<span class="code-function">filter</span>(i => !cloudIds.<span class="code-function">has</span>(i.tmdb_id))</span>
+<span class="code-line">      <span class="code-keyword">const</span> merged = [</span>
+<span class="code-line">        ...cloudWatchlist.<span class="code-function">map</span>(i => ({ ...i, id: i.tmdb_id })),</span>
+<span class="code-line">        ...localOnly,</span>
+<span class="code-line">      ].<span class="code-function">sort</span>((a, b) =></span>
+<span class="code-line">        <span class="code-keyword">new</span> <span class="code-function">Date</span>(b.added_at) - <span class="code-keyword">new</span> <span class="code-function">Date</span>(a.added_at))</span>
+<span class="code-line">      <span class="code-function">writeStore</span>(WATCHLIST_KEY, merged)</span>
+<span class="code-line">    }</span>
+<span class="code-line">  } <span class="code-keyword">catch</span> (err) {</span>
+<span class="code-line">    console.<span class="code-function">warn</span>(<span class="code-string">'[sync] Cloud sync failed, using local data'</span>)</span>
+<span class="code-line">  }</span>
+<span class="code-line">}</span>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>getUserId()</strong> — is anyone signed in? If not, return immediately — guests are localStorage-only, no cloud fetch needed.</div>
+              <div class="tl"><strong>supabase.from('watchlist').select('*').eq('user_id', userId)</strong> — fetch all this user's watchlist entries from the cloud, newest first.</div>
+              <div class="tl"><strong>if (!wErr &amp;&amp; cloudWatchlist?.length)</strong> — only proceed if the fetch succeeded and actually returned rows.</div>
+              <div class="tl"><strong>readStore(WATCHLIST_KEY)</strong> — read the current local list so we can compare it to the cloud version.</div>
+              <div class="tl"><strong>new Set(cloudWatchlist.map(...))</strong> — build a fast-lookup Set of cloud IDs. Checking "is this ID in the Set?" is O(1) — instant, regardless of list size.</div>
+              <div class="tl"><strong>localOnly</strong> — items that exist on this device but haven't synced yet. We keep these; no data is thrown away.</div>
+              <div class="tl"><strong>merged = [...cloud, ...localOnly]</strong> — cloud items come first (cloud wins conflicts), then local-only items are appended.</div>
+              <div class="tl"><strong>.sort(...)</strong> — sort the entire merged result by date, so the newest bookmarks always appear at the top.</div>
+              <div class="tl"><strong>writeStore(...)</strong> — save the merged result back to localStorage. Local and cloud are now in agreement.</div>
+              <div class="tl"><strong>catch (err)</strong> — if the network fails entirely, log a warning and move on. Local data is never touched on a failed sync.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Merge visual -->
+        <div class="animate-in" style="
+          background: var(--color-surface);
+          border-radius: var(--radius-lg);
+          padding: var(--space-8);
+          box-shadow: var(--shadow-md);
+          margin: var(--space-8) 0;
+        ">
+          <h3 style="font-family: var(--font-display); font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-6);">How the merge works</h3>
+
+          <div style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: var(--space-4); align-items: start;">
+            <!-- Cloud list -->
+            <div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-info); margin-bottom: var(--space-3);">Cloud (Supabase)</div>
+              <div style="display: flex; flex-direction: column; gap: var(--space-2);">
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-info-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-info);">Dune (added Mon)</div>
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-info-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-info);">Oppenheimer (Sat)</div>
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-info-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-info);">Arrival (Fri)</div>
+              </div>
+            </div>
+
+            <div style="font-size: var(--text-xl); color: var(--color-text-muted); padding-top: var(--space-8);">+</div>
+
+            <!-- Local-only list -->
+            <div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-accent); margin-bottom: var(--space-3);">Local-Only (new device)</div>
+              <div style="display: flex; flex-direction: column; gap: var(--space-2);">
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-accent-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-accent);">Blade Runner (Tue)</div>
+              </div>
+              <p style="font-size: var(--text-xs); color: var(--color-text-muted); margin-top: var(--space-2);">Not in cloud yet</p>
+            </div>
+
+            <div style="font-size: var(--text-xl); color: var(--color-text-muted); padding-top: var(--space-8);">→</div>
+
+            <!-- Merged result -->
+            <div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-success); margin-bottom: var(--space-3);">Merged (sorted by date)</div>
+              <div style="display: flex; flex-direction: column; gap: var(--space-2);">
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-info-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-info);">Dune (Mon)</div>
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-accent-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-accent);">Blade Runner (Tue)</div>
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-info-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-info);">Oppenheimer (Sat)</div>
+                <div style="padding: var(--space-2) var(--space-3); background: var(--color-info-light); border-radius: var(--radius-sm); font-size: var(--text-sm); border-left: 3px solid var(--color-info);">Arrival (Fri)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Supabase tables reference -->
+        <h3 style="font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; margin: var(--space-8) 0 var(--space-4);">What the database looks like</h3>
+        <p>Four tables back the sync layer, all protected by
+          <span class="term" data-definition="Row Level Security — a Postgres feature that lets you attach policies to tables so each query is automatically filtered to only the rows the current user is allowed to see or write. In Nova Stream, every user can only read and write their own rows.">Row Level Security (RLS)</span>
+          so users can only access their own rows.
+        </p>
+
+        <div class="badge-list animate-in">
+          <div class="badge-item">
+            <span class="badge-code">profiles</span>
+            <span class="badge-desc">avatar_style, avatar_seed, username, theme, preferences (JSONB) — one row per user</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">watchlist</span>
+            <span class="badge-desc">user_id, tmdb_id, media_type, title, poster_path, added_at</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">watch_history</span>
+            <span class="badge-desc">same as watchlist + season, episode, progress_seconds, watched_at</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">watch_progress</span>
+            <span class="badge-desc">content_id, season, episode, progress_seconds, updated_at, user_id — keyed on content × season × episode</span>
+          </div>
+        </div>
+
+        <div class="callout callout-info animate-in">
+          <span class="callout-icon">🔀</span>
+          <div class="callout-content">
+            <span class="callout-title">Cloud wins, but nobody loses</span>
+            <p>If you added something locally before signing in, it stays in your list — it just gets sorted by date. No data is ever discarded during a sync.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 4 — Group Chat: Sign-In and Sync
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">What Happens When You Sign In</h2>
+
+        <p>
+          Sign-in triggers a cascade of actions across four parts of the app.
+          Follow the conversation to see the exact sequence — from entering your password to having your cloud data fully merged on the device.
+        </p>
+
+        <!-- Group chat window -->
+        <div class="chat-window" id="chat-module5">
+          <div class="chat-messages">
+
+            <!-- msg 0: User -->
+            <div class="chat-message" data-sender="User" data-msg="0" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1);">U</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1);">User</span>
+                <p>Sign me in — email and password.</p>
+              </div>
+            </div>
+
+            <!-- msg 1: useAuthStore -->
+            <div class="chat-message" data-sender="useAuthStore" data-msg="1" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2);">A</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2);">useAuthStore</span>
+                <p>
+                  Calling
+                  <span class="term" data-definition="An open-source backend-as-a-service that provides a Postgres database, authentication, and real-time subscriptions. Nova Stream uses it for optional account sign-in and cross-device sync.">Supabase</span>
+                  auth with those credentials...
+                </p>
+              </div>
+            </div>
+
+            <!-- msg 2: Supabase -->
+            <div class="chat-message" data-sender="Supabase" data-msg="2" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5);">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5);">Supabase</span>
+                <p>
+                  Verified. Here is your
+                  <span class="term" data-definition="A signed token issued by Supabase after a successful sign-in. It proves your identity to the server and expires after a set time. Nova Stream restores sessions automatically on launch.">session</span>
+                  and
+                  <span class="term" data-definition="A row in the Supabase `profiles` table that holds a user's avatar_style, avatar_seed, username, theme, and preferences.">profile</span>.
+                  Theme: midnight-blue. 47 watchlist items.
+                </p>
+              </div>
+            </div>
+
+            <!-- msg 3: useAuthStore -->
+            <div class="chat-message" data-sender="useAuthStore" data-msg="3" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2);">A</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2);">useAuthStore</span>
+                <p>Got it. Storing the session and profile in state. Applying profile settings now...</p>
+              </div>
+            </div>
+
+            <!-- msg 4: useAppStore -->
+            <div class="chat-message" data-sender="useAppStore" data-msg="4" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4);">P</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4);">useAppStore</span>
+                <p>
+                  Switching
+                  <span class="term" data-definition="The active look of the app: colour scheme, font weight, and background. Nova Stream ships 6 built-in themes — Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura.">theme</span>
+                  to midnight-blue and writing it to the DOM before the first render. No flash.
+                </p>
+              </div>
+            </div>
+
+            <!-- msg 5: useAuthStore -->
+            <div class="chat-message" data-sender="useAuthStore" data-msg="5" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2);">A</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2);">useAuthStore</span>
+                <p>
+                  Good. Now calling
+                  <code style="background: rgba(255,255,255,0.15); padding: 1px 5px; border-radius: 3px; font-size: var(--text-xs);">syncFromCloud()</code>
+                  to pull your cloud data down and merge it with whatever is on this device.
+                </p>
+              </div>
+            </div>
+
+            <!-- msg 6: Supabase -->
+            <div class="chat-message" data-sender="Supabase" data-msg="6" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5);">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5);">Supabase</span>
+                <p>
+                  Fetching watchlist... 47 rows returned. Fetching watch history... 31 rows. Fetching
+                  <span class="term" data-definition="Stored in the `watch_progress` table, keyed on content_id × season × episode. Tracks exactly how far into each episode you've watched, in seconds.">watch_progress</span>...
+                  merged.
+                </p>
+              </div>
+            </div>
+
+            <!-- msg 7: useAuthStore -->
+            <div class="chat-message" data-sender="useAuthStore" data-msg="7" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2);">A</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2);">useAuthStore</span>
+                <p>
+                  Merge complete. Cloud wins any conflicts. Local-only items kept and sorted by date. Preferences applied.
+                </p>
+              </div>
+            </div>
+
+            <!-- msg 8: User -->
+            <div class="chat-message" data-sender="User" data-msg="8" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1);">U</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1);">User</span>
+                <p>Everything looks right. My watchlist is up to date and the theme is correct.</p>
+              </div>
+            </div>
+
+            <!-- msg 9: useAuthStore -->
+            <div class="chat-message" data-sender="useAuthStore" data-msg="9" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2);">A</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2);">useAuthStore</span>
+                <p>Done. Welcome back. From here on, every bookmark and progress save writes through to the cloud automatically.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Typing indicator -->
+          <div class="chat-typing" style="display:none">
+            <div class="chat-avatar" id="chat-module5-typing-avatar" style="background: var(--color-actor-2);">A</div>
+            <div class="chat-typing-dots">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="chat-controls">
+            <button class="btn btn-primary chat-next-btn">Next message</button>
+            <button class="btn chat-all-btn">Show all</button>
+            <button class="btn chat-reset-btn">Reset</button>
+            <span class="chat-progress">0 / 10 messages</span>
+          </div>
+        </div>
+
+        <!-- Actor legend -->
+        <div style="
+          display: flex;
+          flex-wrap: wrap;
+          gap: var(--space-4);
+          margin-top: var(--space-4);
+        " class="animate-in">
+          <div style="display: flex; align-items: center; gap: var(--space-2);">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--color-actor-1);display:flex;align-items:center;justify-content:center;color:white;font-size:var(--text-xs);font-weight:700;">U</div>
+            <span style="font-size: var(--text-sm); color: var(--color-text-secondary);">User</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--space-2);">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--color-actor-2);display:flex;align-items:center;justify-content:center;color:white;font-size:var(--text-xs);font-weight:700;">A</div>
+            <span style="font-size: var(--text-sm); color: var(--color-text-secondary);">useAuthStore — manages auth state, session, and sync</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--space-2);">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--color-actor-5);display:flex;align-items:center;justify-content:center;color:white;font-size:var(--text-xs);font-weight:700;">S</div>
+            <span style="font-size: var(--text-sm); color: var(--color-text-secondary);">Supabase — cloud database &amp; auth</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--space-2);">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--color-actor-4);display:flex;align-items:center;justify-content:center;color:white;font-size:var(--text-xs);font-weight:700;">P</div>
+            <span style="font-size: var(--text-sm); color: var(--color-text-secondary);">useAppStore — theme &amp; preferences</span>
+          </div>
+        </div>
+
+        <!-- Closing summary -->
+        <div class="animate-in" style="
+          margin-top: var(--space-10);
+          background: var(--color-surface);
+          border-radius: var(--radius-lg);
+          padding: var(--space-8);
+          box-shadow: var(--shadow-md);
+          border-top: 4px solid var(--color-accent);
+        ">
+          <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; margin-bottom: var(--space-4);">Module 5 Summary</h3>
+          <div class="step-cards">
+            <div class="step-card">
+              <div class="step-num">1</div>
+              <div class="step-body">
+                <strong>Two notepads, one truth</strong>
+                <p>
+                  <span class="term" data-definition="A browser-native key/value store that persists data on the current device only.">localStorage</span>
+                  is always the first write target — instant, offline-capable. Supabase is a background mirror that makes data available everywhere.
+                </p>
+              </div>
+            </div>
+            <div class="step-card">
+              <div class="step-num">2</div>
+              <div class="step-body">
+                <strong>Write-through = fast UI, resilient data</strong>
+                <p>
+                  Every local action
+                  <span class="term" data-definition="A pattern where a task is started and its result is never awaited or checked in the calling flow. The caller moves on immediately.">fire-and-forget</span>s
+                  a cloud write. If the network is down, the local copy is already safe.
+                </p>
+              </div>
+            </div>
+            <div class="step-card">
+              <div class="step-num">3</div>
+              <div class="step-body">
+                <strong>Sync-down on sign-in = cloud wins, nothing lost</strong>
+                <p>
+                  Cloud data wins conflicts, but local-only items are kept and sorted into the merged result. No data is ever discarded.
+                </p>
+              </div>
+            </div>
+            <div class="step-card">
+              <div class="step-num">4</div>
+              <div class="step-body">
+                <strong>Account is optional — always was</strong>
+                <p>
+                  The
+                  <span class="term" data-definition="The sequence of screens a new user sees on first launch: Splash → Auth page → Avatar picker → Home. Shown exactly once.">onboarding</span>
+                  flow includes a Skip option.
+                  <span class="term" data-definition="Row Level Security — a Postgres feature that automatically filters queries so each user can only read and write their own rows.">Row Level Security (RLS)</span>
+                  ensures cloud data is locked to each user's ID.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <!-- END SCREEN 4 -->
+
+    </div>
+    <!-- END module-body -->
+
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

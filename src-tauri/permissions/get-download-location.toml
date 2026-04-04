@@ -1,0 +1,6 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-download-location"
+description = "Allows reading the current download location."
+commands.allow = ["get_download_location"]

@@ -1,0 +1,594 @@
+<section class="module" id="module-4" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">The Anime Pipeline</h1>
+      <p class="module-subtitle">Why anime needs its own system — and how two detective agencies find your stream</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 1 · Why Anime Is Different
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">Why Anime Needs Its Own Pipeline</h2>
+
+        <p>
+          Movies have a universal ID system — every platform agrees on
+          <span class="term" data-definition="IMDb (Internet Movie Database) assigns a unique tt-prefixed ID to every movie and TV show. Because it is the industry standard, almost every streaming platform maps to the same IMDb ID, making cross-platform lookups trivial.">IMDb IDs</span>.
+          Anime has no such luxury. Three separate databases each think they own the truth — and none of them agree with each other.
+        </p>
+
+        <!-- Identity system visual -->
+        <div class="animate-in" style="margin: var(--space-8) 0;">
+          <div style="
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-4);
+          ">
+            <!-- TMDB card -->
+            <div style="
+              background: var(--color-surface);
+              border-radius: var(--radius-md);
+              padding: var(--space-5);
+              box-shadow: var(--shadow-sm);
+              border-top: 3px solid var(--color-info);
+              position: relative;
+            ">
+              <div style="
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                color: var(--color-info);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                margin-bottom: var(--space-2);
+              ">TMDB</div>
+              <div style="font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); margin-bottom: var(--space-3);">Attack on Titan</div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); background: var(--color-bg-warm); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2);">tv/45923</div>
+              <div style="font-size: var(--text-xs); color: var(--color-text-secondary);">
+                Used for movies &amp; series globally. Anime entries are present but inconsistent — season groupings can be wrong.
+              </div>
+            </div>
+
+            <!-- AniList card -->
+            <div style="
+              background: var(--color-surface);
+              border-radius: var(--radius-md);
+              padding: var(--space-5);
+              box-shadow: var(--shadow-sm);
+              border-top: 3px solid var(--color-actor-3);
+              position: relative;
+            ">
+              <div style="
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                color: var(--color-actor-3);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                margin-bottom: var(--space-2);
+              ">AniList</div>
+              <div style="font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); margin-bottom: var(--space-3);">Shingeki no Kyojin</div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); background: var(--color-bg-warm); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2);">anilistId: 16498</div>
+              <div style="font-size: var(--text-xs); color: var(--color-text-secondary);">
+                The authoritative anime database. Canonical IDs, proper
+                <span class="term" data-definition="Romanization is the process of transliterating Japanese (or other non-Latin) text into the Latin alphabet. 'Shingeki no Kyojin' is the romanization of the original Japanese title; 'Attack on Titan' is the English localization.">romanizations</span>,
+                season groupings, and franchise relationships.
+              </div>
+            </div>
+
+            <!-- Provider card -->
+            <div style="
+              background: var(--color-surface);
+              border-radius: var(--radius-md);
+              padding: var(--space-5);
+              box-shadow: var(--shadow-sm);
+              border-top: 3px solid var(--color-actor-2);
+              position: relative;
+            ">
+              <div style="
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                color: var(--color-actor-2);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                margin-bottom: var(--space-2);
+              ">Gogoanime / AnimePahe</div>
+              <div style="font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); margin-bottom: var(--space-3);">attack-on-titan</div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); background: var(--color-bg-warm); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2);">/category/attack-on-titan</div>
+              <div style="font-size: var(--text-xs); color: var(--color-text-secondary);">
+                Each provider has its own
+                <span class="term" data-definition="A slug is a URL-friendly identifier used by websites — lowercase letters and hyphens instead of spaces. 'attack-on-titan' and 'shingeki-no-kyojin' might both refer to the same show on different providers.">slug</span>-based
+                identity. No relation to TMDB or AniList IDs. Must be discovered via
+                <span class="term" data-definition="Fuzzy matching is a technique for finding text that approximately matches a pattern, rather than requiring an exact match. It is useful when names are spelled slightly differently across databases.">fuzzy matching</span>.
+              </div>
+            </div>
+          </div>
+
+          <!-- Mismatch callout arrow row -->
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-3);
+            margin-top: var(--space-4);
+            padding: var(--space-3) var(--space-5);
+            background: var(--color-surface);
+            border-radius: var(--radius-sm);
+            border: 1px dashed var(--color-border);
+          ">
+            <span style="font-size: 1.1rem;">⚠️</span>
+            <span style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+              These three systems do not share IDs. Same anime, three different identities, zero shared keys.
+            </span>
+          </div>
+        </div>
+
+        <!-- Three provider pattern cards -->
+        <div class="pattern-cards animate-in stagger-children">
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-3);">
+            <div class="pattern-icon" style="background: rgba(123,109,170,0.12); color: var(--color-actor-3);">🗂️</div>
+            <div class="pattern-title">AniList</div>
+            <p class="pattern-desc">Canonical anime identity. Browse, search, season grouping, and franchise relationships all start here. Provides the authoritative title list used for provider matching.</p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-2);">
+            <div class="pattern-icon" style="background: rgba(42,123,155,0.12); color: var(--color-actor-2);">🔍</div>
+            <div class="pattern-title">Gogoanime</div>
+            <p class="pattern-desc">Primary stream provider. Gets first crack at every episode via its own search and slug system. Fast and reliable for most titles. Scraped in-project, not via external API.</p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-4);">
+            <div class="pattern-icon" style="background: rgba(212,168,67,0.12); color: var(--color-actor-4);">🛡️</div>
+            <div class="pattern-title">AnimePahe</div>
+            <p class="pattern-desc">Fallback provider. Activates only when Gogoanime cannot resolve an episode. Requires session-aware
+            <span class="term" data-definition="Scraping means programmatically reading and parsing the HTML of a website to extract data, rather than using an official API. It is necessary when a site has no public API.">scraping</span>
+            and browser
+            <span class="term" data-definition="A cookie is a small piece of data a website stores in your browser to remember your session. Some sites reject requests that do not carry a valid cookie, so scrapers must simulate a real browser session.">cookies</span>.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">💡</div>
+          <div class="callout-content">
+            <span class="callout-title">Why a Separate Pipeline?</span>
+            <p>
+              Movies have IMDb IDs on every platform. Anime identities are fragmented across databases that do not talk to each other. A shared movie pipeline would never find the right episode — so anime gets its own dedicated resolver stack.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 1 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 2 · The Detective Agencies — Flow Animation
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">The Detective Agencies</h2>
+
+        <p>
+          Think of the two providers as rival detective agencies assigned to the same case.
+          <span class="term" data-definition="Gogoanime is one of the largest anime streaming sites. Nova Stream's in-project scraper searches it, resolves episode server pages, and extracts HLS stream URLs without relying on any external API.">Gogoanime</span>
+          gets first crack at every episode — they are fast and handle most titles cleanly.
+          <span class="term" data-definition="AnimePahe is an anime streaming site known for smaller, high-quality file sizes. It requires an active browser session (cookies) and is used as a fallback when Gogoanime cannot provide a stream.">AnimePahe</span>
+          is on standby: if Gogo reports "case unsolvable," Pahe takes over from scratch with their own methods.
+        </p>
+        <p>
+          Crucially, every new episode resets the assignment — both agencies start fresh, so a past AnimePahe win does not lock future episodes out of Gogoanime.
+        </p>
+
+        <!-- Flow Animation -->
+        <div class="flow-animation animate-in" id="flow-anime-pipeline"
+          data-steps='[
+            {"highlight":"flow-actor-1","label":"User presses Play. AnimePlayer mounts with AniList identity: titles array, year, and episode number."},
+            {"highlight":"flow-actor-2","label":"resolveAnimeStreams.js receives the AniList identity and begins provider resolution — Gogoanime first.","packet":true,"from":"actor-1","to":"actor-2"},
+            {"highlight":"flow-actor-3","label":"Gogoanime scraper searches by title. Each result is scored with scoreMatch() — exact title wins, dubbed tracks are penalized if not requested.","packet":true,"from":"actor-2","to":"actor-3"},
+            {"highlight":"flow-actor-3","label":"Gogoanime wins the match. It fetches the full episode list, then resolves the embed page for the target episode."},
+            {"highlight":"flow-actor-4","label":"Rust resolves the embed and captures the HLS stream URL from the live page. Session headers are applied.","packet":true,"from":"actor-3","to":"actor-4"},
+            {"highlight":"flow-actor-6","label":"Stream candidate passes quality guardrails (no CAM, no junk wrappers). Best candidate forwarded to native player.","packet":true,"from":"actor-4","to":"actor-6"},
+            {"highlight":"flow-actor-5","label":"Gogoanime fails for this episode. resolveAnimeStreams falls through to AnimePahe. Provider stickiness is NOT carried over.","packet":true,"from":"actor-3","to":"actor-5"},
+            {"highlight":"flow-actor-4","label":"AnimePahe warms a browser session, searches, fetches the play page, and resolves resolution options. Rust handles cookie management.","packet":true,"from":"actor-5","to":"actor-4"},
+            {"highlight":"flow-actor-6","label":"AnimePahe stream confirmed. Direct MP4 preferred over HLS where available. Native player receives the stream.","packet":true,"from":"actor-4","to":"actor-6"}
+          ]'>
+
+          <!-- Actor row -->
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">▶</div>
+              <span>AnimePlayer</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">⚡</div>
+              <span>resolveAnime<br>Streams.js</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">🔍</div>
+              <span>Gogoanime</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon" style="border-color: var(--color-accent); color: var(--color-accent);">🦀</div>
+              <span>Rust Session<br>Manager</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-5">
+              <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">🛡️</div>
+              <span>AnimePahe</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-6">
+              <div class="flow-actor-icon" style="border-color: var(--color-success); color: var(--color-success);">🎬</div>
+              <span>Native<br>Player</span>
+            </div>
+          </div>
+
+          <!-- Packet dot -->
+          <div class="flow-packet" id="flow-packet-4"></div>
+
+          <!-- Step label -->
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+
+          <!-- Controls -->
+          <div class="flow-controls">
+            <button class="btn btn-primary flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 9</span>
+          </div>
+
+        </div><!-- /flow-animation -->
+
+        <!-- Stickiness reset callout -->
+        <div class="callout callout-info animate-in">
+          <div class="callout-icon">🔄</div>
+          <div class="callout-content">
+            <span class="callout-title">Episode Stickiness Reset</span>
+            <p>
+              Each new episode navigation clears the provider lock. If Episode 3 required AnimePahe, Episode 4 still tries Gogoanime first. No episode is pre-judged based on what a sibling episode needed.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 2 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 3 · Code Translation — The Scoring System
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">The Scoring System</h2>
+
+        <p>
+          When Gogoanime searches for "Naruto Shippuden," it gets back dozens of results — dubbed versions, spin-offs, wrong seasons.
+          The <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-code); color: #CBA6F7; padding: 2px 6px; border-radius: 4px;">scoreMatch()</code>
+          function in <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-code); color: #89B4FA; padding: 2px 6px; border-radius: 4px;">resolveAnimeStreams.js</code>
+          scores every result so the closest one wins.
+        </p>
+
+        <!-- Translation block -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">resolveAnimeStreams.js</span>
+<span class="code-line"><span class="code-keyword">function</span> <span class="code-function">scoreMatch</span>(match, titles = []) {</span>
+<span class="code-line">  <span class="code-keyword">const</span> baseTitle = <span class="code-function">normalizeText</span>(</span>
+<span class="code-line">    match?.title || match?.matchedTitle || <span class="code-string">''</span></span>
+<span class="code-line">  )</span>
+<span class="code-line">  <span class="code-keyword">if</span> (!baseTitle) <span class="code-keyword">return</span> <span class="code-number">-1</span></span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">const</span> descriptorTokens = <span class="code-function">extractDescriptorTokens</span>(titles)</span>
+<span class="code-line">  <span class="code-keyword">const</span> descriptorOverlap = <span class="code-function">countTokenOverlap</span>(</span>
+<span class="code-line">    baseTitle, descriptorTokens</span>
+<span class="code-line">  )</span>
+<span class="code-line">  <span class="code-keyword">const</span> requestsDub = titles.<span class="code-function">some</span>(</span>
+<span class="code-line">    (t) =&gt; <span class="code-operator">/\bdub\b/i</span>.<span class="code-function">test</span>(<span class="code-function">String</span>(t || <span class="code-string">''</span>))</span>
+<span class="code-line">  )</span>
+<span class="code-line">  <span class="code-keyword">const</span> isDubMatch =</span>
+<span class="code-line">    <span class="code-operator">/\bdub\b/i</span>.<span class="code-function">test</span>(match?.title || <span class="code-string">''</span>) ||</span>
+<span class="code-line">    <span class="code-operator">/-dub$/i</span>.<span class="code-function">test</span>(match?.animeId || <span class="code-string">''</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">let</span> best = <span class="code-number">-1</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">const</span> rawTitle <span class="code-keyword">of</span> titles) {</span>
+<span class="code-line">    <span class="code-keyword">const</span> title = <span class="code-function">normalizeText</span>(rawTitle)</span>
+<span class="code-line">    <span class="code-keyword">if</span> (!title) <span class="code-keyword">continue</span></span>
+<span class="code-line">    <span class="code-keyword">let</span> score = <span class="code-number">0</span></span>
+<span class="code-line">    <span class="code-keyword">if</span> (baseTitle === title)  score += <span class="code-number">200</span></span>
+<span class="code-line">    <span class="code-keyword">else if</span> (baseTitle.<span class="code-function">startsWith</span>(title)) score += <span class="code-number">120</span></span>
+<span class="code-line">    <span class="code-keyword">else if</span> (baseTitle.<span class="code-function">includes</span>(title))   score += <span class="code-number">80</span></span>
+<span class="code-line">    <span class="code-keyword">if</span> (descriptorTokens.length) {</span>
+<span class="code-line">      score += descriptorOverlap * <span class="code-number">50</span></span>
+<span class="code-line">      <span class="code-keyword">if</span> (descriptorOverlap === <span class="code-number">0</span>) score -= <span class="code-number">120</span></span>
+<span class="code-line">    }</span>
+<span class="code-line">    <span class="code-keyword">if</span> (requestsDub) {</span>
+<span class="code-line">      <span class="code-keyword">if</span> (isDubMatch) score += <span class="code-number">40</span></span>
+<span class="code-line">      <span class="code-keyword">else</span> score -= <span class="code-number">40</span></span>
+<span class="code-line">    } <span class="code-keyword">else</span> {</span>
+<span class="code-line">      <span class="code-keyword">if</span> (isDubMatch) score -= <span class="code-number">60</span></span>
+<span class="code-line">    }</span>
+<span class="code-line">    <span class="code-keyword">if</span> (score &gt; best) best = score</span>
+<span class="code-line">  }</span>
+<span class="code-line">  <span class="code-keyword">return</span> best</span>
+<span class="code-line">}</span>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>normalizeText()</strong> — strips punctuation and lowercases both titles so "Attack on Titan!" and "attack on titan" compare as equal.</div>
+              <div class="tl"><strong>descriptorTokens</strong> — keywords that distinguish a season or arc, like "Shippuden," "Final Season," or "Part 2." These must appear in the result too.</div>
+              <div class="tl"><strong>score += 200</strong> — exact title match. The gold standard. A perfect hit against any title in the AniList titles array wins outright.</div>
+              <div class="tl"><strong>score += 120</strong> — the result title starts with our search term. Common when a provider appends extra words like "Season 2."</div>
+              <div class="tl"><strong>score += 80</strong> — our term appears somewhere inside the result. Weaker signal but still valid.</div>
+              <div class="tl"><strong>descriptorOverlap * 50</strong> — each matching season/arc keyword adds 50 points. No overlap at all subtracts 120 — the result is probably a different arc entirely.</div>
+              <div class="tl"><strong>isDubMatch penalty -60</strong> — if the user did not ask for a dub and this result is a dub version, subtract 60 points. Subtitles are the default preference.</div>
+              <div class="tl"><strong>return best</strong> — the function runs across every title variant (English, romaji, synonyms) and returns the highest score achieved.</div>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Scoring callout -->
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">🎯</div>
+          <div class="callout-content">
+            <span class="callout-title">The Scoring System Is Critical</span>
+            <p>
+              "Naruto Shippuden" returns dozens of results on Gogoanime — dubbed versions, movies, wrong arcs.
+              Without scoring, a dubbed version or the wrong season could win silently. The point system ensures the closest title with the right audio track always comes out on top.
+            </p>
+          </div>
+        </div>
+
+        <!-- Score breakdown visual -->
+        <div class="animate-in" style="margin: var(--space-8) 0;">
+          <div style="
+            font-family: var(--font-display);
+            font-size: var(--text-sm);
+            font-weight: 700;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: var(--space-4);
+          ">Score Breakdown Example</div>
+          <div class="badge-list">
+            <div class="badge-item" style="border-color: var(--color-success);">
+              <span class="badge-code" style="color: #A6E3A1; min-width: 60px; text-align: center;">+200</span>
+              <span class="badge-desc">Exact title match — "Naruto: Shippuden" === "Naruto: Shippuden"</span>
+            </div>
+            <div class="badge-item" style="border-color: var(--color-success);">
+              <span class="badge-code" style="color: #A6E3A1; min-width: 60px; text-align: center;">+120</span>
+              <span class="badge-desc">Starts-with match — result is "Naruto Shippuden Season 2," request is "Naruto Shippuden"</span>
+            </div>
+            <div class="badge-item">
+              <span class="badge-code" style="color: #89B4FA; min-width: 60px; text-align: center;">+50</span>
+              <span class="badge-desc">Per matching descriptor
+              <span class="term" data-definition="A token is a single meaningful word or phrase extracted from a title. 'Shippuden', 'Final', 'Part 2' are tokens that help distinguish seasons from one another.">token</span>
+              — "Shippuden" appears in both request and result</span>
+            </div>
+            <div class="badge-item" style="border-color: var(--color-error);">
+              <span class="badge-code" style="color: #F38BA8; min-width: 60px; text-align: center;">-60</span>
+              <span class="badge-desc">Dub penalty — result is a dubbed version, but user requested subtitles</span>
+            </div>
+            <div class="badge-item" style="border-color: var(--color-error);">
+              <span class="badge-code" style="color: #F38BA8; min-width: 60px; text-align: center;">-120</span>
+              <span class="badge-desc">Zero descriptor overlap — result has no "Shippuden," likely a different arc entirely</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /screen 3 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 4 · Session-Aware Fetching + Group Chat
+           ═══════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+
+        <h2 class="screen-heading">Session-Aware Fetching</h2>
+
+        <p>
+          AnimePahe is a
+          <span class="term" data-definition="A provider in Nova Stream is a streaming source — a website that hosts anime episodes. Each provider has its own scraper, search logic, and stream resolution path.">provider</span>
+          that requires a live browser
+          <span class="term" data-definition="A session is a period of authenticated interaction with a server, maintained through a session cookie. Without a valid session, the server may return empty results or redirect to a login page.">session</span>
+          — it rejects requests that arrive without the right cookies.
+          Rust acts as a persistent browser, maintaining that session across every request for the same title.
+        </p>
+        <p>
+          If a
+          <span class="term" data-definition="A cookie is a small piece of data stored by the browser that identifies your session to a website. Some sites check for a valid cookie before serving content.">cookie</span>
+          expires mid-stream, the session manager detects the error, clears the stale session, and silently retries with a fresh one — up to three attempts.
+        </p>
+
+        <!-- Translation block — session fetch -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">animepahe.js</span>
+<span class="code-line"><span class="code-keyword">async function</span> <span class="code-function">fetchProviderTextWithSession</span>(</span>
+<span class="code-line">  url, headers = {}, method = <span class="code-string">'GET'</span>,</span>
+<span class="code-line">  body = <span class="code-keyword">null</span>,</span>
+<span class="code-line">  animeId = <span class="code-string">''</span>, preferredSessionId = <span class="code-keyword">null</span></span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">let</span> lastError = <span class="code-keyword">null</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">let</span> attempt = <span class="code-number">0</span>; attempt &lt; <span class="code-number">3</span>; attempt++) {</span>
+<span class="code-line">    <span class="code-keyword">const</span> useFreshSession = attempt &gt; <span class="code-number">0</span></span>
+<span class="code-line">    <span class="code-keyword">const</span> sessionId = useFreshSession</span>
+<span class="code-line">      ? <span class="code-keyword">null</span></span>
+<span class="code-line">      : <span class="code-function">resolveProviderSession</span>(animeId, preferredSessionId)</span>
+<span class="code-line">    <span class="code-keyword">try</span> {</span>
+<span class="code-line">      <span class="code-keyword">if</span> (useFreshSession)</span>
+<span class="code-line">        <span class="code-function">clearProviderSession</span>(animeId)</span>
+<span class="code-line">      <span class="code-keyword">const</span> result = <span class="code-keyword">await</span> <span class="code-function">invoke</span>(<span class="code-string">'fetch_anime_text_with_session'</span>, {</span>
+<span class="code-line">        url, headers: { ...BROWSER_HEADERS, ...headers },</span>
+<span class="code-line">        method, body, sessionId,</span>
+<span class="code-line">      })</span>
+<span class="code-line">      <span class="code-keyword">const</span> text = <span class="code-keyword">typeof</span> result?.text === <span class="code-string">'string'</span></span>
+<span class="code-line">        ? result.text : <span class="code-string">''</span></span>
+<span class="code-line">      <span class="code-keyword">const</span> nextSessionId =</span>
+<span class="code-line">        <span class="code-function">rememberProviderSession</span>(</span>
+<span class="code-line">          animeId, result?.sessionId || sessionId</span>
+<span class="code-line">        )</span>
+<span class="code-line">      <span class="code-keyword">return</span> { text, sessionId: nextSessionId }</span>
+<span class="code-line">    } <span class="code-keyword">catch</span> (error) {</span>
+<span class="code-line">      lastError = error</span>
+<span class="code-line">      <span class="code-keyword">if</span> (!<span class="code-function">isRetryableSessionError</span>(error)</span>
+<span class="code-line">          || attempt &gt;= <span class="code-number">2</span>) <span class="code-keyword">throw</span> error</span>
+<span class="code-line">    }</span>
+<span class="code-line">  }</span>
+<span class="code-line">  <span class="code-keyword">throw</span> lastError || <span class="code-keyword">new</span> Error(<span class="code-string">'AnimePahe session fetch failed'</span>)</span>
+<span class="code-line">}</span>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>animeId</strong> — the title being fetched. Used as the key to look up any existing session cookie for this anime.</div>
+              <div class="tl"><strong>attempt loop (0–2)</strong> — tries up to three times. First attempt reuses the cached session; later attempts start fresh if it expired.</div>
+              <div class="tl"><strong>useFreshSession</strong> — on retry, this is true. The old session is cleared so a brand-new cookie is obtained instead.</div>
+              <div class="tl"><strong>invoke('fetch_anime_text_with_session')</strong> — calls into Rust, which makes the actual HTTP request carrying the session cookie as a browser would.</div>
+              <div class="tl"><strong>BROWSER_HEADERS</strong> — standard browser headers (User-Agent, Accept, Referer). Without these, the server would reject the request as a bot.</div>
+              <div class="tl"><strong>rememberProviderSession()</strong> — saves the session ID returned by the server so the next request reuses it, avoiding repeated session warmup.</div>
+              <div class="tl"><strong>isRetryableSessionError()</strong> — checks if the error is a session expiry (worth retrying) versus a hard failure (not worth retrying).</div>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Rust session flow info boxes -->
+        <div class="icon-rows animate-in stagger-children">
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: rgba(217,79,48,0.1); color: var(--color-accent);">🦀</div>
+            <div>
+              <strong>Rust as the Browser</strong>
+              <p>Rust's
+              <span class="term" data-definition="reqwest is a popular HTTP client library for Rust. Nova Stream uses it in its async (tokio) form to make non-blocking web requests from the Tauri backend.">reqwest</span>
+              client maintains a per-provider cookie jar keyed on anime ID. It behaves like a real browser session, so AnimePahe servers accept its requests.</p>
+            </div>
+          </div>
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: rgba(212,168,67,0.1); color: var(--color-actor-4);">🔁</div>
+            <div>
+              <strong>Three-Attempt Retry</strong>
+              <p>Attempt 1 uses the cached session. If it fails with a retryable error, attempt 2 clears the cache and starts a fresh session. Attempt 3 is the final try before throwing the error up.</p>
+            </div>
+          </div>
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: rgba(45,139,85,0.1); color: var(--color-success);">💾</div>
+            <div>
+              <strong>Session Caching</strong>
+              <p>After a successful fetch, the new session ID is saved to an in-memory map keyed by anime ID. The next episode request for the same show reuses the warm session instantly.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Group chat — AnimePahe session flow -->
+        <h3 class="screen-heading animate-in" style="font-size: var(--text-xl); margin-top: var(--space-12);">
+          Live Example: AnimePahe Resolves Episode 5
+        </h3>
+
+        <div class="chat-window animate-in" id="chat-module4">
+          <div class="chat-messages">
+
+            <!-- Typing indicator -->
+            <div class="chat-typing" style="display:none;">
+              <div class="chat-avatar" id="chat-module4-typing-avatar" style="background: var(--color-actor-1);">AP</div>
+              <div class="chat-typing-dots">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+              </div>
+            </div>
+
+            <!-- Message 0 -->
+            <div class="chat-message" data-sender="anime-player" data-msg="0" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-1);">AP</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1);">AnimePlayer</span>
+                <p>Gogoanime failed for Episode 5 of Demon Slayer. Falling through to AnimePahe. Starting fresh — no provider stickiness carried over.</p>
+              </div>
+            </div>
+
+            <!-- Message 1 -->
+            <div class="chat-message" data-sender="animepahe-js" data-msg="1" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-3);">PA</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3);">AnimePahe.js</span>
+                <p>Warming a browser
+                <span class="term" data-definition="A session is a continuous interaction with a website identified by a cookie. AnimePahe requires a valid session before it will serve episode data.">session</span>
+                first. Checking for a cached session ID for this anime...</p>
+              </div>
+            </div>
+
+            <!-- Message 2 -->
+            <div class="chat-message" data-sender="rust" data-msg="2" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-accent);">Ru</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-accent);">Rust</span>
+                <p>No cached session found. Opening a fresh session at animepahe.si — sending BROWSER_HEADERS with proper User-Agent and Referer.</p>
+              </div>
+            </div>
+
+            <!-- Message 3 -->
+            <div class="chat-message" data-sender="animepahe-server" data-msg="3" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-4);">SV</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4);">AnimePahe Server</span>
+                <p>Session accepted. Here is the play page HTML for Demon Slayer Episode 5 — contains resolution option buttons and
+                <span class="term" data-definition="An embed is an external page — usually an iframe — that hosts the video player. The actual stream URL is often hidden inside the embed page's JavaScript, not in the parent HTML.">embed</span>
+                links.</p>
+              </div>
+            </div>
+
+            <!-- Message 4 -->
+            <div class="chat-message" data-sender="animepahe-js" data-msg="4" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-3);">PA</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3);">AnimePahe.js</span>
+                <p>Found 3 resolution options: 360p, 720p, 1080p. Resolving the 1080p embed URL. Passing session ID back to Rust for the next fetch.</p>
+              </div>
+            </div>
+
+            <!-- Message 5 -->
+            <div class="chat-message" data-sender="rust" data-msg="5" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-accent);">Ru</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-accent);">Rust</span>
+                <p>Fetched embed page using saved session cookie. Extracted direct
+                <span class="term" data-definition="An MP4 is a standard video container format. A direct MP4 URL points to the video file itself, making it simpler to play than an HLS stream that requires playlist parsing and segment assembly.">MP4</span>
+                stream URL from Kwik player response — no
+                <span class="term" data-definition="HLS (HTTP Live Streaming) is a protocol that splits video into small segments described by a playlist file (.m3u8). The player fetches and assembles segments in sequence.">HLS</span>
+                assembly needed.</p>
+              </div>
+            </div>
+
+            <!-- Message 6 -->
+            <div class="chat-message" data-sender="anime-player" data-msg="6" style="display:none;">
+              <div class="chat-avatar" style="background: var(--color-actor-1);">AP</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1);">AnimePlayer</span>
+                <p>Stream candidate validated. Direct MP4 preferred over HLS — passing to native player. Session cached for Episode 6 if needed.</p>
+              </div>
+            </div>
+
+          </div><!-- /chat-messages -->
+
+          <div class="chat-controls">
+            <button class="btn btn-primary chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Show All</button>
+            <button class="btn chat-reset-btn">Reset</button>
+            <span class="chat-progress">0 / 7 messages</span>
+          </div>
+        </div><!-- /chat-window -->
+
+        <!-- Final session management summary -->
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-8);">
+          <div class="callout-icon">🍪</div>
+          <div class="callout-content">
+            <span class="callout-title">Why This Works</span>
+            <p>
+              AnimePahe sees requests from Rust as an ordinary browser — proper headers, valid session cookie, realistic timing.
+              The session is cached per anime ID so warm-up cost is paid only once per title.
+              Expired sessions are silently healed with a fresh one, so the user never sees a cookie-related failure.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 4 -->
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
+</section>

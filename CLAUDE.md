@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.5.7
+Premium streaming desktop application (Tauri 2) - v1.5.8
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -25,6 +25,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Animation browse - grid layout
 - [x] Search overlay - debounced TMDB multi-search + AniList anime search, keyboard navigation, grouped Movies / Series / Anime results, and anime search routing through TMDB-matched anime detail flow
 - [x] Movie / Series / Animation player - native custom player using Nuvio resolver streams, Rust-backed manifest/segment fetching, custom controls, English subtitle toggle via Wyzie, and series episode navigation
+- [x] Download + offline playback system - Downloads/Library page, queueing, pause/resume/cancel/delete, configurable download location, real storage metrics, offline playback via local Rust media proxy, and persisted local subtitle sidecars
 - [x] Watchlist - localStorage-backed add/remove/check, responsive grid
 - [x] Watch history - auto-recorded on play, localStorage-backed
 - [x] Continue Watching - deduplicated episodic entries so each show displays only the latest watched episode
@@ -131,6 +132,42 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Embedded Nuvio runtime refresh now stops stale sidecar processes before retrying extraction, reducing Windows `os error 32` file-lock failures
 - Some individual titles can still fail because upstream provider links themselves are bad or non-playable; this is currently treated as a source-quality edge case, not an absorption failure
 
+## Downloads + Offline Playback
+- Downloads are first-class for Movies / Series / Animation / Anime through `src/pages/Downloads.jsx`, `src/store/useDownloadStore.js`, `src/lib/videoDownloads.js`, and `src/lib/animeDownloads.js`
+- The Downloads page is split into active `Downloads` and completed `Library` tabs, with storage summary, filter chips, row actions, and per-item offline entry points
+- Download actions are wired from `src/pages/Detail.jsx` and episode surfaces; completed items feed back into detail pages as offline-capable entries
+- Rust command surface for the feature lives in `src-tauri/src/main.rs` and includes:
+  - `start_video_download`
+  - `pause_video_download`
+  - `cancel_video_download`
+  - `delete_video_download`
+  - `get_downloads_storage_info`
+  - `get_download_location` / `set_download_location` / `reset_download_location`
+- Current download engine split:
+  - direct MP4-style downloads use Rust `reqwest` streaming with resume-aware progress updates
+  - HLS downloads use `N_m3u8DL-RE` as the primary downloader
+  - `ffmpeg` is not the primary downloader anymore; it is now kept for local validation, remux, and recovery only
+- HLS hardening now includes:
+  - preferred video/audio selector discovery for multi-track HLS streams
+  - per-download HLS log parsing so incomplete selected-track downloads fail instead of silently completing
+  - recovery rules that reject wrong-language, invalid, or obviously mismatched outputs
+  - completion metadata refresh so library size reflects the final file on disk
+- Offline playback path:
+  - `MoviePlayer.jsx`, `AnimePlayer.jsx`, and `SharedNativePlayer.jsx` support local playback
+  - local files are served through the Rust media proxy with byte-range support instead of direct raw file URLs
+  - offline playback should remain app-managed, not DRM
+- Offline subtitles are part of the shipped path, not optional polish:
+  - subtitle sidecars are saved beside the downloaded media and persisted in catalog state
+  - offline subtitle lookup uses local sidecars only and no longer treats audio `.ts` artifacts as subtitle files
+  - movie/series subtitle download prefers aligned English candidates and supports direct text, zip/gzip archives, and merged HLS subtitle playlists
+- Anime downloads are integrated into the same system and must remain provider-ordered:
+  - `gogoanime` primary
+  - `animepahe` fallback
+  - do not reintroduce `animekai`
+- AnimePahe now uses `animepahe.com` and browser-session-backed resolution where needed; normal direct network fetches may still fail in environments where AnimePahe is browser-only
+- Delete behavior is expected to remove both UI/catalog entries and related on-disk download artifacts; if you touch delete flows, preserve that invariant
+- Download location is user-configurable from Settings, with reset-to-default support and real disk usage reporting
+
 ## Release Workflow
 1. Update changelog in `src/pages/Settings.jsx`
 2. Run the release script:
@@ -180,6 +217,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.5.8 - Ship downloads and offline playback with anime support, hardened HLS downloads, AnimePahe fallback fixes, configurable storage, and working offline subtitles
 - v1.5.7 - Fix anime Continue Watching cards so they route with anime identity and load episode/season data correctly on detail pages
 - v1.5.6 - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup against Windows file-lock failures
 - v1.5.5 - Update Mac release helper packaging and fix Anime + Search behavior

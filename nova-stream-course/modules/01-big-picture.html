@@ -1,0 +1,398 @@
+<section class="module" id="module-1" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <!-- ─── MODULE HEADER ─────────────────────────────────────────────────── -->
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">The Big Picture</h1>
+      <p class="module-subtitle">What Nova Stream is, how it&rsquo;s built, and what happens when you press Play</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 1 — What is Nova Stream?
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-24)">
+
+        <div class="callout callout-accent animate-in" style="margin-bottom: var(--space-8)">
+          <div class="callout-icon">🚀</div>
+          <div class="callout-content">
+            <strong class="callout-title">Opening Hook</strong>
+            <p>You just pressed Play on a movie. In the next 3 seconds, 4 completely different systems fired up &mdash; a
+              <span class="term" data-tooltip="The JavaScript library that draws every button, card, and page on screen.">React</span>
+              UI, a
+              <span class="term" data-tooltip="The desktop framework that wraps the React app in a real Windows/macOS executable.">Tauri</span>
+              shell, a
+              <span class="term" data-tooltip="A systems programming language that handles heavy lifting — fetching streams, downloading updates, and bypassing browser restrictions — running as a native process on your computer.">Rust</span>
+              engine, and a local streaming server. Here&rsquo;s how they all work together.</p>
+          </div>
+        </div>
+
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          What is Nova Stream?
+        </h2>
+
+        <p class="animate-in" style="font-size: var(--text-lg); line-height: var(--leading-loose); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 680px;">
+          Nova Stream is a <strong style="color: var(--color-text)">premium streaming desktop application</strong> for Windows and macOS. It looks and feels like Netflix, but runs as a native app installed on your computer. You browse, you press Play, and a video starts &mdash; no browser tab, no Flash plugin, no web dependency.
+        </p>
+
+        <!-- 4 Content Type Cards -->
+        <div class="pattern-cards animate-in">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">🎬</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Movies</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Browse, search, and watch feature films. Streams are resolved on the fly by a local server running on your machine, not a remote CDN.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">📺</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Series</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Full episode navigation, season switching, and a resume system that remembers exactly where you left off — per episode, not just per show.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">⛩️</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Anime</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Powered by
+              <span class="term" data-tooltip="AniList is an anime and manga database that Nova Stream uses as the source of truth for anime identity, metadata, and discovery — instead of TMDB.">AniList</span>
+              with its own separate playback engine and scraping logic that&rsquo;s isolated from the movie/series path.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4); width: 40px; height: 40px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-3);">✨</div>
+            <h4 class="pattern-title" style="font-family: var(--font-display); font-weight: 700; margin-bottom: var(--space-2);">Animation</h4>
+            <p class="pattern-desc" style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Uses the same stream resolver as movies but with a tuned provider preference so it doesn&rsquo;t compete with movie-specific fast paths.</p>
+          </div>
+        </div>
+
+        <!-- What makes it NOT a website -->
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-10)">
+          <div class="callout-icon">💻</div>
+          <div class="callout-content">
+            <strong class="callout-title">It&rsquo;s a real app, not a website</strong>
+            <p>Nova Stream can access your file system, run native code, download updates silently, and make network requests that a web browser would refuse. This is the key difference &mdash; and it changes everything about how it&rsquo;s built.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 2 — Three Layers of the App
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-24)">
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          Three Layers of the App
+        </h2>
+        <p class="animate-in" style="font-size: var(--text-base); line-height: var(--leading-normal); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 660px;">
+          Think of it like a spaceship. The cockpit (React) is what the pilot touches. Mission control (Tauri) is the bridge that makes the ship real. The engines (Rust) do the propulsion no human could do by hand.
+        </p>
+
+        <!-- Layer diagram -->
+        <div class="animate-in" style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-10);">
+
+          <!-- Layer 1: React -->
+          <div style="background: linear-gradient(135deg, #FDEEE9 0%, #FDF9F3 100%); border: 2px solid var(--color-actor-1); border-radius: var(--radius-lg); padding: var(--space-6); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: var(--space-3); right: var(--space-4); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-actor-1); opacity: 0.6;">Layer 1 — What You See</div>
+            <div style="display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3);">
+              <div style="width: 48px; height: 48px; background: var(--color-actor-1); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">🎨</div>
+              <div>
+                <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--color-actor-1); margin-bottom: var(--space-1);">
+                  <span class="term" data-tooltip="React is a JavaScript library for building user interfaces. It re-draws only the parts of the screen that change, which makes interfaces feel fast and responsive.">React</span>
+                  +
+                  <span class="term" data-tooltip="Zustand is a tiny state management library. Think of it as a shared whiteboard that every component can read and write. When the whiteboard changes, every component that reads it updates automatically.">Zustand</span>
+                  +
+                  <span class="term" data-tooltip="Framer Motion is an animation library for React. It makes UI elements smoothly slide, fade, and scale instead of snapping around.">Framer Motion</span>
+                </h3>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Every button, card, sidebar, player control, and page you see. React draws the UI. Zustand remembers state (watchlist, theme, search open/closed). Framer Motion makes it move smoothly.</p>
+              </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: var(--space-2);">
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">Pages (Home, Detail, Movies…)</span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">Components (Sidebar, Player, Search)</span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">Zustand Stores</span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">
+                <span class="term" data-tooltip="Vite is the build tool that bundles all JavaScript files into a single fast package. Think of it as a film processing lab: it takes raw footage (source files) and produces a polished reel (the app bundle).">Vite</span>
+                build system
+              </span>
+              <span style="background: var(--color-actor-1); color: white; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full);">
+                <span class="term" data-tooltip="TailwindCSS is a styling framework that provides hundreds of utility CSS classes. Instead of writing .big-red-button { font-size: 18px; color: red; }, you just write class='text-lg text-red-500'.">TailwindCSS</span>
+                styles
+              </span>
+            </div>
+          </div>
+
+          <!-- Bridge arrow -->
+          <div style="display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-2) 0;">
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, transparent, var(--color-border))"></div>
+            <div style="background: var(--color-bg-code); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: var(--space-2) var(--space-4); border-radius: var(--radius-full); white-space: nowrap; box-shadow: var(--shadow-md);">
+              ⚡ invoke() — the magic border
+            </div>
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, var(--color-border), transparent)"></div>
+          </div>
+
+          <!-- Layer 2: Tauri Bridge -->
+          <div style="background: linear-gradient(135deg, #F0F7FB 0%, #E4F2F7 100%); border: 2px solid var(--color-actor-2); border-radius: var(--radius-lg); padding: var(--space-6); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: var(--space-3); right: var(--space-4); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-actor-2); opacity: 0.6;">Layer 2 — The Bridge</div>
+            <div style="display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3);">
+              <div style="width: 48px; height: 48px; background: var(--color-actor-2); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">🌉</div>
+              <div>
+                <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--color-actor-2); margin-bottom: var(--space-1);">
+                  <span class="term" data-tooltip="Tauri is a framework for building desktop apps. It renders your React UI in the operating system's native webview (like a built-in browser), while also opening a direct channel into Rust code running natively on your machine.">Tauri 2</span>
+                  Bridge
+                </h3>
+                <p style="font-size: var(--text-sm); color: var(--color-text-secondary); line-height: var(--leading-normal);">Wraps React in a real Windows/macOS app window. Most importantly, it opens a two-way channel — called
+                  <span class="term" data-tooltip="invoke() is the Tauri function that React calls to execute Rust code. It's like calling a coworker in a different office: you send them a task name and some arguments, and eventually they send back a result.">invoke()</span>
+                  — that lets JavaScript call Rust functions as if they were just regular code.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bridge arrow 2 -->
+          <div style="display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-2) 0;">
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, transparent, var(--color-border))"></div>
+            <div style="background: var(--color-bg-code); color: #A6E3A1; font-family: var(--font-mono); font-size: var(--text-xs); padding: var(--space-2) var(--space-4); border-radius: var(--radius-full); white-space: nowrap; box-shadow: var(--shadow-md);">
+              🔧 native OS calls &amp; file access
+            </div>
+            <div style="height: 2px; flex: 1; background: linear-gradient(90deg, var(--color-border), transparent)"></div>
+          </div>
+
+          <!-- Layer 3: Rust -->
+          <div style="background: linear-gradient(135deg, #1E1E2E 0%, #2A2A3E 100%); border: 2px solid #7B6DAA; border-radius: var(--radius-lg); padding: var(--space-6); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: var(--space-3); right: var(--space-4); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: #CBA6F7; opacity: 0.6;">Layer 3 — The Engine</div>
+            <div style="display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3);">
+              <div style="width: 48px; height: 48px; background: var(--color-actor-3); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">⚙️</div>
+              <div>
+                <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: #CBA6F7; margin-bottom: var(--space-1);">
+                  <span class="term" data-tooltip="Rust is a systems programming language that compiles to native machine code. It's blazing fast, memory-safe, and can do things a browser tab cannot — like managing files, making raw network requests, or spawning background processes.">Rust</span>
+                  Engine
+                </h3>
+                <p style="font-size: var(--text-sm); color: #BAB0C4; line-height: var(--leading-normal);">Does the heavy lifting that a browser literally cannot: fetches video streams that block web requests, downloads 50MB updates without freezing the UI, manages scraping sessions, and runs the
+                  <span class="term" data-tooltip="A sidecar is a helper process that runs alongside the main app. Nova Stream runs a local Nuvio server as a sidecar at port 7779 — it's a mini streaming resolver that the Rust engine talks to.">Nuvio sidecar</span>
+                  server.</p>
+              </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: var(--space-2);">
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Stream resolver</span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">
+                <span class="term" data-tooltip="HLS (HTTP Live Streaming) is the video format used for most modern streaming. Instead of one giant file, HLS breaks a video into tiny .ts segments and serves them through a playlist file (.m3u8). Rust fetches and proxies these because browsers often block them due to CORS rules.">HLS</span>
+                manifest fetcher
+              </span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Update downloader</span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Session manager</span>
+              <span style="background: rgba(123,109,170,0.3); color: #CBA6F7; font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid rgba(123,109,170,0.4);">Nuvio sidecar manager</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- "Why Rust?" callout -->
+        <div class="callout callout-info animate-in">
+          <div class="callout-icon">🔩</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why Rust? The honest answer.</strong>
+            <p>Some things — like grabbing a video stream that blocks browsers, or downloading a 50MB update without freezing the UI — need to run in a native process, not inside a web tab. Rust is the language that makes that possible while keeping the app safe and fast.
+              <span class="term" data-tooltip="CORS (Cross-Origin Resource Sharing) is a browser security rule that blocks JavaScript from fetching resources from different domains unless the server explicitly allows it. Rust bypasses CORS entirely because it's not a browser.">CORS</span>
+              restrictions that would stop a web app cold are completely irrelevant to Rust.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 3 — The "Press Play" Flow Animation
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-24)">
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          What Happens When You Press Play?
+        </h2>
+        <p class="animate-in" style="font-size: var(--text-base); line-height: var(--leading-normal); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 660px;">
+          Six actors, three seconds, one video. Step through this animation to see how React, Rust, and the Nuvio sidecar hand off control to get a stream on screen.
+        </p>
+
+        <div class="flow-animation animate-in" data-steps='[
+          {"highlight":"flow-actor-1","label":"You click Play on the Detail page. React detects the click."},
+          {"highlight":"flow-actor-2","label":"React calls getMovieStreams() in movieStreams.js — a helper that knows how to talk to Rust.","packet":true,"from":"1","to":"2"},
+          {"highlight":"flow-actor-3","label":"movieStreams.js calls invoke(&apos;fetch_movie_resolver_streams&apos;) — crossing the Tauri bridge from JavaScript into Rust.","packet":true,"from":"2","to":"3"},
+          {"highlight":"flow-actor-4","label":"Rust checks if the Nuvio sidecar is running at port 7779. If not, it starts it silently in the background.","packet":true,"from":"3","to":"4"},
+          {"highlight":"flow-actor-5","label":"The Nuvio sidecar queries its provider network. Rust validates the returned URLs — rejecting junk, HTML pages, and dead links.","packet":true,"from":"4","to":"5"},
+          {"highlight":"flow-actor-3","label":"Rust returns the best validated stream URL back across the Tauri bridge to React.","packet":true,"from":"5","to":"3"},
+          {"highlight":"flow-actor-1","label":"React opens MoviePlayer.jsx with the stream URL. You see the video.","packet":true,"from":"3","to":"1"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon" style="background: var(--color-actor-1); color: white;">UI</div>
+              <span>React UI</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon" style="background: var(--color-actor-4); color: white;">JS</div>
+              <span>movieStreams.js</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon" style="background: var(--color-actor-3); color: white;">⚙</div>
+              <span>Rust Engine</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon" style="background: var(--color-actor-5); color: white;">🖥</div>
+              <span>Nuvio Sidecar</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-5">
+              <div class="flow-actor-icon" style="background: var(--color-actor-2); color: white;">🌐</div>
+              <span>Video Host</span>
+            </div>
+          </div>
+
+          <div class="flow-packet" id="flow-packet"></div>
+          <div class="flow-step-label" id="flow-label">Click &ldquo;Next Step&rdquo; to trace the journey of a single Play click.</div>
+
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+
+        <!-- Code translation of the invoke() call -->
+        <div class="translation-block animate-in" style="margin-top: var(--space-8)">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code>
+<span class="code-line"><span class="code-comment">// src/lib/movieStreams.js</span></span>
+<span class="code-line"><span class="code-keyword">const</span> streams = <span class="code-keyword">await</span> <span class="code-function">invoke</span>(</span>
+<span class="code-line">  <span class="code-string">&apos;fetch_movie_resolver_streams&apos;</span>,</span>
+<span class="code-line">  {</span>
+<span class="code-line">    <span class="code-property">tmdb_id</span>: <span class="code-string">&apos;27205&apos;</span>,</span>
+<span class="code-line">    <span class="code-property">media_type</span>: <span class="code-string">&apos;movie&apos;</span></span>
+<span class="code-line">  }</span>
+<span class="code-line">);</span>
+            </code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label" style="position: relative; top: auto; right: auto; display: block; margin-bottom: var(--space-3);">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl" style="font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: var(--space-2);">Cross the bridge — hand this task off from JavaScript to the Rust engine.</p>
+              <p class="tl" style="font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: var(--space-2);">Tell Rust which Rust function to run: the stream resolver.</p>
+              <p class="tl" style="font-size: var(--color-accent); font-weight: 600; font-size: var(--text-sm); margin-bottom: var(--space-2);">Pass along the movie&rsquo;s ID number from
+                <span class="term" data-tooltip="TMDB (The Movie Database) is the external API Nova Stream uses as the source of truth for movie and series metadata — posters, titles, cast, trailers, and more.">TMDB</span>
+                &mdash; so Rust knows exactly which movie to find a stream for.</p>
+              <p class="tl" style="font-size: var(--text-sm); color: var(--color-text-secondary);">Rust goes to work. React waits. When Rust returns a URL, the player opens.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SCREEN 4 — Group Chat: React Meets Rust
+           ═══════════════════════════════════════════════════════════════════ -->
+      <div class="module-screen animate-in" style="margin-bottom: var(--space-16)">
+        <h2 class="screen-heading animate-in" style="font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--space-4); color: var(--color-text);">
+          React Meets Rust — The Group Chat
+        </h2>
+        <p class="animate-in" style="font-size: var(--text-base); line-height: var(--leading-normal); color: var(--color-text-secondary); margin-bottom: var(--space-8); max-width: 660px;">
+          Every time you press Play, this conversation happens invisibly in milliseconds. Here it is, translated into something more familiar.
+        </p>
+
+        <div class="chat-window" id="chat-module1">
+          <div class="chat-messages">
+
+            <!-- msg 0: React -->
+            <div class="chat-message" data-msg="0" data-sender="actor-1" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1); color: white; font-weight: 700;">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React UI</span>
+                <p>Hey Rust, the user just clicked Play. I need a stream URL for
+                  <span class="term" data-tooltip="TMDB ID 27205 is the database entry for a movie in The Movie Database. Nova Stream uses these numeric IDs to look up stream sources.">TMDB ID 27205</span>
+                  (movie).</p>
+              </div>
+            </div>
+
+            <!-- msg 1: Rust -->
+            <div class="chat-message" data-msg="1" data-sender="actor-2" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-3); color: white; font-weight: 700;">Rs</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3)">Rust Engine</span>
+                <p>On it. First let me convert that to an
+                  <span class="term" data-tooltip="An IMDb ID is the identifier used by the Internet Movie Database (e.g., tt0816692). Many streaming providers use IMDb IDs instead of TMDB IDs, so Nova Stream converts between them when needed.">IMDb ID</span>
+                  , then I&apos;ll check if Nuvio is running...</p>
+              </div>
+            </div>
+
+            <!-- msg 2: Nuvio -->
+            <div class="chat-message" data-msg="2" data-sender="actor-3" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5); color: white; font-weight: 700;">N</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Nuvio Sidecar</span>
+                <p>Already up at port 7779. Querying providers now — trying Vixsrc first, then MoviesMod as fallback...</p>
+              </div>
+            </div>
+
+            <!-- msg 3: Nuvio result -->
+            <div class="chat-message" data-msg="3" data-sender="actor-3" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5); color: white; font-weight: 700;">N</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Nuvio Sidecar</span>
+                <p>Found a valid
+                  <span class="term" data-tooltip="HLS (HTTP Live Streaming) is a video delivery format that breaks a video into tiny segments served from a playlist file. It allows adaptive quality, live streaming, and easier CDN delivery.">HLS</span>
+                  stream from Vixsrc. Sending you the
+                  <span class="term" data-tooltip="An m3u8 file is the playlist file for HLS video. It lists all the tiny video segments in order so the player knows what to download next.">m3u8</span>
+                  manifest URL.</p>
+              </div>
+            </div>
+
+            <!-- msg 4: Rust validates -->
+            <div class="chat-message" data-msg="4" data-sender="actor-2" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-3); color: white; font-weight: 700;">Rs</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3)">Rust Engine</span>
+                <p>Validated. Not an opaque token, not HTML, not a dead link. The URL checks out. Sending it back to React now.</p>
+              </div>
+            </div>
+
+            <!-- msg 5: React opens player -->
+            <div class="chat-message" data-msg="5" data-sender="actor-1" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1); color: white; font-weight: 700;">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React UI</span>
+                <p>Got it. Opening MoviePlayer.jsx with that stream URL. The user is watching now. Total time: ~2 seconds.</p>
+              </div>
+            </div>
+
+          </div><!-- end .chat-messages -->
+
+          <!-- Typing indicator -->
+          <div class="chat-typing" id="chat-module1-typing" style="display:none">
+            <div class="chat-avatar" id="chat-module1-typing-avatar" style="background: var(--color-actor-3); color: white; font-weight: 700;">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div><!-- end .chat-window -->
+
+        <!-- Architecture overview callout -->
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-8)">
+          <div class="callout-icon">🌐</div>
+          <div class="callout-content">
+            <strong class="callout-title">External services in the picture</strong>
+            <p>Nova Stream also calls out to four external services:
+              <span class="term" data-tooltip="TMDB (The Movie Database) — the API that provides all movie/series metadata: posters, descriptions, cast, trailers, and genre info.">TMDB</span>
+              for movie metadata,
+              <span class="term" data-tooltip="AniList is an anime and manga database API. Nova Stream uses it for anime discovery, search, and identity — separate from the TMDB path.">AniList</span>
+              for anime data,
+              <span class="term" data-tooltip="The Nuvio sidecar is a local server that Nova Stream launches on your machine at port 7779. It talks to external streaming providers to find valid video URLs for movies and series.">Nuvio</span>
+              for stream resolution, and
+              <span class="term" data-tooltip="Supabase is a cloud database service. Nova Stream uses it optionally — if you create an account, your watchlist, history, progress, and theme settings are synced to Supabase so they work across devices.">Supabase</span>
+              for optional user account sync. The app works without an account; Supabase is only used when you sign in.</p>
+          </div>
+        </div>
+
+      </div><!-- end Screen 4 -->
+
+    </div><!-- end .module-body -->
+  </div><!-- end .module-content -->
+</section>

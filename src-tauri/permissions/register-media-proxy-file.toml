@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-register-media-proxy-file"
+description = "Allow registering managed local media files for proxy playback"
+commands.allow = ["register_media_proxy_file"]

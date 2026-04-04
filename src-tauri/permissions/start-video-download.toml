@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-start-video-download"
+description = "Allows the app to queue and start media downloads through the Rust command."
+commands.allow = ["start_video_download"]

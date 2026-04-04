@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { resolveAnimeProviderStates } from './animeAddons/resolveAnimeStreams'
 
 export const ANIWATCH_BASE_URL = 'https://web-production-f746c.up.railway.app'
 
@@ -217,11 +218,34 @@ export async function getAnimeEpisodes(animeId, provider = 'animekai', { fresh =
     data.data?.results?.episodes ||
     []
 
-  const episodes = rawEpisodes.map((ep, index) => ({
+  const normalizedEpisodes = rawEpisodes.map((ep, index) => ({
     episodeId: ep.session || ep.id || ep.episodeId,
     number: Number(ep.number ?? ep.episode ?? ep.ep ?? index + 1),
     title: ep.title || `Episode ${Number(ep.number ?? ep.episode ?? ep.ep ?? index + 1)}`,
   }))
+
+  const episodeNumbers = normalizedEpisodes
+    .map((episode) => Number(episode.number || 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+  const minEpisode = episodeNumbers.length ? Math.min(...episodeNumbers) : 0
+  const maxEpisode = episodeNumbers.length ? Math.max(...episodeNumbers) : 0
+  const isContiguousOffsetRange =
+    episodeNumbers.length > 0 &&
+    minEpisode > 1 &&
+    maxEpisode - minEpisode + 1 === normalizedEpisodes.length
+
+  const episodes = normalizedEpisodes.map((episode, index) => {
+    if (!isContiguousOffsetRange) {
+      return episode
+    }
+
+    return {
+      ...episode,
+      number: index + 1,
+      title: episode.title || `Episode ${index + 1}`,
+      absoluteEpisodeNumber: Number(episode.number || 0),
+    }
+  })
 
   animeEpisodesCache.set(cacheKey, episodes)
   return episodes
@@ -281,19 +305,28 @@ export async function getAnimeStream(episodeId, provider = 'animekai') {
 
 export async function preloadAnimePlayback(...titles) {
   const candidateTitles = titles.flat().filter(Boolean)
-  const provider = 'animekai'
-  const { anime, matchedTitle } = await resolveAnimeSearch(candidateTitles, provider)
+  try {
+    const states = await resolveAnimeProviderStates({ titles: candidateTitles })
+    const preferred = Array.isArray(states)
+      ? states.find((state) => Array.isArray(state?.episodes) && state.episodes.length > 0)
+      : null
 
-  if (!anime?.id) return null
+    if (!preferred?.animeId) {
+      return null
+    }
 
-  const episodes = await getAnimeEpisodes(anime.id, provider)
-
-  return {
-    providerId: provider,
-    animeId: anime.id,
-    episodes,
-    matchedTitle,
-    anime,
+    return {
+      providerId: preferred.providerId || '',
+      animeId: preferred.animeId,
+      episodes: Array.isArray(preferred.episodes) ? preferred.episodes : [],
+      matchedTitle: preferred.matchedTitle || candidateTitles[0] || '',
+      anime: preferred.anime || {
+        id: preferred.animeId,
+        title: preferred.title || candidateTitles[0] || '',
+      },
+    }
+  } catch {
+    return null
   }
 }
 

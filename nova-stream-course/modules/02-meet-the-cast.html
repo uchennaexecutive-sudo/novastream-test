@@ -1,0 +1,618 @@
+<section class="module" id="module-2" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ─────────────────────────────────────────────── -->
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Meet the Cast</h1>
+      <p class="module-subtitle">Every file, every actor, and exactly what job they do</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 1 — The Production Crew
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Your production crew</h2>
+
+        <p>
+          Before you can direct a film production, you need to know who does what.
+          Same here — Nova Stream has about 15 key "characters", each with a very
+          specific job. Knowing them means you can tell an AI assistant
+          <em>exactly</em> where to make changes instead of hoping it guesses right.
+        </p>
+        <p>
+          Think of the codebase as a film set. Every department has a clear role
+          and nobody steps on anyone else's toes.
+        </p>
+
+        <!-- 5-category crew cards -->
+        <div class="pattern-cards stagger-children" style="margin-top: var(--space-8)">
+
+          <!-- Pages -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-1)">
+            <div class="pattern-icon" style="background: rgba(217,79,48,0.1)">🎬</div>
+            <div class="pattern-title" style="color: var(--color-actor-1)">Pages</div>
+            <p class="pattern-desc">
+              The <strong>sets</strong> — full-screen views the user navigates between.
+              Each page is one React component in <code>src/pages/</code>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>Home.jsx</code>, <code>Detail.jsx</code>
+            </p>
+          </div>
+
+          <!-- Components -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-2)">
+            <div class="pattern-icon" style="background: rgba(42,123,155,0.1)">🎭</div>
+            <div class="pattern-title" style="color: var(--color-actor-2)">Components</div>
+            <p class="pattern-desc">
+              The <strong>props &amp; costumes</strong> — reusable UI pieces that
+              appear across multiple pages. Live in <code>src/components/</code>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>MoviePlayer.jsx</code>, <code>Sidebar.jsx</code>
+            </p>
+          </div>
+
+          <!-- Stores -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-3)">
+            <div class="pattern-icon" style="background: rgba(123,109,170,0.1)">📓</div>
+            <div class="pattern-title" style="color: var(--color-actor-3)">Stores</div>
+            <p class="pattern-desc">
+              The <strong>production diary</strong> — the app's shared memory.
+              Any page can read or update these.
+              Powered by <span class="term" data-definition="Zustand is a tiny state-management library for React. Instead of passing data through layers of components, any component can read and update a shared 'store' object directly.">Zustand</span>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>useAppStore.js</code>, <code>useAuthStore.js</code>
+            </p>
+          </div>
+
+          <!-- Lib -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-4)">
+            <div class="pattern-icon" style="background: rgba(212,168,67,0.1)">🔬</div>
+            <div class="pattern-title" style="color: var(--color-actor-4)">Lib</div>
+            <p class="pattern-desc">
+              The <strong>specialist consultants</strong> — helper files that talk
+              to external services. One file per service in <code>src/lib/</code>.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              e.g. <code>tmdb.js</code>, <code>anilist.js</code>, <code>progress.js</code>
+            </p>
+          </div>
+
+          <!-- Rust -->
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-actor-2)">
+            <div class="pattern-icon" style="background: rgba(42,123,155,0.1)">⚙️</div>
+            <div class="pattern-title" style="color: var(--color-actor-2)">Rust Commands</div>
+            <p class="pattern-desc">
+              The <strong>special effects department</strong> — does things JavaScript
+              cannot: bypassing <span class="term" data-definition="CORS (Cross-Origin Resource Sharing) is a browser security rule that blocks JavaScript from fetching data from a different domain than the webpage. Rust runs outside the browser, so it is exempt.">CORS</span>,
+              opening hidden browser windows, streaming files to disk.
+            </p>
+            <p class="pattern-desc" style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted)">
+              All live in <code>src-tauri/src/main.rs</code>
+            </p>
+          </div>
+
+        </div><!-- /pattern-cards -->
+
+        <!-- The one-file-one-job callout -->
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-8)">
+          <span class="callout-icon">💡</span>
+          <div class="callout-content">
+            <span class="callout-title">The golden rule: one file, one job</span>
+            <p>
+              <code>tmdb.js</code> only talks to TMDB. <code>MoviePlayer.jsx</code> only
+              renders the player. <code>useAppStore.js</code> only manages app-level state.
+              This means when something breaks, you know which file to open.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 1 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 2 — Visual File Tree
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The full cast list</h2>
+        <p>
+          Every key file, organised by department. Hover a filename to see its one-line job description.
+        </p>
+
+        <!-- Styled file-tree with tooltips inline -->
+        <div style="
+          background: var(--color-surface);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-md);
+          padding: var(--space-6) var(--space-8);
+          margin: var(--space-6) 0;
+          overflow-x: auto;
+        ">
+
+          <!-- Pages -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(217,79,48,0.1);
+                color: var(--color-actor-1);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">🎬 Pages — src/pages/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">Home.jsx</span>
+                <span class="badge-desc">Hero carousel (5 trending, 8s auto-advance) + 9 content rows including Continue Watching</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Detail.jsx</span>
+                <span class="badge-desc">Title detail page: backdrop, poster, cast, trailer, episode selector, similar titles — and the anime vs movie branching logic</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Movies.jsx</span>
+                <span class="badge-desc">Genre-filtered paginated grid of movies from <span class="term" data-definition="TMDB (The Movie Database) is the API Nova Stream uses to fetch movie and TV metadata: posters, cast, trailers, and search results.">TMDB</span></span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Series.jsx</span>
+                <span class="badge-desc">Same layout as Movies.jsx but shows TV series instead</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Anime.jsx</span>
+                <span class="badge-desc"><span class="term" data-definition="AniList is a GraphQL API that provides anime metadata, browse lists, and search. Nova Stream uses AniList for all anime discovery and identity — not TMDB.">AniList</span>-powered browse with Trending / Popular / Top Rated tabs, genre filters, and infinite scroll</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Animation.jsx</span>
+                <span class="badge-desc">Animation films browse — uses the same resolver path as movies</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Watchlist.jsx</span>
+                <span class="badge-desc">Saved titles grid — backed by <span class="term" data-definition="localStorage is a browser/WebView storage API that persists data across sessions on the same device. Nova Stream uses it as the guest-tier storage layer, with Supabase cloud as the signed-in tier.">localStorage</span> for guests, <span class="term" data-definition="Supabase is Nova Stream's cloud backend — an open-source Firebase alternative. It provides a Postgres database, real-time sync, and authentication.">Supabase</span> cloud when signed in</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Settings.jsx</span>
+                <span class="badge-desc">Theme picker, playback preferences, update status with live download progress bar</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Profile.jsx</span>
+                <span class="badge-desc">Avatar, inline username edit, watch stats, change password, sign out</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Auth.jsx</span>
+                <span class="badge-desc">Sign up / sign in / forgot password — animated cinematic background, frictionless onboarding</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Components -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(42,123,155,0.1);
+                color: var(--color-actor-2);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">🎭 Components — src/components/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">Layout/Sidebar.jsx</span>
+                <span class="badge-desc">Collapses to 72px, expands to 240px on hover. Shows avatar if signed in, "Sign in" button if guest.</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Layout/TopBar.jsx</span>
+                <span class="badge-desc">Full-width top bar with search icon and the window drag region</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Layout/TitleBar.jsx</span>
+                <span class="badge-desc">Custom overlay minimize / maximize / close buttons — needed because the OS window chrome is hidden (<code>decorations: false</code>)</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Player/MoviePlayer.jsx</span>
+                <span class="badge-desc">Native video player for movies, series, and animation. Custom controls, subtitle toggle, auto-fallback to next stream if current one fails.</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Player/AnimePlayer.jsx</span>
+                <span class="badge-desc">Separate native player for anime — same controls but sources come from Gogoanime / AnimePahe providers</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">Search/SearchOverlay.jsx</span>
+                <span class="badge-desc">Debounced TMDB + AniList multi-search with grouped results (Movies / Series / Anime) and keyboard navigation</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stores -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(123,109,170,0.1);
+                color: var(--color-actor-3);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">📓 Stores — src/store/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">useAppStore.js</span>
+                <span class="badge-desc">Theme, playback preferences, sidebar state, search open/closed, update state (checking / downloading / ready), download progress 0–100</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">useAuthStore.js</span>
+                <span class="badge-desc">Current user, session, profile, auth loading state. Methods: init(), signUp(), signIn(), signOut(), updateProfile()</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">useDownloadStore.js</span>
+                <span class="badge-desc">Video download queue, per-download progress, and device storage info</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Lib -->
+          <div style="margin-bottom: var(--space-6)">
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(212,168,67,0.1);
+                color: var(--color-actor-4);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">🔬 Lib — src/lib/</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">tmdb.js</span>
+                <span class="badge-desc">Queries The Movie Database API for movie/series metadata, cast, trailers, and search results</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">anilist.js</span>
+                <span class="badge-desc">Queries the <span class="term" data-definition="GraphQL is an API query language where you describe exactly what data you want in your request, instead of getting a fixed blob back. AniList's entire API is GraphQL.">AniList GraphQL</span> API for anime browse, search, and identity. Includes retry logic for rate limits.</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">animeMapper.js</span>
+                <span class="badge-desc">Separates seasonal anime from long-running shows like One Piece, and groups extras into Movies / OVA / ONA / Specials</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">supabase.js</span>
+                <span class="badge-desc">Watchlist / history / progress read-write with <span class="term" data-definition="Write-through sync means every local write (add to watchlist, save progress) is also immediately sent to the cloud database. No separate 'upload' step — the cloud is always current.">write-through sync</span> to Supabase cloud</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">progress.js</span>
+                <span class="badge-desc">Saves and loads the video playback position — localStorage for guests, Supabase when signed in</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">movieStreams.js</span>
+                <span class="badge-desc">Thin wrapper that calls the Rust command <code>fetch_movie_resolver_streams</code> via <span class="term" data-definition="invoke() is the Tauri bridge function — it lets JavaScript call a named Rust function as if it were an async JavaScript function. The call crosses from the browser layer into native code.">invoke()</span></span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">sessionCache.js</span>
+                <span class="badge-desc">In-memory cache so navigating back to a page feels instant — no re-fetch needed</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Rust -->
+          <div>
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: var(--space-3);
+              padding-bottom: var(--space-3);
+              border-bottom: 1px solid var(--color-border-light);
+              margin-bottom: var(--space-4);
+            ">
+              <span style="
+                background: rgba(42,123,155,0.1);
+                color: var(--color-actor-2);
+                font-family: var(--font-mono);
+                font-size: var(--text-xs);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                padding: var(--space-1) var(--space-3);
+                border-radius: var(--radius-full);
+              ">⚙️ Rust — src-tauri/src/main.rs</span>
+            </div>
+            <div class="badge-list stagger-children">
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_movie_resolver_streams</span>
+                <span class="badge-desc">Queries the Nuvio <span class="term" data-definition="A sidecar is a small helper process that runs alongside the main app. Nova Stream ships a local Node.js server (Nuvio) as a sidecar — the main app starts it in the background and queries it for stream URLs.">sidecar</span> for stream URLs, validates them, returns the best candidates</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_movie_manifest</span>
+                <span class="badge-desc">Proxies <span class="term" data-definition="HLS (HTTP Live Streaming) is the format used by most video CDNs. A video is split into short segments described by a .m3u8 manifest file. The player reads the manifest, then fetches each segment in order.">HLS</span> .m3u8 manifest files — bypasses CORS so the player can read them</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_movie_segment</span>
+                <span class="badge-desc">Proxies HLS video segments and encryption keys — same CORS bypass, for every chunk of video data</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">fetch_anime_text_with_session</span>
+                <span class="badge-desc">Session-aware HTTP fetch for anime providers — maintains cookies so provider sites don't block the request</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">resolve_embed_stream</span>
+                <span class="badge-desc">Opens a hidden browser window, injects a capture script, and extracts the real stream URL from an embed page</span>
+              </div>
+              <div class="badge-item animate-in">
+                <span class="badge-code">download_update</span>
+                <span class="badge-desc">Streams the app update file to disk, emitting progress events (0–100%) for the Settings page progress bar</span>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /file-tree card -->
+      </div><!-- /screen 2 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 3 — Code Translation: Zustand Store
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Reading real code — the Zustand store</h2>
+
+        <p>
+          Here is what a <span class="term" data-definition="Zustand is a tiny state-management library for React. Instead of passing data through layers of components, any component can read and update a shared 'store' object directly.">Zustand</span> store looks like in practice.
+          This one handles the app's theme — and shows the <span class="term" data-definition="Write-through sync means every local write (add to watchlist, save progress) is also immediately sent to the cloud database. No separate 'upload' step — the cloud is always current.">write-through sync</span> pattern in one elegant block.
+        </p>
+
+        <!-- Translation block -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086">useAppStore.js</span>
+<code><span class="code-line"><span class="code-keyword">import</span> { create } <span class="code-keyword">from</span> <span class="code-string">'zustand'</span></span>
+<span class="code-line"><span class="code-keyword">import</span> { syncProfileSetting } <span class="code-keyword">from</span> <span class="code-string">'../lib/supabase'</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-function">useAppStore</span> = <span class="code-function">create</span>((<span class="code-property">set</span>, <span class="code-property">get</span>) <span class="code-operator">=></span> ({</span>
+<span class="code-line">  <span class="code-property">theme</span>: <span class="code-function">localStorage</span>.<span class="code-function">getItem</span>(<span class="code-string">'nova-theme'</span>)</span>
+<span class="code-line">         <span class="code-operator">||</span> <span class="code-string">'nova-dark'</span>,</span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-property">setTheme</span>: (<span class="code-property">id</span>) <span class="code-operator">=></span> {</span>
+<span class="code-line">    <span class="code-property">document</span>.<span class="code-property">documentElement</span></span>
+<span class="code-line">      .<span class="code-function">setAttribute</span>(<span class="code-string">'data-theme'</span>, <span class="code-property">id</span>)</span>
+<span class="code-line">    <span class="code-function">localStorage</span>.<span class="code-function">setItem</span>(<span class="code-string">'nova-theme'</span>, <span class="code-property">id</span>)</span>
+<span class="code-line">    <span class="code-function">set</span>({ <span class="code-property">theme</span>: <span class="code-property">id</span> })</span>
+<span class="code-line">    <span class="code-function">syncProfileSetting</span>({ <span class="code-property">theme</span>: <span class="code-property">id</span> })</span>
+<span class="code-line">  },</span></code>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <p class="tl"><strong>Line 1:</strong> Import Zustand — the shared memory manager</p>
+              <p class="tl"><strong>Line 2:</strong> Import the helper that syncs settings to the cloud</p>
+              <p class="tl"><strong>Line 4:</strong> Create a store — a shared object the whole app can read and update</p>
+              <p class="tl"><strong>Line 5–6:</strong> The current theme is read from <span class="term" data-definition="localStorage is a browser/WebView storage API that persists data across sessions on the same device. Nova Stream uses it as the guest-tier storage layer, with Supabase cloud as the signed-in tier.">localStorage</span> so it survives app restarts</p>
+              <p class="tl"><strong>Lines 8–14:</strong> When someone changes the theme: update the DOM immediately → save to localStorage → update the store → sync to cloud. All four steps in one action.</p>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Key insight callout -->
+        <div class="callout callout-accent animate-in">
+          <span class="callout-icon">🧠</span>
+          <div class="callout-content">
+            <span class="callout-title">The Zustand pattern</span>
+            <p>
+              State lives in one place. Actions like <code>setTheme</code> update it
+              everywhere at once — React components, <span class="term" data-definition="localStorage is a browser/WebView storage API that persists data across sessions on the same device. Nova Stream uses it as the guest-tier storage layer, with Supabase cloud as the signed-in tier.">localStorage</span>,
+              and the cloud. No tangled prop-passing across layers of components.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 3 -->
+
+
+      <!-- ═══════════════════════════════════════════════════════
+           SCREEN 4 — invoke() Bridge + Group Chat
+      ════════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The bridge between JavaScript and Rust</h2>
+
+        <p>
+          React runs inside a browser layer. Rust runs natively on the OS. The
+          only way they communicate is through a function called
+          <span class="term" data-definition="invoke() is the Tauri bridge function — it lets JavaScript call a named Rust function as if it were an async JavaScript function. The call crosses from the browser layer into native code and returns a Promise.">invoke()</span>.
+          Here is what that looks like in <code>src/lib/movieStreams.js</code>.
+        </p>
+
+        <!-- Translation block: invoke() -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086">movieStreams.js</span>
+<code><span class="code-line"><span class="code-keyword">import</span> { invoke } <span class="code-keyword">from</span> <span class="code-string">'@tauri-apps/api/core'</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">async function</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">  <span class="code-property">tmdbId</span>, <span class="code-property">contentType</span>, <span class="code-property">season</span>,</span>
+<span class="code-line">  <span class="code-property">episode</span>, <span class="code-property">imdbId</span>, <span class="code-property">options</span> = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">invoke</span>(<span class="code-string">'fetch_movie_resolver_streams'</span>, {</span>
+<span class="code-line">    <span class="code-property">payload</span>: {</span>
+<span class="code-line">      <span class="code-property">tmdbId</span>: <span class="code-function">String</span>(<span class="code-property">tmdbId</span>),</span>
+<span class="code-line">      <span class="code-property">contentType</span>,</span>
+<span class="code-line">      <span class="code-property">season</span>:    <span class="code-property">season</span> <span class="code-operator">??</span> <span class="code-keyword">null</span>,</span>
+<span class="code-line">      <span class="code-property">episode</span>:   <span class="code-property">episode</span> <span class="code-operator">??</span> <span class="code-keyword">null</span>,</span>
+<span class="code-line">      <span class="code-property">imdbId</span>:    <span class="code-property">imdbId</span> <span class="code-operator">||</span> <span class="code-keyword">null</span>,</span>
+<span class="code-line">      <span class="code-property">excludeUrls</span>: <span class="code-function">Array</span>.<span class="code-function">isArray</span>(</span>
+<span class="code-line">        <span class="code-property">options</span>.<span class="code-property">excludeUrls</span></span>
+<span class="code-line">      ) ? <span class="code-property">options</span>.<span class="code-property">excludeUrls</span> : [],</span>
+<span class="code-line">    },</span>
+<span class="code-line">  })</span>
+<span class="code-line">}</span></code>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">Plain English</span>
+            <div class="translation-lines">
+              <p class="tl"><strong>Line 1:</strong> Import <span class="term" data-definition="invoke() is the Tauri bridge function — it lets JavaScript call a named Rust function as if it were an async JavaScript function. The call crosses from the browser layer into native code and returns a Promise.">invoke()</span> — the magic doorbell that rings into Rust</p>
+              <p class="tl"><strong>Line 3–6:</strong> A JavaScript function that accepts movie details as inputs</p>
+              <p class="tl"><strong>Line 7:</strong> <code>invoke()</code> is the single line that crosses from JavaScript into Rust — everything after this is handled natively</p>
+              <p class="tl"><strong>Lines 8–15:</strong> Package the movie details into a structured payload Rust can understand — IDs, type, season, episode number</p>
+              <p class="tl"><strong>Result:</strong> Rust queries the Nuvio sidecar, validates stream URLs, and returns the best candidates as a JavaScript Promise</p>
+            </div>
+          </div>
+        </div><!-- /translation-block -->
+
+        <!-- Group Chat: the invoke() call in action -->
+        <h3 style="
+          font-family: var(--font-display);
+          font-size: var(--text-xl);
+          font-weight: 600;
+          margin: var(--space-8) 0 var(--space-3);
+          color: var(--color-text);
+        ">Watch the bridge in action</h3>
+        <p style="margin-bottom: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-sm)">
+          This is what happens the moment a user clicks "Play" on The Dark Knight.
+          Hit <strong>Next</strong> to step through the conversation.
+        </p>
+
+        <div class="chat-window" id="chat-module2">
+
+          <div class="chat-messages">
+
+            <!-- msg 0: React -->
+            <div class="chat-message" data-sender="react" data-msg="0" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">R</div>
+              <div class="chat-bubble" style="background: rgba(217,79,48,0.08); border: 1px solid rgba(217,79,48,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React — MoviePlayer.jsx</span>
+                <p>User clicked Play on <em>The Dark Knight</em> (TMDB ID 155). I need stream URLs. Calling <code>fetchResolvedStreams(155, 'movie')</code>…</p>
+              </div>
+            </div>
+
+            <!-- msg 1: invoke bridge -->
+            <div class="chat-message" data-sender="bridge" data-msg="1" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">⚡</div>
+              <div class="chat-bubble" style="background: rgba(212,168,67,0.08); border: 1px solid rgba(212,168,67,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-4)">invoke() — The Bridge</span>
+                <p>Crossing from JavaScript into Rust with payload: <code>{ tmdbId: "155", contentType: "movie" }</code>. Stand by…</p>
+              </div>
+            </div>
+
+            <!-- msg 2: Rust -->
+            <div class="chat-message" data-sender="rust" data-msg="2" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Rs</div>
+              <div class="chat-bubble" style="background: rgba(42,123,155,0.08); border: 1px solid rgba(42,123,155,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Rust — fetch_movie_resolver_streams</span>
+                <p>Received payload. Converting TMDB 155 → IMDb ID. Starting local Nuvio <span class="term" data-definition="A sidecar is a small helper process that runs alongside the main app. Nova Stream ships a local Node.js server (Nuvio) as a sidecar — the main app starts it in the background and queries it for stream URLs.">sidecar</span> health-check at <code>127.0.0.1:7779</code>…</p>
+              </div>
+            </div>
+
+            <!-- msg 3: Rust -->
+            <div class="chat-message" data-sender="rust" data-msg="3" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Rs</div>
+              <div class="chat-bubble" style="background: rgba(42,123,155,0.08); border: 1px solid rgba(42,123,155,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Rust — fetch_movie_resolver_streams</span>
+                <p>Querying primary provider → fast providers → full fallback. Rejecting opaque token URLs and dead direct hosts. Validating <span class="term" data-definition="HLS (HTTP Live Streaming) is the format used by most video CDNs. A video is split into short segments described by a .m3u8 manifest file. The player reads the manifest, then fetches each segment in order.">HLS</span> candidates…</p>
+              </div>
+            </div>
+
+            <!-- msg 4: Rust -->
+            <div class="chat-message" data-sender="rust" data-msg="4" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Rs</div>
+              <div class="chat-bubble" style="background: rgba(42,123,155,0.08); border: 1px solid rgba(42,123,155,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Rust — fetch_movie_resolver_streams</span>
+                <p>Found 3 valid stream candidates. Ranked by provider preference (Vixsrc first). Returning results to JavaScript.</p>
+              </div>
+            </div>
+
+            <!-- msg 5: React -->
+            <div class="chat-message" data-sender="react" data-msg="5" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">R</div>
+              <div class="chat-bubble" style="background: rgba(217,79,48,0.08); border: 1px solid rgba(217,79,48,0.2)">
+                <span class="chat-sender" style="color: var(--color-actor-1)">React — MoviePlayer.jsx</span>
+                <p>Got the stream list. Loading top candidate into the native video element. Opening <code>MoviePlayer</code> — enjoy <em>The Dark Knight</em>.</p>
+              </div>
+            </div>
+
+          </div><!-- /chat-messages -->
+
+          <!-- Typing indicator -->
+          <div class="chat-typing" id="chat-module2-typing" style="display:none">
+            <div class="chat-avatar" id="chat-module2-typing-avatar" style="background: var(--color-actor-1)">R</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="chat-controls">
+            <button class="btn btn-primary chat-next-btn">Next message</button>
+            <button class="btn chat-all-btn">Show all</button>
+            <button class="btn chat-reset-btn">Reset</button>
+            <span class="chat-progress">0 / 6 messages</span>
+          </div>
+
+        </div><!-- /chat-window -->
+
+        <!-- Closing insight -->
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-8)">
+          <span class="callout-icon">🔗</span>
+          <div class="callout-content">
+            <span class="callout-title">Why this matters when making changes</span>
+            <p>
+              If you want to change <em>what</em> is displayed, edit a <strong>Page</strong>.
+              If you want to change the player UI, edit a <strong>Component</strong>.
+              If you want to change what the app remembers, edit a <strong>Store</strong>.
+              If you want to change a network call, edit a <strong>Lib</strong> file.
+              If you need native capabilities, the answer is always <strong>Rust</strong>.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 4 -->
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
+</section>

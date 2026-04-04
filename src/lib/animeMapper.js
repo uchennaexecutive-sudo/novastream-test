@@ -91,11 +91,35 @@ const hasPrequelRelation = (item) =>
         return relationType === 'PREQUEL' && (nodeFormat === 'TV' || nodeFormat === 'TV_SHORT' || nodeFormat === 'ONA')
     })
 
-const isEpisodicOnaSeries = (item) =>
-    String(item?.format || '').toUpperCase() === 'ONA' && getEpisodeCount(item) > 1
+const hasMainlineSeasonRelation = (item) => {
+    const relationType = String(item?._relationType || '').toUpperCase()
+    return (
+        relationType === 'PREQUEL'
+        || relationType === 'SEQUEL'
+        || hasPrequelRelation(item)
+        || hasSequelMarker(item)
+    )
+}
 
 const isSeasonLike = (item) =>
-    getKind(item) === 'season' || isEpisodicOnaSeries(item)
+    getKind(item) === 'season'
+
+const isMainlineSeasonEntry = (item, rootId) => {
+    if (!item?.id) return false
+
+    if (item.id === rootId) {
+        return getKind(item) === 'season'
+    }
+
+    if (getKind(item) === 'season') {
+        return hasMainlineSeasonRelation(item)
+    }
+
+    return false
+}
+
+const isTvShortExtra = (item, rootId) =>
+    String(item?.format || '').toUpperCase() === 'TV_SHORT' && !isMainlineSeasonEntry(item, rootId)
 
 function collectRelatedAnime(root) {
     const baseTitle = getTitle(root)
@@ -245,11 +269,13 @@ export function buildAnimeCanonicalFromAniList(media) {
     const related = collectRelatedAnime(media)
     const longRunner = isLongRunner(media)
 
-    const seasonsRaw = related.filter(isSeasonLike)
+    const seasonsRaw = related.filter((item) => isMainlineSeasonEntry(item, media.id))
     const moviesRaw = related.filter((item) => getKind(item) === 'movie')
     const ovaRaw = related.filter((item) => getKind(item) === 'ova')
-    const onaRaw = related.filter((item) => getKind(item) === 'ona' && !isEpisodicOnaSeries(item))
-    const specialsRaw = related.filter((item) => getKind(item) === 'special')
+    const onaRaw = related.filter((item) => getKind(item) === 'ona')
+    const specialsRaw = related.filter(
+        (item) => getKind(item) === 'special' || isTvShortExtra(item, media.id)
+    )
 
     const baseTitle = normalizeTitle(getTitle(media))
 

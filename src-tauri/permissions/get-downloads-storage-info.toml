@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-downloads-storage-info"
+description = "Allows the app to read download storage usage through the Rust command."
+commands.allow = ["get_downloads_storage_info"]

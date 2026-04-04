@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-set-video-download-max-concurrent"
+description = "Allows the app to configure the maximum number of concurrent media downloads."
+commands.allow = ["set_video_download_max_concurrent"]

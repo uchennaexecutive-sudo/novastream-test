@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-read-local-text-file"
+description = "Allow reading a local text file such as an offline subtitle sidecar"
+commands.allow = ["read_local_text_file"]

@@ -1,0 +1,465 @@
+<section class="module" id="module-3" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">The Movie Engine</h1>
+      <p class="module-subtitle">How pressing Play launches a 3-stage intelligence operation to find your stream</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 1 — The Talent Agency: Metaphor + Stage Overview
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Talent Agency Problem</h2>
+
+        <p>
+          Clicking Play on a movie does not just open a video file. It launches a 3-stage intelligence operation —
+          a local server, a <span class="term" data-definition="The Rust backend process — Nova Stream's native engine that runs HTTP requests, manages files, and handles things a browser is not allowed to do.">Rust</span> validator, and a cascade of
+          <span class="term" data-definition="A third-party service that finds and hosts video streams for a given title — examples include Vixsrc, ShowBox, and MoviesDrive.">provider</span> queries — all completing in under 8 seconds.
+        </p>
+
+        <p>
+          Think of it like a talent agency casting an actor for a role. They call their top client first.
+          If unavailable, they call a fast shortlist. If still nothing, they go through the full roster.
+          The first one that says "yes" gets the part.
+        </p>
+
+        <!-- Stage cards -->
+        <div class="pattern-cards stagger-children" style="margin-top: var(--space-8);">
+
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-accent);">
+            <div class="pattern-icon" style="background: var(--color-accent-light); color: var(--color-accent);">
+              &#9733;
+            </div>
+            <p class="pattern-title">Stage 1 — Primary</p>
+            <p class="pattern-desc">
+              One provider. One call. <code style="font-family: var(--font-mono); font-size: 0.8em; background: var(--color-bg-warm); padding: 1px 5px; border-radius: 4px;">vixsrc</code> is tried alone.
+              Most popular titles resolve here instantly.
+            </p>
+            <p style="margin-top: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted);">Timeout: ~8s</p>
+          </div>
+
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-info);">
+            <div class="pattern-icon" style="background: var(--color-info-light); color: var(--color-info);">
+              &#9654;&#9654;
+            </div>
+            <p class="pattern-title">Stage 2 — Fast Set</p>
+            <p class="pattern-desc">
+              Four providers tried quickly in parallel:
+              <code style="font-family: var(--font-mono); font-size: 0.8em; background: var(--color-bg-warm); padding: 1px 5px; border-radius: 4px;">vixsrc, moviesmod, 4khdhub, moviesdrive</code>.
+            </p>
+            <p style="margin-top: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted);">Timeout: 18s</p>
+          </div>
+
+          <div class="pattern-card animate-in" style="border-top-color: var(--color-success);">
+            <div class="pattern-icon" style="background: var(--color-success-light); color: var(--color-success);">
+              &#128196;
+            </div>
+            <p class="pattern-title">Stage 3 — Full Fallback</p>
+            <p class="pattern-desc">
+              All 12 providers tried including
+              <code style="font-family: var(--font-mono); font-size: 0.8em; background: var(--color-bg-warm); padding: 1px 5px; border-radius: 4px;">showbox, vidsrc, soapertv</code> and more.
+            </p>
+            <p style="margin-top: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted);">Timeout: 75s</p>
+          </div>
+
+        </div>
+
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-8);">
+          <span class="callout-icon">&#9889;</span>
+          <div class="callout-content">
+            <span class="callout-title">Why 3 stages?</span>
+            <p>
+              Speed vs. coverage. Most titles work on stage 1 or 2 in under 5 seconds.
+              Stage 3 is the nuclear option for obscure titles that need all 12 providers tried.
+              The cascade means common titles stay fast while rare titles still get found.
+            </p>
+          </div>
+        </div>
+
+        <!-- Provider preference note -->
+        <div class="badge-list animate-in" style="margin-top: var(--space-6);">
+          <div class="badge-item">
+            <span class="badge-code">vixsrc</span>
+            <span class="badge-desc">Preferred primary — most reliable stream quality</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">moviesmod</span>
+            <span class="badge-desc">Fast set member — strong coverage for recent releases</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">moviesdrive</span>
+            <span class="badge-desc">Fast set member — good for international titles</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">4khdhub</span>
+            <span class="badge-desc">Fast set member — deprioritised behind the above three</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">showbox / vidsrc</span>
+            <span class="badge-desc">Full fallback only — broad but slower to resolve</span>
+          </div>
+        </div>
+
+      </div><!-- /screen 1 -->
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 2 — The Full Flow: Data Flow Animation
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Full Resolver Flow</h2>
+
+        <p>
+          Sixteen steps happen between the Play button and the first video frame.
+          Step through each one to see which actor is doing the work and what data is moving.
+        </p>
+
+        <!-- FLOW ANIMATION ──────────────────────────────────────── -->
+        <div
+          class="flow-animation"
+          id="flow-movie-engine"
+          data-steps='[
+            {"highlight":"actor-1","label":"Step 1 — The user presses Play on a Detail page. MoviePlayer.jsx mounts and begins the resolver sequence."},
+            {"highlight":"actor-1","packet":true,"from":"actor-1","to":"actor-2","label":"Step 2 — React calls invoke(fetch_movie_resolver_streams). Control crosses the JS/Rust bridge, carrying TMDB ID, content type, and any known IMDb ID."},
+            {"highlight":"actor-2","label":"Step 3 — Rust receives the request and checks whether it has an IMDb ID. If not, it calls the TMDB external_ids API to convert the TMDB ID into an IMDb ID."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-3","label":"Step 4 — Rust starts (or health-checks) the local Nuvio sidecar at http://127.0.0.1:7779. If it is not running, Rust launches it and waits up to 45 seconds."},
+            {"highlight":"actor-3","label":"Step 5 — Stage 1: Rust queries /movie/primary-provider on the Nuvio sidecar. The sidecar asks the single top provider (vixsrc) for a stream URL."},
+            {"highlight":"actor-3","packet":true,"from":"actor-3","to":"actor-4","label":"Step 6 — Stage 2 (if Stage 1 fails): Rust queries /movie/fast-providers with four providers in parallel. Each provider is given 18 seconds to respond."},
+            {"highlight":"actor-4","packet":true,"from":"actor-4","to":"actor-3","label":"Step 7 — Stage 3 (if Stage 2 fails): Rust queries /movie/full-fallback with all 12 providers. The full fallback gets 75 seconds — patience pays off for hard-to-find titles."},
+            {"highlight":"actor-2","label":"Step 8 — Rust validates every URL it receives. Opaque tokens, junk URLs, HTML pages, and dead hosts are all rejected. Only real HLS or direct-media URLs pass."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-1","label":"Step 9 — Rust returns ranked stream candidates to React. The best validated URL is at the top of the list."},
+            {"highlight":"actor-1","packet":true,"from":"actor-1","to":"actor-5","label":"Step 10 — React passes the winning stream URL to MoviePlayer.jsx. The player calls fetch_movie_manifest to get the HLS manifest."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-5","label":"Step 11 — Rust fetches the HLS manifest through the Nuvio sidecar and rewrites every segment URL so that future segment requests also route through Rust."},
+            {"highlight":"actor-5","packet":true,"from":"actor-5","to":"actor-2","label":"Step 12 — The video player requests HLS segments. Each request goes to Rust via fetch_movie_segment, which fetches the segment and any encryption keys from the HLS host."},
+            {"highlight":"actor-2","packet":true,"from":"actor-2","to":"actor-6","label":"Step 13 — Rust streams the segment data to the native video element. The player decrypts and buffers it for playback."},
+            {"highlight":"actor-6","label":"Step 14 — Video plays in the native player. Simultaneously, fetch_movie_subtitles is hitting Wyzie sub service to pull English subtitle candidates."},
+            {"highlight":"actor-6","label":"Step 15 — Subtitle results are normalised by movieSubtitles.js. The player parses SRT/VTT cues and exposes the SUB ON / SUB OFF toggle."},
+            {"highlight":"actor-6","label":"Step 16 — Progress is saved every 10 seconds. If the stream fails mid-play, the player auto-falls back to the next validated candidate from the ranked list."}
+          ]'
+        >
+
+          <!-- Actors row -->
+          <div class="flow-actors">
+
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon" style="color: var(--color-actor-1);">&#9654;</div>
+              <span>Play Button</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">MoviePlayer.jsx</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon" style="color: var(--color-actor-2);">&#9881;</div>
+              <span>Rust Engine</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">main.rs</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon" style="color: var(--color-actor-3);">&#128260;</div>
+              <span>Nuvio Sidecar</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">:7779</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon" style="color: var(--color-actor-4);">&#127768;</div>
+              <span>Provider</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">vixsrc / etc.</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-5">
+              <div class="flow-actor-icon" style="color: var(--color-actor-5);">&#127760;</div>
+              <span>HLS Host</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">CDN segments</span>
+            </div>
+
+            <div class="flow-actor" id="flow-actor-6">
+              <div class="flow-actor-icon" style="color: #D4A843;">&#127916;</div>
+              <span>Native Player</span>
+              <span style="font-size: 0.65rem; opacity: 0.6;">video element</span>
+            </div>
+
+          </div>
+
+          <!-- Animated packet -->
+          <div class="flow-packet" id="flow-packet-movie"></div>
+
+          <!-- Step label -->
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+
+          <!-- Controls -->
+          <div class="flow-controls">
+            <button class="flow-next-btn" style="padding: var(--space-2) var(--space-5); border-radius: var(--radius-sm); border: none; background: var(--color-accent); color: white; font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; cursor: pointer;">Next Step &#8594;</button>
+            <button class="flow-reset-btn" style="padding: var(--space-2) var(--space-5); border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-secondary); font-family: var(--font-body); font-size: var(--text-sm); cursor: pointer;">Reset</button>
+            <span class="flow-progress"></span>
+          </div>
+
+        </div><!-- /flow-animation -->
+
+        <div class="callout callout-info animate-in">
+          <span class="callout-icon">&#128161;</span>
+          <div class="callout-content">
+            <span class="callout-title">The Subtitle Parallel Track</span>
+            <p>
+              While the stream is loading, Rust simultaneously calls the
+              <span class="term" data-definition="Wyzie is an external subtitle aggregator at sub.wyzie.io. It searches multiple subtitle databases and returns ranked candidates for a given title.">Wyzie</span>
+              subtitle service. Subtitles do not block playback — they arrive alongside the video and snap
+              into the player when ready. Movies use subdl/opensubtitles sources; series use gestdown;
+              animation uses jimaku and animetosho.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 2 -->
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 3 — Code Translation: movieStreams.js
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Reading the Code: movieStreams.js</h2>
+
+        <p>
+          This file is the entire bridge between React and the Rust stream engine.
+          It is intentionally thin — 41 lines with no business logic. Every important decision
+          lives in Rust.
+        </p>
+
+        <div class="translation-block animate-in">
+          <!-- Left: code -->
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">movieStreams.js</span>
+<code><span class="code-line"><span class="code-keyword">import</span> { <span class="code-function">invoke</span> } <span class="code-keyword">from</span> <span class="code-string">'@tauri-apps/api/core'</span></span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">async function</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">  tmdbId, contentType,</span>
+<span class="code-line">  season, episode,</span>
+<span class="code-line">  imdbId, options = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">invoke</span>(</span>
+<span class="code-line">    <span class="code-string">'fetch_movie_resolver_streams'</span>,</span>
+<span class="code-line">    { payload: {</span>
+<span class="code-line">      tmdbId: <span class="code-function">String</span>(tmdbId),</span>
+<span class="code-line">      contentType,</span>
+<span class="code-line">      season: season ?? <span class="code-keyword">null</span>,</span>
+<span class="code-line">      episode: episode ?? <span class="code-keyword">null</span>,</span>
+<span class="code-line">      imdbId: imdbId || <span class="code-keyword">null</span>,</span>
+<span class="code-line">      forceRefresh: <span class="code-function">Boolean</span>(options.forceRefresh),</span>
+<span class="code-line">      excludeUrls: <span class="code-function">Array.isArray</span>(options.excludeUrls)</span>
+<span class="code-line">        ? options.excludeUrls : [],</span>
+<span class="code-line">      excludeProviders: <span class="code-function">Array.isArray</span>(options.excludeProviders)</span>
+<span class="code-line">        ? options.excludeProviders : [],</span>
+<span class="code-line">    }}</span>
+<span class="code-line">  )</span>
+<span class="code-line">}</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">export async function</span> <span class="code-function">getMovieStreams</span>(</span>
+<span class="code-line">  tmdbId, imdbId = <span class="code-keyword">null</span>, options = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">    tmdbId, <span class="code-string">'movie'</span>,</span>
+<span class="code-line">    <span class="code-keyword">null</span>, <span class="code-keyword">null</span>, imdbId, options</span>
+<span class="code-line">  )</span>
+<span class="code-line">}</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">export async function</span> <span class="code-function">getSeriesStreams</span>(</span>
+<span class="code-line">  tmdbId, season, episode,</span>
+<span class="code-line">  imdbId = <span class="code-keyword">null</span>, options = {}</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-keyword">return</span> <span class="code-function">fetchResolvedStreams</span>(</span>
+<span class="code-line">    tmdbId, <span class="code-string">'series'</span>,</span>
+<span class="code-line">    season, episode, imdbId, options</span>
+<span class="code-line">  )</span>
+<span class="code-line">}</span>
+</code>
+          </div>
+
+          <!-- Right: translation -->
+          <div class="translation-english">
+            <span class="translation-label">In plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>Line 1</strong> — Import <code style="font-family: var(--font-mono); font-size: 0.85em;">invoke</code> — the single function that opens a portal from React into Rust.</div>
+              <div class="tl"><strong>Lines 3-21</strong> — Build the complete request object with every detail Rust needs: what content, what ID system, which season and episode if applicable.</div>
+              <div class="tl"><strong>Line 8</strong> — <span class="term" data-definition="invoke() is the Tauri function that calls a named Rust command from JavaScript. React pauses here — awaiting — until Rust finishes and returns data.">invoke()</span> is the exact moment control passes to Rust. React waits here, paused, until Rust is done.</div>
+              <div class="tl"><strong>Lines 15-20</strong> — <code style="font-family: var(--font-mono); font-size: 0.85em;">excludeUrls</code> and <code style="font-family: var(--font-mono); font-size: 0.85em;">excludeProviders</code> let the player skip streams that already failed — enabling automatic fallback.</div>
+              <div class="tl"><strong>Lines 23-29</strong> — <code style="font-family: var(--font-mono); font-size: 0.85em;">getMovieStreams</code> is a thin wrapper. Movies have no season or episode, so those are hard-coded <code style="font-family: var(--font-mono); font-size: 0.85em;">null</code>.</div>
+              <div class="tl"><strong>Lines 31-39</strong> — <code style="font-family: var(--font-mono); font-size: 0.85em;">getSeriesStreams</code> is the same idea but adds season and episode numbers to the payload.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in">
+          <span class="callout-icon">&#128269;</span>
+          <div class="callout-content">
+            <span class="callout-title">Notice how thin this file is</span>
+            <p>
+              Just 41 lines — and zero business logic. React does not know which providers exist,
+              how validation works, or what a
+              <span class="term" data-definition="HLS (HTTP Live Streaming) is a protocol that splits video into small segments (.ts files) and uses a manifest file (.m3u8) to tell the player which segments to download and in what order.">HLS</span>
+              manifest is. It just packages the request and hands it to Rust via <code style="font-family: var(--font-mono); font-size: 0.85em;">invoke()</code>.
+              All the complexity lives in Rust, where it belongs.
+            </p>
+          </div>
+        </div>
+
+      </div><!-- /screen 3 -->
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 4 — Code Translation: Rust Provider Strategy
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Reading the Code: The Rust Provider Strategy</h2>
+
+        <p>
+          The 3-stage cascade is defined as six constants at the top of <code style="font-family: var(--font-mono); font-size: 0.85em;">main.rs</code>.
+          Changing provider order or timeouts is a one-line edit — the rest of the engine adapts automatically.
+        </p>
+
+        <div class="translation-block animate-in">
+          <!-- Left: Rust code -->
+          <div class="translation-code">
+            <span class="translation-label" style="color: #6C7086;">main.rs (lines 55-66)</span>
+<code><span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_PRIMARY_PROVIDER_MOVIE</span>:</span>
+<span class="code-line">  <span class="code-keyword">&amp;str</span> = <span class="code-string">"vixsrc"</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_FAST_PROVIDER_SET_MOVIE</span>:</span>
+<span class="code-line">  <span class="code-keyword">&amp;str</span> = <span class="code-string">"vixsrc,moviesmod,</span></span>
+<span class="code-line">          <span class="code-string">4khdhub,moviesdrive"</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_FULL_PROVIDER_SET_MOVIE</span>:</span>
+<span class="code-line">  <span class="code-keyword">&amp;str</span> = <span class="code-string">"vixsrc,moviesmod,</span></span>
+<span class="code-line">    <span class="code-string">4khdhub,moviesdrive,moviebox,</span></span>
+<span class="code-line">    <span class="code-string">hdhub4u,topmovies,soapertv,</span></span>
+<span class="code-line">    <span class="code-string">vidzee,mp4hydra,vidsrc,showbox"</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_FAST_STAGE_TIMEOUT_SECS</span>:</span>
+<span class="code-line">  <span class="code-keyword">u64</span> = <span class="code-number">18</span>;</span>
+<span class="code-line"> </span>
+<span class="code-line"><span class="code-keyword">const</span> <span class="code-property">NUVIO_STREAM_FETCH_TIMEOUT_SECS</span>:</span>
+<span class="code-line">  <span class="code-keyword">u64</span> = <span class="code-number">75</span>;</span>
+</code>
+          </div>
+
+          <!-- Right: translation -->
+          <div class="translation-english">
+            <span class="translation-label">In plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>PRIMARY</strong> — Vixsrc is trusted above all others. It gets a solo attempt before any other provider is involved.</div>
+              <div class="tl"><strong>FAST SET</strong> — Four providers tried together in the second stage. They are the same reliable names, plus two strong alternates, given 18 seconds total.</div>
+              <div class="tl"><strong>FULL SET</strong> — All 12 providers, including slower and more obscure ones like <code style="font-family: var(--font-mono); font-size: 0.85em;">showbox</code> and <code style="font-family: var(--font-mono); font-size: 0.85em;">mp4hydra</code>. The nuclear option.</div>
+              <div class="tl"><strong>18 seconds</strong> — The fast stage deadline. Short enough to stay snappy; long enough for a slow provider to reply.</div>
+              <div class="tl"><strong>75 seconds</strong> — The full fallback budget. Patience matters here — some providers are slow starters but do have the stream.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Why Rust section -->
+        <div class="animate-in" style="margin-top: var(--space-10);">
+          <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-4);">Why does Rust do this — not React?</h3>
+
+          <div class="icon-rows">
+            <div class="icon-row">
+              <div class="icon-circle" style="background: var(--color-error-light); color: var(--color-error);">&#128683;</div>
+              <div>
+                <strong>Browsers block cross-origin requests</strong>
+                <p>
+                  A web page calling a
+                  <span class="term" data-definition="A provider is a third-party streaming service. Most of them do not add CORS headers, which means a browser will refuse to make requests to them — even if the URL is valid.">provider</span>
+                  URL directly triggers a
+                  <span class="term" data-definition="CORS (Cross-Origin Resource Sharing) is a browser security rule that blocks web pages from making HTTP requests to domains other than their own, unless the target server explicitly allows it.">CORS</span>
+                  error. The browser refuses to fetch it. The request never leaves the tab.
+                </p>
+              </div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success);">&#9989;</div>
+              <div>
+                <strong>Rust runs outside the browser sandbox</strong>
+                <p>
+                  Rust is a native process. It is not a web page, so CORS rules do not apply.
+                  It can make HTTP requests to any host, carry custom headers, and handle
+                  <span class="term" data-definition="A stream manifest (.m3u8 file) is the index for an HLS video stream. It lists all the segment files and their URLs, so the player knows what to download next.">manifests</span>
+                  and
+                  <span class="term" data-definition="HLS segments are small video chunks (usually 2-10 seconds each). The player downloads them sequentially and stitches them together for continuous playback.">segments</span>
+                  that a browser iframe would refuse.
+                </p>
+              </div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-circle" style="background: var(--color-info-light); color: var(--color-info);">&#128260;</div>
+              <div>
+                <strong>Rust proxies the entire HLS pipeline</strong>
+                <p>
+                  After finding a stream, Rust rewrites the
+                  <span class="term" data-definition="An HLS manifest (.m3u8 file) is rewritten so that every segment URL now points back to Rust instead of the original CDN. This means all segment fetches go through Rust, which can add headers, handle auth, and log errors.">manifest</span>
+                  so every segment and encryption key request passes through it.
+                  The native video element thinks it is talking to a local server — no CORS, no auth issues.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning animate-in">
+          <span class="callout-icon">&#128274;</span>
+          <div class="callout-content">
+            <span class="callout-title">The CORS Problem in one sentence</span>
+            <p>
+              Browsers block cross-origin requests as a security feature.
+              Rust bypasses this entirely — it is a native process, not a web page,
+              so it can fetch from anywhere. This is why the entire stream resolver
+              lives in Rust and not in a <code style="font-family: var(--font-mono); font-size: 0.85em;">.js</code> file.
+            </p>
+          </div>
+        </div>
+
+        <!-- Recap of the sidecar's role -->
+        <div class="animate-in" style="margin-top: var(--space-8);">
+          <h3 style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-4);">What is the Nuvio Sidecar?</h3>
+
+          <p>
+            The
+            <span class="term" data-definition="A sidecar is a small helper process that runs alongside the main app. In Nova Stream, the Nuvio sidecar is a local Node.js server at port 7779 that knows how to query streaming providers and return validated stream URLs.">sidecar</span>
+            is a small local server — embedded inside the Nova Stream install — that handles the actual provider queries.
+            Rust manages its lifecycle: starts it on first play, keeps it alive, and restarts it if it crashes.
+          </p>
+
+          <div class="step-cards">
+            <div class="step-card">
+              <div class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm); flex-shrink: 0;">1</div>
+              <div>
+                <strong>Embedded in the app</strong>
+                <p style="margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm);">
+                  The Nuvio runtime is bundled inside the Nova Stream installer. No separate install required.
+                </p>
+              </div>
+            </div>
+            <div class="step-card">
+              <div class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm); flex-shrink: 0;">2</div>
+              <div>
+                <strong>Starts silently</strong>
+                <p style="margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm);">
+                  On Windows it runs hidden in the background, logging to <code style="font-family: var(--font-mono); font-size: 0.85em;">%TEMP%\nova-stream-nuvio-sidecar.log</code>.
+                </p>
+              </div>
+            </div>
+            <div class="step-card">
+              <div class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm); flex-shrink: 0;">3</div>
+              <div>
+                <strong>Self-healing</strong>
+                <p style="margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm);">
+                  If the extracted runtime is deleted, the app recreates it automatically on the next launch.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /screen 4 -->
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
+</section>
