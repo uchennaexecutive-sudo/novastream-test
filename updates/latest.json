@@ -1,22 +1,10 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.5.7",
-  "notes": "v1.5.7 - Auto-release",
-  "pub_date": "2026-03-31T16:02:29Z",
-  "platforms": {
-    "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.7/NOVA-STREAM-1.5.7-portable.exe"
-    }
-  }
-}
-=======
-    "version":  "1.5.8",
-    "notes":  "v1.5.8 - Ship downloads and offline playback with anime support, hardened HLS downloads, AnimePahe fallback fixes, configurable storage, and working offline subtitles",
-    "pub_date":  "2026-04-04T09:19:51Z",
+    "version":  "1.5.9",
+    "notes":  "v1.5.9 - Fix vendored Nuvio lockfile sync so tagged release builds install sidecar dependencies correctly in CI",
+    "pub_date":  "2026-04-04T09:27:06Z",
     "platforms":  {
                       "windows-x86_64":  {
-                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.8/NOVA-STREAM-1.5.8-portable.exe"
+                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.9/NOVA-STREAM-1.5.9-portable.exe"
                                          }
                   }
 }
->>>>>>> Stashed changes

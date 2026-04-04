@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.5.8
+Premium streaming desktop application (Tauri 2) - v1.5.9
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -217,6 +217,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.5.9 - Fix vendored Nuvio lockfile sync so tagged release builds install sidecar dependencies correctly in CI
 - v1.5.8 - Ship downloads and offline playback with anime support, hardened HLS downloads, AnimePahe fallback fixes, configurable storage, and working offline subtitles
 - v1.5.7 - Fix anime Continue Watching cards so they route with anime identity and load episode/season data correctly on detail pages
 - v1.5.6 - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup against Windows file-lock failures

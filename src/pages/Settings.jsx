@@ -636,6 +636,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.5.9 - Fix vendored Nuvio lockfile sync so tagged release builds install sidecar dependencies correctly in CI</p>
             <p>v1.5.8 - Ship downloads and offline playback with anime support, hardened HLS downloads, AnimePahe fallback fixes, configurable storage, and working offline subtitles</p>
             <p>v1.5.7 - Fix anime Continue Watching cards so detail pages load episode and season data correctly</p>
             <p>v1.5.6 - Fix episodic resume flow, make Continue Watching open detail first, and harden Nuvio sidecar startup on Windows</p>
