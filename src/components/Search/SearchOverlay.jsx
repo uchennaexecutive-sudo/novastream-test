@@ -6,6 +6,26 @@ import useAppStore from '../../store/useAppStore'
 import { searchMulti, searchAnimeOnTMDB, imgW500 } from '../../lib/tmdb'
 import { buildDetailNavigationForTmdbItem, isLikelyAnimeTmdbItem } from '../../lib/animeClassification'
 
+const getAnimeDisplayTitle = (item) =>
+  item?.title?.english || item?.title?.romaji || item?.title?.native || ''
+
+const getAnimeBaseTitle = (value) =>
+  String(value || '')
+    .replace(/\b\d+(st|nd|rd|th)\s+season\b.*$/i, '')
+    .replace(/\bseason\s+\d+\b.*$/i, '')
+    .replace(/\bfinal\s+season\b.*$/i, '')
+    .replace(/\bpart\s+\d+\b.*$/i, '')
+    .replace(/\bcour\s+\d+\b.*$/i, '')
+    .replace(/\s*[:\-–]\s*$/, '')
+    .trim()
+
+const normalizeAnimeKey = (value) =>
+  getAnimeBaseTitle(value)
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
 export default function SearchOverlay() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
   const [query, setQuery] = useState('')
@@ -73,6 +93,15 @@ export default function SearchOverlay() {
     const englishTitle = item?.title?.english || ''
     const romajiTitle = item?.title?.romaji || ''
     const animeYear = item?.seasonYear || item?.startDate?.year || null
+    const itemKey = normalizeAnimeKey(englishTitle || romajiTitle)
+    const canonicalAnimeMatch = animeResults
+      .filter((candidate) => normalizeAnimeKey(getAnimeDisplayTitle(candidate)) === itemKey)
+      .sort((a, b) => {
+        const aYear = Number(a?.seasonYear || a?.startDate?.year || 0)
+        const bYear = Number(b?.seasonYear || b?.startDate?.year || 0)
+        if (aYear !== bYear) return aYear - bYear
+        return Number(a?.id || 0) - Number(b?.id || 0)
+      })[0] || item
 
     try {
       const match = await searchAnimeOnTMDB(
@@ -87,6 +116,7 @@ export default function SearchOverlay() {
         state: {
           isAnime: true,
           anilistId: item.id,
+          canonicalAnilistId: canonicalAnimeMatch?.id || item.id,
           animeTitle: englishTitle || romajiTitle,
           animeAltTitle: romajiTitle || englishTitle,
           animeYear,

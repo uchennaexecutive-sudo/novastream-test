@@ -86,6 +86,7 @@ async function fetchText(url, headers = {}) {
 const searchResultCache = new Map()
 const animeInfoCache = new Map()
 const streamingLinksCache = new Map()
+const preferredServerHostCache = new Map()
 
 function getCachedPromise(cache, key, factory) {
     if (cache.has(key)) {
@@ -181,9 +182,43 @@ function normalizeAnimeInfoPayload(data = {}, fallbackAnimeId = '') {
     }
 }
 
-function scoreServer(server = {}) {
+function extractHost(value = '') {
+    const trimmed = String(value || '').trim()
+    if (!trimmed) return ''
+
+    try {
+        return new URL(trimmed).host.toLowerCase()
+    } catch {
+        return trimmed
+            .replace(/^[a-z]+:\/\//i, '')
+            .replace(/^\/\//, '')
+            .split('/')[0]
+            .toLowerCase()
+    }
+}
+
+function getPreferredServerHost(animeId = '') {
+    const cacheKey = String(animeId || '').trim().toLowerCase()
+    return cacheKey ? preferredServerHostCache.get(cacheKey) || '' : ''
+}
+
+function rememberPreferredServerHost(animeId = '', ...values) {
+    const cacheKey = String(animeId || '').trim().toLowerCase()
+    if (!cacheKey) return
+
+    for (const value of values) {
+        const host = extractHost(value)
+        if (!host) continue
+        preferredServerHostCache.set(cacheKey, host)
+        return
+    }
+}
+
+function scoreServer(server = {}, preferredHostHint = '') {
     const label = String(server?.server_label || server?.server_class || '').toLowerCase()
     const url = String(server?.url || '').toLowerCase()
+    const serverHost = extractHost(url)
+    const preferredHost = extractHost(preferredHostHint)
 
     let score = 0
 
@@ -192,6 +227,13 @@ function scoreServer(server = {}) {
 
     if (url.includes('type=hd-2')) score += 40
     if (url.includes('type=hd-1')) score += 20
+
+    if (url.includes('megacloud.') || url.includes('/stream/e-')) score += 120
+    if (url.includes('megaplay.') || url.includes('/stream/s-')) score -= 120
+
+    if (preferredHost && serverHost === preferredHost) {
+        score += 240
+    }
 
     return score
 }
@@ -1501,7 +1543,10 @@ const gogoanimeProvider = {
                 })
             }
 
-            const sortedServers = [...supportedServers].sort((a, b) => scoreServer(b) - scoreServer(a))
+            const preferredServerHost = getPreferredServerHost(animeId)
+            const sortedServers = [...supportedServers].sort(
+                (a, b) => scoreServer(b, preferredServerHost) - scoreServer(a, preferredServerHost)
+            )
             const candidates = []
             let firstResolvedCandidate = null
 
@@ -1545,7 +1590,7 @@ const gogoanimeProvider = {
                         headers: resolved?.headers || {},
                         streamSessionId: resolved?.sessionId || null,
                         subtitles: resolved?.subtitles || [],
-                        score: scoreServer(server),
+                        score: scoreServer(server, preferredServerHost),
                         flags: {
                             direct: streamType === 'mp4',
                             requiresHeaders: false,
@@ -1566,6 +1611,13 @@ const gogoanimeProvider = {
                         playableUrl,
                         streamSessionId: resolved?.sessionId || null,
                     })
+                    rememberPreferredServerHost(
+                        animeId,
+                        resolved?.providerHost,
+                        resolved?.pageUrl,
+                        serverUrl,
+                        playableUrl
+                    )
                     candidates.push(candidate)
                     firstResolvedCandidate = candidate
                     console.warn(`[animeAddons/${PROVIDER_ID}] stopping after first validated candidate`, {

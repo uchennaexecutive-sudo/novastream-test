@@ -28,6 +28,7 @@ import {
   buildAnimeEpisodesFromAniListEntry,
   resolveAnimeCanonicalRoot,
 } from '../lib/animeMapper'
+import { searchAnime as searchAniListAnime } from '../lib/anilist'
 import { prepareAnimeDownloadRuntimeData } from '../lib/animeDownloads'
 import useDownloadStore, { getDownloadItemByIdentity } from '../store/useDownloadStore'
 import { pauseVideoDownload, startVideoDownload } from '../lib/videoDownloads'
@@ -47,6 +48,11 @@ const formatTime = (seconds) => {
 }
 
 const DETAIL_REQUEST_TIMEOUT_MS = 15000
+const EPISODE_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+})
 
 function withTimeout(promise, timeoutMs, message) {
   let timer = null
@@ -58,6 +64,142 @@ function withTimeout(promise, timeoutMs, message) {
   return Promise.race([promise, timeoutPromise]).finally(() => {
     window.clearTimeout(timer)
   })
+}
+
+function parseEpisodeDate(dateValue) {
+  if (!dateValue) return null
+
+  const parsed = new Date(`${String(dateValue).trim()}T00:00:00`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function isFutureEpisodeDate(dateValue) {
+  const parsed = parseEpisodeDate(dateValue)
+  if (!parsed) return false
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return parsed.getTime() > today.getTime()
+}
+
+function formatEpisodeDate(dateValue) {
+  const parsed = parseEpisodeDate(dateValue)
+  if (!parsed) return ''
+  return EPISODE_DATE_FORMATTER.format(parsed)
+}
+
+function getAnimeEpisodeAvailabilityLabel(episode) {
+  if (episode?.isReleased !== false) return ''
+  if (episode?.airingAt) {
+    const parsed = new Date(Number(episode.airingAt) * 1000)
+    if (!Number.isNaN(parsed.getTime())) {
+      return `Airs ${EPISODE_DATE_FORMATTER.format(parsed)}`
+    }
+  }
+  return 'Not released yet'
+}
+
+const normalizeAnimeFranchiseKey = (value) =>
+  String(value || '')
+    .replace(/\b\d+(st|nd|rd|th)\s+season\b.*$/i, '')
+    .replace(/\bseason\s+\d+\b.*$/i, '')
+    .replace(/\bfinal\s+season\b.*$/i, '')
+    .replace(/\bpart\s+\d+\b.*$/i, '')
+    .replace(/\bcour\s+\d+\b.*$/i, '')
+    .replace(/\s*[:\-–]\s*$/, '')
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const hasExplicitSeasonTitleMarker = (item) => {
+  const titles = [
+    item?.title?.english,
+    item?.title?.romaji,
+    item?.title?.native,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase())
+
+  return titles.some((title) => (
+    /\bseason\s+[2-9]\d*\b/.test(title)
+    || /\b[2-9]\d*(st|nd|rd|th)\s+season\b/.test(title)
+    || /\bfinal\s+season\b/.test(title)
+  ))
+}
+
+function mergeSupplementalAnimeSeasons(canonical, candidates = []) {
+  if (!canonical) return canonical
+
+  const existingEntries = Array.isArray(canonical.entries) ? canonical.entries : []
+  const existingSeasonIds = new Set(
+    existingEntries
+      .filter((entry) => entry?.kind === 'season')
+      .map((entry) => Number(entry.id || 0))
+      .filter(Boolean)
+  )
+
+  const supplementalSeasons = (Array.isArray(candidates) ? candidates : [])
+    .filter((candidate) => !existingSeasonIds.has(Number(candidate?.id || 0)))
+    .map((candidate) => ({
+      id: candidate.id,
+      kind: 'season',
+      title: candidate?.title?.english || candidate?.title?.romaji || candidate?.title?.native || 'Untitled',
+      label: '',
+      seasonNumber: 0,
+      episodesCount: Math.max(
+        1,
+        Number(candidate?.episodes || 0),
+        Number(candidate?.nextAiringEpisode?.episode || 1) - 1,
+      ),
+      totalEpisodes: Math.max(
+        1,
+        Number(candidate?.episodes || 0),
+        Number(candidate?.nextAiringEpisode?.episode || 1) - 1,
+      ),
+      releasedEpisodes: Math.max(
+        0,
+        Number(candidate?.nextAiringEpisode?.episode || 0) > 0
+          ? Number(candidate?.nextAiringEpisode?.episode || 0) - 1
+          : String(candidate?.status || '').toUpperCase() === 'FINISHED'
+            ? Number(candidate?.episodes || 0)
+            : 0,
+      ),
+      releaseStatus: String(candidate?.status || '').toUpperCase(),
+      nextAiringEpisodeNumber: Number(candidate?.nextAiringEpisode?.episode || 0),
+      nextAiringAt: Number(candidate?.nextAiringEpisode?.airingAt || 0),
+      image: candidate?.coverImage?.extraLarge || candidate?.coverImage?.large || '',
+      bannerImage: candidate?.bannerImage || '',
+      year: candidate?.seasonYear || candidate?.startDate?.year || 0,
+      isLongRunner: false,
+    }))
+
+  if (!supplementalSeasons.length) {
+    return canonical
+  }
+
+  const combinedSeasons = [
+    ...existingEntries.filter((entry) => entry?.kind === 'season'),
+    ...supplementalSeasons,
+  ]
+    .sort((a, b) => {
+      const yearDiff = Number(a?.year || 0) - Number(b?.year || 0)
+      if (yearDiff !== 0) return yearDiff
+      return Number(a?.id || 0) - Number(b?.id || 0)
+    })
+    .map((entry, index) => ({
+      ...entry,
+      seasonNumber: index + 1,
+      label: `Season ${index + 1}`,
+    }))
+
+  return {
+    ...canonical,
+    entries: [
+      ...combinedSeasons,
+      ...existingEntries.filter((entry) => entry?.kind !== 'season'),
+    ],
+  }
 }
 
 export default function Detail() {
@@ -313,12 +455,39 @@ export default function Detail() {
         }
 
         const result = buildAnimeCanonicalFromAniList(rootMedia)
-        setCanonicalAnime(result || null)
+        const rootTitle =
+          rootMedia?.title?.english || rootMedia?.title?.romaji || rootMedia?.title?.native || ''
+        const rootKey = normalizeAnimeFranchiseKey(rootTitle)
+        const supplementalCandidates = rootKey
+          ? await searchAniListAnime(rootTitle)
+              .then((items) => (Array.isArray(items) ? items : []))
+              .catch(() => [])
+          : []
 
-        if (result?.entries?.length) {
+        const supplementalSeasonCandidates = supplementalCandidates.filter((candidate) => {
+          const candidateKey = normalizeAnimeFranchiseKey(
+            candidate?.title?.english || candidate?.title?.romaji || candidate?.title?.native || ''
+          )
+          const format = String(candidate?.format || '').toUpperCase()
+          const status = String(candidate?.status || '').toUpperCase()
+
+          if (!candidateKey || candidateKey !== rootKey) return false
+          if (status === 'NOT_YET_RELEASED') return false
+
+          if (format === 'TV' || format === 'TV_SHORT') {
+            return true
+          }
+
+          return format === 'ONA' && hasExplicitSeasonTitleMarker(candidate)
+        })
+
+        const mergedResult = mergeSupplementalAnimeSeasons(result, supplementalSeasonCandidates)
+        setCanonicalAnime(mergedResult || null)
+
+        if (mergedResult?.entries?.length) {
           const requestedSeason = Number(location.state?.resumeSeason || resumeProgress?.season || 1)
 
-          const matchedSeasonIndex = result.entries.findIndex(
+          const matchedSeasonIndex = mergedResult.entries.findIndex(
             (entry) => entry.kind === 'season' && Number(entry.seasonNumber || 0) === requestedSeason
           )
 
@@ -363,6 +532,11 @@ export default function Detail() {
     return buildAnimeEpisodesFromAniListEntry(selectedCanonicalEntry)
   }, [prefetchedAnimeData, selectedCanonicalEntry])
 
+  const releasedSelectedEpisodes = useMemo(
+    () => selectedEpisodes.filter((episode) => episode?.isReleased !== false),
+    [selectedEpisodes]
+  )
+
   const playbackAnimeTitle = useMemo(() => {
     if (!isAnime) return animeTitle
     return selectedCanonicalEntry?.title || animeTitle
@@ -391,22 +565,25 @@ export default function Detail() {
 
   useEffect(() => {
     if (!isAnime || !playbackAnimeTitle) return undefined
+    if (prefetchedAnimeData?.animeId) return undefined
 
     let cancelled = false
-
-    preloadAnimePlayback(...animeDownloadSearchTitles)
-      .then((payload) => {
-        if (cancelled || !payload?.animeId) return
-        animePrefetchRef.current.set(payload.animeId, payload)
-        prefetchedAnimeIdRef.current = payload.animeId
-        setPrefetchedAnimeData(payload)
-      })
-      .catch(() => { })
+    const timer = window.setTimeout(() => {
+      preloadAnimePlayback(...animeDownloadSearchTitles)
+        .then((payload) => {
+          if (cancelled || !payload?.animeId) return
+          animePrefetchRef.current.set(payload.animeId, payload)
+          prefetchedAnimeIdRef.current = payload.animeId
+          setPrefetchedAnimeData(payload)
+        })
+        .catch(() => { })
+    }, 500)
 
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
     }
-  }, [animeDownloadSearchTitles, isAnime])
+  }, [animeDownloadSearchTitles, isAnime, playbackAnimeTitle, prefetchedAnimeData?.animeId])
 
   const handlePlay = async (
     seasonNumber = 1,
@@ -787,8 +964,13 @@ export default function Detail() {
       .map((episodeEntry, index) => ({
         episode: Number(episodeEntry?.episode ?? episodeEntry?.episodeNumber ?? index + 1),
         episodeTitle: episodeEntry?.episodeTitle ?? episodeEntry?.title ?? null,
+        isReleased: episodeEntry?.isReleased !== false,
       }))
-      .filter((episodeEntry) => Number.isInteger(episodeEntry.episode) && episodeEntry.episode > 0)
+      .filter((episodeEntry) => (
+        Number.isInteger(episodeEntry.episode)
+        && episodeEntry.episode > 0
+        && episodeEntry.isReleased !== false
+      ))
 
     const unwatchedEpisodes = normalizedEpisodes.filter((episodeEntry) => (
       !progressMap[getEpisodeProgressKey(seasonNumber, episodeEntry.episode)]
@@ -1205,14 +1387,15 @@ export default function Detail() {
                 })()}
               </div>
               {/* Download Season — Phase C: opens season download sheet */}
-              {selectedEpisodes.length > 0 && (
+              {releasedSelectedEpisodes.length > 0 && (
                 <motion.button
                   onClick={() => openSeasonDownloadSheet({
                     contentType: 'anime',
                     seasonNumber: Number(selectedCanonicalEntry?.seasonNumber || playSeason || 1),
-                    episodes: selectedEpisodes.map((episode, index) => ({
+                    episodes: releasedSelectedEpisodes.map((episode, index) => ({
                       episode: Number(episode?.number || index + 1),
                       episodeTitle: episode?.title || null,
+                      isReleased: episode?.isReleased !== false,
                     })),
                   })}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold"
@@ -1277,6 +1460,8 @@ export default function Detail() {
                     {selectedEpisodes.map((episode, index) => {
                       const entrySeason = Number(selectedCanonicalEntry?.seasonNumber || 1)
                       const episodeNumber = Number(episode.number || index + 1)
+                      const isUpcomingEpisode = episode?.isReleased === false
+                      const episodeAvailabilityLabel = getAnimeEpisodeAvailabilityLabel(episode)
                       const animeEpisodeDownloadState =
                         animeDownloadStatusMap[getEpisodeProgressKey(entrySeason, episodeNumber)]
                         || { status: 'default', progress: 0 }
@@ -1288,24 +1473,29 @@ export default function Detail() {
                       return (
                         <motion.div
                           key={`${selectedCanonicalEntry?.id}-${episodeNumber}`}
-                          className="rounded-xl overflow-hidden cursor-pointer group"
+                          className={`rounded-xl overflow-hidden group ${isUpcomingEpisode ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                           style={{
                             background: 'var(--bg-surface)',
                             border: isCurrentEpisode
                               ? '1px solid var(--accent)'
+                              : isUpcomingEpisode
+                                ? '1px solid rgba(255,255,255,0.08)'
                               : isAnimeEpisodeDownloaded
                                 ? '1px solid rgba(74,222,128,0.22)'
                                 : '1px solid var(--border)',
                             boxShadow: isCurrentEpisode
                               ? '0 0 24px var(--accent-glow), var(--card-shadow)'
                               : 'var(--card-shadow)',
+                            opacity: isUpcomingEpisode ? 0.72 : 1,
                           }}
-                          whileHover={{
+                          whileHover={isUpcomingEpisode ? {} : {
                             y: -3,
                             borderColor: isAnimeEpisodeDownloaded ? 'rgba(74,222,128,0.45)' : 'var(--border-hover)',
                             boxShadow: '0 0 20px var(--accent-glow), 0 12px 40px rgba(0,0,0,0.3)',
                           }}
                           onClick={() => {
+                            if (isUpcomingEpisode) return
+
                             if (isAnimeEpisodeDownloaded) {
                               const offlineAnimeItem = getDownloadItemByIdentity(downloadItems, {
                                 contentId: data.id,
@@ -1336,7 +1526,7 @@ export default function Detail() {
                           }}
                         >
                           <div className="relative h-28 overflow-hidden">
-                            {getAnimeCardImage(selectedCanonicalEntry, episode) ? (
+                            {!isUpcomingEpisode && getAnimeCardImage(selectedCanonicalEntry, episode) ? (
                               <img
                                 src={getAnimeCardImage(selectedCanonicalEntry, episode)}
                                 alt={episode.title || `Episode ${episodeNumber}`}
@@ -1347,7 +1537,9 @@ export default function Detail() {
                                 className="w-full h-full flex items-center justify-center"
                                 style={{ background: 'var(--bg-elevated)' }}
                               >
-                                <span className="text-2xl opacity-40">TV</span>
+                                <span className="text-base font-semibold opacity-55">
+                                  {isUpcomingEpisode ? 'Soon' : 'TV'}
+                                </span>
                               </div>
                             )}
 
@@ -1365,6 +1557,22 @@ export default function Detail() {
                               </div>
                             )}
 
+                            {isUpcomingEpisode && (
+                              <div className="absolute top-2 left-2 z-10">
+                                <span
+                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                                  style={{
+                                    background: 'rgba(251,191,36,0.14)',
+                                    border: '1px solid rgba(251,191,36,0.28)',
+                                    color: '#fbbf24',
+                                  }}
+                                >
+                                  Upcoming
+                                </span>
+                              </div>
+                            )}
+
+                            {!isUpcomingEpisode && (
                             <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
                               <div
                                 className="w-11 h-11 rounded-full flex items-center justify-center"
@@ -1378,13 +1586,14 @@ export default function Detail() {
                                 </svg>
                               </div>
                             </div>
+                            )}
 
                             {/* Episode download button — top-right overlay
                               Phase B: pass status from store.getDownloadStatus(data.id, entrySeason, episodeNumber)
                               Phase C: onDownload enqueues via store
                               Hidden for completed episodes — offline badge takes over
                             */}
-                            {!isAnimeEpisodeDownloaded && (
+                            {!isUpcomingEpisode && !isAnimeEpisodeDownloaded && (
                             <div
                               className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                               onClick={e => e.stopPropagation()}
@@ -1433,7 +1642,9 @@ export default function Detail() {
                             </div>
 
                             <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>
-                              {isMainSeriesLauncher(episode)
+                              {isUpcomingEpisode
+                                ? episodeAvailabilityLabel
+                                : isMainSeriesLauncher(episode)
                                 ? 'Long-running series'
                                 : selectedCanonicalEntry?.kind === 'season'
                                   ? `Season ${entrySeason}`
@@ -1499,11 +1710,15 @@ export default function Detail() {
                   episode: episodeNumber,
                 })
               }}
-              onDownloadSeason={(seasonNumber) => {
+              onDownloadSeason={(seasonNumber, seasonEpisodes = []) => {
                 openSeasonDownloadSheet({
                   contentType: 'tv',
                   seasonNumber,
-                  episodes: buildSeriesSeasonEpisodes(seasonNumber),
+                  episodes: (Array.isArray(seasonEpisodes) ? seasonEpisodes : []).map((episodeEntry, index) => ({
+                    episode: Number(episodeEntry?.episode_number ?? index + 1),
+                    episodeTitle: episodeEntry?.name || null,
+                    isReleased: episodeEntry?.air_date ? !isFutureEpisodeDate(episodeEntry.air_date) : true,
+                  })),
                 })
               }}
               onPlay={(seasonNumber, episodeNumber, runtime) =>

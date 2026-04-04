@@ -21,7 +21,7 @@ const CORE_MEDIA_FIELDS = `
   popularity
   genres
   description(asHtml: false)
-  nextAiringEpisode { episode }
+  nextAiringEpisode { episode airingAt }
 `
 
 const BROWSE_RELATION_FIELDS = `
@@ -45,45 +45,37 @@ const BROWSE_MEDIA_FIELDS = `
 const SEARCH_MEDIA_FIELDS = `
   id
   format
+  status
   seasonYear
   startDate { year month day }
+  episodes
+  nextAiringEpisode { episode airingAt }
   title { english romaji native }
   coverImage { large extraLarge }
+  bannerImage
   averageScore
   popularity
 `
 
-const DETAIL_MEDIA_FIELDS = `
-  ${CORE_MEDIA_FIELDS}
-  relations {
-    edges {
-      relationType
-      node {
-        ${CORE_MEDIA_FIELDS}
-        relations {
-          edges {
-            relationType
-            node {
-              id
-              idMal
-              type
-              format
-              status
-              season
-              seasonYear
-              startDate { year month day }
-              episodes
-              duration
-              title { english romaji native }
-              synonyms
-              coverImage { large extraLarge }
-              bannerImage
-            }
-          }
+function buildRelationFields(depth = 1) {
+  if (depth <= 0) return ''
+
+  return `
+    relations {
+      edges {
+        relationType
+        node {
+          ${CORE_MEDIA_FIELDS}
+          ${buildRelationFields(depth - 1)}
         }
       }
     }
-  }
+  `
+}
+
+const DETAIL_MEDIA_FIELDS = `
+  ${CORE_MEDIA_FIELDS}
+  ${buildRelationFields(3)}
 `
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

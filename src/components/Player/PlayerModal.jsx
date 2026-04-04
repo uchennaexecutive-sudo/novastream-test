@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Maximize, Minimize, X } from 'lucide-react'
@@ -217,9 +218,6 @@ export default function PlayerModal({
       clearResumeTimers()
       wasOpenRef.current = false
 
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {})
-      }
     }
 
     return () => window.clearTimeout(timeoutRef.current)
@@ -246,9 +244,7 @@ export default function PlayerModal({
   }, [error, isOpen, sourceIndex, startTimeout])
 
   useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    return () => { invoke('set_player_fullscreen', { fullscreen: false }).catch(() => {}) }
   }, [])
 
   useEffect(() => {
@@ -257,16 +253,17 @@ export default function PlayerModal({
     const handleKeyDown = (event) => {
       if (event.key === 'f' || event.key === 'F') {
         event.preventDefault()
-        if (!document.fullscreenElement) {
-          playerContainerRef.current?.requestFullscreen?.().catch(() => {})
-        } else {
-          document.exitFullscreen().catch(() => {})
-        }
+        setIsFullscreen((prev) => {
+          const next = !prev
+          invoke('set_player_fullscreen', { fullscreen: next }).catch(() => {})
+          return next
+        })
       }
 
       if (event.key === 'Escape') {
-        if (document.fullscreenElement) {
-          document.exitFullscreen().catch(() => {})
+        if (isFullscreen) {
+          invoke('set_player_fullscreen', { fullscreen: false }).catch(() => {})
+          setIsFullscreen(false)
         } else {
           persistBestGuessProgress().catch(() => {})
           onClose()
@@ -332,14 +329,9 @@ export default function PlayerModal({
   }
 
   const toggleFullscreen = () => {
-    const container = playerContainerRef.current
-    if (!container) return
-
-    if (!document.fullscreenElement) {
-      container.requestFullscreen().catch(() => {})
-    } else {
-      document.exitFullscreen().catch(() => {})
-    }
+    const next = !isFullscreen
+    invoke('set_player_fullscreen', { fullscreen: next }).catch(() => {})
+    setIsFullscreen(next)
   }
 
   const switchSource = (nextIndex) => {

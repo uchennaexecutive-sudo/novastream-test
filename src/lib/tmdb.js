@@ -61,6 +61,33 @@ export const getRecommendations = (type, id) =>
 
 // Dedicated anime lookup: searches /search/tv which is more reliable than /search/multi for anime titles
 export const searchAnimeOnTMDB = async (englishTitle, romajiTitle, animeYear = null) => {
+  const getAnimeFranchiseTitle = (value) => {
+    const title = String(value || '').trim()
+    if (!title) return ''
+
+    const markers = [
+      /\b\d+(st|nd|rd|th)\s+season\b/i,
+      /\bseason\s+\d+\b/i,
+      /\bfinal\s+season\b/i,
+      /\bpart\s+\d+\b/i,
+      /\bcour\s+\d+\b/i,
+    ]
+
+    const matchedIndexes = markers
+      .map((pattern) => title.search(pattern))
+      .filter((index) => index >= 0)
+
+    if (!matchedIndexes.length) {
+      return title
+    }
+
+    const cutIndex = Math.min(...matchedIndexes)
+    return title
+      .slice(0, cutIndex)
+      .replace(/\s*[:\-–]\s*$/, '')
+      .trim()
+  }
+
   const clean = (value) =>
     String(value || '')
       .toLowerCase()
@@ -120,9 +147,18 @@ export const searchAnimeOnTMDB = async (englishTitle, romajiTitle, animeYear = n
     }
   }
 
-  const hit =
-    (await tryTitle(englishTitle)) ||
-    (await tryTitle(romajiTitle))
+  const candidates = [...new Set([
+    englishTitle,
+    romajiTitle,
+    getAnimeFranchiseTitle(englishTitle),
+    getAnimeFranchiseTitle(romajiTitle),
+  ].map((value) => String(value || '').trim()).filter(Boolean))]
+
+  let hit = null
+  for (const candidate of candidates) {
+    hit = await tryTitle(candidate)
+    if (hit) break
+  }
 
   return hit
     ? {

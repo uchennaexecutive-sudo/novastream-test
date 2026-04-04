@@ -27,6 +27,22 @@ const getEpisodeCount = (item) => {
     return Math.max(explicitEpisodes, airedEpisodes, 0)
 }
 
+const getReleasedEpisodeCount = (item) => {
+    const status = String(item?.status || '').toUpperCase()
+    const explicitEpisodes = Number(item?.episodes || 0)
+    const nextEpisodeNumber = Number(item?.nextAiringEpisode?.episode || 0)
+
+    if (nextEpisodeNumber > 0) {
+        return Math.max(nextEpisodeNumber - 1, 0)
+    }
+
+    if (status === 'FINISHED') {
+        return Math.max(explicitEpisodes, 0)
+    }
+
+    return 0
+}
+
 const getKind = (item) => {
     const format = String(item?.format || '').toUpperCase()
     if (format === 'TV' || format === 'TV_SHORT') return 'season'
@@ -35,6 +51,22 @@ const getKind = (item) => {
     if (format === 'ONA') return 'ona'
     if (format === 'SPECIAL') return 'special'
     return 'other'
+}
+
+const hasExplicitSeasonNumberMarker = (item) => {
+    const titles = [
+        item?.title?.english,
+        item?.title?.romaji,
+        item?.title?.native,
+    ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase())
+
+    return titles.some((title) => (
+        /\bseason\s+[2-9]\d*\b/.test(title) ||
+        /\b[2-9]\d*(st|nd|rd|th)\s+season\b/.test(title) ||
+        /\bfinal\s+season\b/.test(title)
+    ))
 }
 
 const relationAllowed = (relationType) => {
@@ -104,14 +136,26 @@ const hasMainlineSeasonRelation = (item) => {
 const isSeasonLike = (item) =>
     getKind(item) === 'season'
 
+const isPromotedOnaSeason = (item) =>
+    String(item?.format || '').toUpperCase() === 'ONA'
+    && hasExplicitSeasonNumberMarker(item)
+    && hasMainlineSeasonRelation(item)
+
+const isCanonicalSeasonLike = (item) =>
+    isSeasonLike(item) || isPromotedOnaSeason(item)
+
+const isReleasedSeasonCandidate = (item) =>
+    String(item?.status || '').toUpperCase() !== 'NOT_YET_RELEASED'
+
 const isMainlineSeasonEntry = (item, rootId) => {
     if (!item?.id) return false
+    if (!isReleasedSeasonCandidate(item)) return false
 
     if (item.id === rootId) {
-        return getKind(item) === 'season'
+        return isCanonicalSeasonLike(item)
     }
 
-    if (getKind(item) === 'season') {
+    if (isCanonicalSeasonLike(item)) {
         return hasMainlineSeasonRelation(item)
     }
 
@@ -125,8 +169,9 @@ function collectRelatedAnime(root) {
     const baseTitle = getTitle(root)
     const seen = new Set()
     const out = []
+    const MAX_RELATION_DEPTH = 4
 
-    const push = (node, relationType = 'ROOT', depth = 0) => {
+    const visit = (node, relationType = 'ROOT', depth = 0) => {
         if (!node?.id || seen.has(node.id)) return
         if (String(node?.type || '').toUpperCase() !== 'ANIME') return
 
@@ -152,22 +197,15 @@ function collectRelatedAnime(root) {
             _relationType: relationType,
             _depth: depth,
         })
-    }
 
-    push(root, 'ROOT', 0)
+        if (depth >= MAX_RELATION_DEPTH) return
 
-    for (const edge of root?.relations?.edges || []) {
-        push(edge?.node, edge?.relationType, 1)
-    }
-
-    for (const edge of root?.relations?.edges || []) {
-        for (const nested of edge?.node?.relations?.edges || []) {
-            const nestedTitle = getTitle(nested?.node)
-            if (looksRelated(baseTitle, nestedTitle)) {
-                push(nested?.node, nested?.relationType, 2)
-            }
+        for (const edge of node?.relations?.edges || []) {
+            visit(edge?.node, edge?.relationType, depth + 1)
         }
     }
+
+    visit(root, 'ROOT', 0)
 
     return out
 }
@@ -188,7 +226,7 @@ export function resolveAnimeCanonicalRoot(media) {
     if (!media?.id) return null
 
     const related = collectRelatedAnime(media)
-    const seasonCandidates = related.filter(isSeasonLike)
+    const seasonCandidates = related.filter(isCanonicalSeasonLike)
 
     if (!seasonCandidates.length) return media
 
@@ -272,7 +310,7 @@ export function buildAnimeCanonicalFromAniList(media) {
     const seasonsRaw = related.filter((item) => isMainlineSeasonEntry(item, media.id))
     const moviesRaw = related.filter((item) => getKind(item) === 'movie')
     const ovaRaw = related.filter((item) => getKind(item) === 'ova')
-    const onaRaw = related.filter((item) => getKind(item) === 'ona')
+    const onaRaw = related.filter((item) => getKind(item) === 'ona' && !isMainlineSeasonEntry(item, media.id))
     const specialsRaw = related.filter(
         (item) => getKind(item) === 'special' || isTvShortExtra(item, media.id)
     )
@@ -288,6 +326,11 @@ export function buildAnimeCanonicalFromAniList(media) {
                 label: 'Season 1',
                 seasonNumber: 1,
                 episodesCount: Math.max(1, getEpisodeCount(media)),
+                totalEpisodes: Math.max(1, getEpisodeCount(media)),
+                releasedEpisodes: Math.max(0, getReleasedEpisodeCount(media)),
+                releaseStatus: String(media?.status || '').toUpperCase(),
+                nextAiringEpisodeNumber: Number(media?.nextAiringEpisode?.episode || 0),
+                nextAiringAt: Number(media?.nextAiringEpisode?.airingAt || 0),
                 image: media?.coverImage?.extraLarge || media?.coverImage?.large || '',
                 bannerImage: media?.bannerImage || '',
                 year: getYear(media),
@@ -303,6 +346,11 @@ export function buildAnimeCanonicalFromAniList(media) {
                     label: 'Season 1',
                     seasonNumber: 1,
                     episodesCount: Math.max(1, getEpisodeCount(media)),
+                    totalEpisodes: Math.max(1, getEpisodeCount(media)),
+                    releasedEpisodes: Math.max(0, getReleasedEpisodeCount(media)),
+                    releaseStatus: String(media?.status || '').toUpperCase(),
+                    nextAiringEpisodeNumber: Number(media?.nextAiringEpisode?.episode || 0),
+                    nextAiringAt: Number(media?.nextAiringEpisode?.airingAt || 0),
                     image: media?.coverImage?.extraLarge || media?.coverImage?.large || '',
                     bannerImage: media?.bannerImage || '',
                     year: getYear(media),
@@ -316,6 +364,11 @@ export function buildAnimeCanonicalFromAniList(media) {
                 label: `Season ${index + 1}`,
                 seasonNumber: index + 1,
                 episodesCount: Math.max(1, getEpisodeCount(item)),
+                totalEpisodes: Math.max(1, getEpisodeCount(item)),
+                releasedEpisodes: Math.max(0, getReleasedEpisodeCount(item)),
+                releaseStatus: String(item?.status || '').toUpperCase(),
+                nextAiringEpisodeNumber: Number(item?.nextAiringEpisode?.episode || 0),
+                nextAiringAt: Number(item?.nextAiringEpisode?.airingAt || 0),
                 image: item?.coverImage?.extraLarge || item?.coverImage?.large || '',
                 bannerImage: item?.bannerImage || '',
                 year: getYear(item),
@@ -351,6 +404,7 @@ export function buildAnimeEpisodesFromAniListEntry(entry) {
             title: item.title,
             image: item.image || '',
             itemKind: item.kind,
+            isReleased: true,
         }))
     }
 
@@ -360,24 +414,28 @@ export function buildAnimeEpisodesFromAniListEntry(entry) {
                 number: 1,
                 title: entry.title || entry.label || 'Movie',
                 image: entry.bannerImage || entry.image || '',
+                isReleased: true,
             },
         ]
     }
 
-    if (entry.isLongRunner) {
-        const total = Math.max(1, Number(entry?.episodesCount || 1))
-        return Array.from({ length: total }, (_, index) => ({
-            number: index + 1,
-            title: `Episode ${index + 1}`,
-            image: entry.bannerImage || entry.image || '',
-            isMainSeriesLauncher: false,
-        }))
-    }
+    const total = Math.max(
+        0,
+        Number(entry?.totalEpisodes || 0),
+        Number(entry?.episodesCount || 0),
+        Number(entry?.releasedEpisodes || 0)
+    )
+    const releasedEpisodes = Math.max(0, Number(entry?.releasedEpisodes || 0))
+    const releaseStatus = String(entry?.releaseStatus || '').toUpperCase()
+    const nextAiringEpisodeNumber = Number(entry?.nextAiringEpisodeNumber || 0)
+    const nextAiringAt = Number(entry?.nextAiringAt || 0)
 
-    const total = Math.max(0, Number(entry?.episodesCount || 0))
     return Array.from({ length: total }, (_, index) => ({
         number: index + 1,
         title: `Episode ${index + 1}`,
         image: entry?.bannerImage || entry?.image || '',
+        isMainSeriesLauncher: Boolean(entry?.isLongRunner),
+        isReleased: releaseStatus === 'FINISHED' || index + 1 <= releasedEpisodes,
+        airingAt: index + 1 === nextAiringEpisodeNumber ? nextAiringAt : null,
     }))
 }

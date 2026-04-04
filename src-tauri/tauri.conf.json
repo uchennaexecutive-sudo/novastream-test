@@ -1,6 +1,6 @@
 {
   "productName": "NOVA STREAM",
-  "version": "1.5.9",
+  "version": "1.6.0",
   "identifier": "com.novastream.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -42,6 +42,11 @@
       "app"
     ],
     "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns",
       "icons/icon.png"
     ]
   }

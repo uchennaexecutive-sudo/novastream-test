@@ -356,10 +356,9 @@ export default function SharedNativePlayer({
   }
 
   const toggleFullscreen = () => {
-    const container = playerContainerRef.current
-    if (!container) return
-    if (!document.fullscreenElement) container.requestFullscreen().catch(() => { })
-    else document.exitFullscreen().catch(() => { })
+    const next = !isFullscreen
+    invoke('set_player_fullscreen', { fullscreen: next }).catch(() => {})
+    setIsFullscreen(next)
     revealControls()
   }
 
@@ -403,6 +402,7 @@ export default function SharedNativePlayer({
   }
 
   const handleClose = () => {
+    if (isFullscreen) invoke('set_player_fullscreen', { fullscreen: false }).catch(() => {})
     persistProgress().catch(() => { })
     onClose?.()
   }
@@ -811,9 +811,7 @@ export default function SharedNativePlayer({
   }, [isMuted, playbackRate, volume])
 
   useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    return () => { invoke('set_player_fullscreen', { fullscreen: false }).catch(() => {}) }
   }, [])
 
   useEffect(() => {
@@ -891,7 +889,7 @@ export default function SharedNativePlayer({
       >
         <motion.div
           ref={playerContainerRef}
-          style={{ position: 'relative', width: '92vw', height: '88vh', maxWidth: 1600, borderRadius: 16, overflow: 'hidden', background: '#000', border: '1px solid var(--border)', boxShadow: '0 0 80px rgba(0,0,0,0.9)', cursor: controlsVisible ? 'default' : 'none' }}
+          style={{ position: 'relative', width: isFullscreen ? '100vw' : '92vw', height: isFullscreen ? '100vh' : '88vh', maxWidth: isFullscreen ? '100vw' : 1600, borderRadius: isFullscreen ? 0 : 16, overflow: 'hidden', background: '#000', border: isFullscreen ? 'none' : '1px solid var(--border)', boxShadow: isFullscreen ? 'none' : '0 0 80px rgba(0,0,0,0.9)', cursor: controlsVisible ? 'default' : 'none' }}
           initial={{ scale: 0.92, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}

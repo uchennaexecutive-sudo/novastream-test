@@ -85,6 +85,7 @@ const IFRAME_PLAYER_DATA_DIR: &str = "iframe-player-webview";
 const DOWNLOADS_ROOT_DIR_NAME: &str = "downloads";
 const DOWNLOAD_SETTINGS_FILE_NAME: &str = "download-settings.json";
 const VIDEO_DOWNLOAD_DEFAULT_MAX_CONCURRENT: usize = 2;
+const VIDEO_DOWNLOAD_MAX_CONCURRENT_ANIME: usize = 2;
 const EMBEDDED_NUVIO_RUNTIME_ARCHIVE: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/nuvio-runtime.zip"));
 const STREAM_CAPTURE_SCRIPT: &str = r#"
@@ -547,6 +548,86 @@ fn toggle_maximize(window: tauri::Window) {
     }
 }
 
+/// Fullscreen that covers the Windows taskbar.
+/// Uses Win32 SetWindowPos with the full monitor rect (rcMonitor, not rcWork)
+/// so content fills the screen exactly with no invisible-border offset.
+#[tauri::command]
+fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::c_void;
+        type HWND     = *mut c_void;
+        type HMONITOR = *mut c_void;
+
+        #[repr(C)]
+        struct RECT { left: i32, top: i32, right: i32, bottom: i32 }
+
+        #[repr(C)]
+        struct MONITORINFO {
+            cb_size: u32,
+            rc_monitor: RECT,
+            rc_work: RECT,
+            dw_flags: u32,
+        }
+
+        const MONITOR_DEFAULTTONEAREST: u32 = 2;
+        const SWP_NOSIZE: u32       = 0x0001;
+        const SWP_NOMOVE: u32       = 0x0002;
+        const SWP_NOACTIVATE: u32   = 0x0010;
+        const SWP_FRAMECHANGED: u32 = 0x0020;
+        let hwnd_topmost:   HWND = (-1isize) as usize as HWND;
+        let hwnd_notopmost: HWND = (-2isize) as usize as HWND;
+
+        extern "system" {
+            fn MonitorFromWindow(hwnd: HWND, dw_flags: u32) -> HMONITOR;
+            fn GetMonitorInfoW(h_monitor: HMONITOR, lpmi: *mut MONITORINFO) -> i32;
+            fn SetWindowPos(hwnd: HWND, hwnd_insert_after: HWND, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+        }
+
+        let hwnd: HWND = window.hwnd().map_err(|e| e.to_string())?.0;
+
+        if fullscreen {
+            let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+            let mut info = MONITORINFO {
+                cb_size: std::mem::size_of::<MONITORINFO>() as u32,
+                rc_monitor: RECT { left: 0, top: 0, right: 0, bottom: 0 },
+                rc_work:    RECT { left: 0, top: 0, right: 0, bottom: 0 },
+                dw_flags: 0,
+            };
+            unsafe { GetMonitorInfoW(monitor, &mut info) };
+            let r = &info.rc_monitor;
+            unsafe {
+                SetWindowPos(
+                    hwnd, hwnd_topmost,
+                    r.left, r.top, r.right - r.left, r.bottom - r.top,
+                    SWP_FRAMECHANGED | SWP_NOACTIVATE,
+                );
+            }
+        } else {
+            unsafe {
+                SetWindowPos(
+                    hwnd, hwnd_notopmost,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+                );
+            }
+            window.maximize().map_err(|e| e.to_string())?;
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if fullscreen {
+            window.set_fullscreen(true).map_err(|e| e.to_string())?;
+        } else {
+            window.set_fullscreen(false).map_err(|e| e.to_string())?;
+            window.maximize().map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 async fn fetch_anime_json(
     url: String,
@@ -948,6 +1029,54 @@ fn reconcile_active_download_state(state: &mut VideoDownloadManager) {
             entry.status == RuntimeDownloadStatus::Downloading && entry.active.is_some()
         })
         .count();
+}
+
+fn is_anime_video_download(request: &VideoDownloadRequest) -> bool {
+    normalize_video_download_content_type(&request.content_type) == "anime"
+}
+
+fn active_anime_download_count(state: &VideoDownloadManager) -> usize {
+    state
+        .entries
+        .values()
+        .filter(|entry| {
+            entry.status == RuntimeDownloadStatus::Downloading
+                && entry.active.is_some()
+                && is_anime_video_download(&entry.request)
+        })
+        .count()
+}
+
+fn pop_next_schedulable_download_id(
+    state: &mut VideoDownloadManager,
+    active_anime_count: usize,
+) -> Option<String> {
+    let mut index = 0usize;
+
+    while index < state.queue.len() {
+        let Some(candidate_id) = state.queue.get(index).cloned() else {
+            break;
+        };
+
+        let Some(entry) = state.entries.get(&candidate_id) else {
+            state.queue.remove(index);
+            continue;
+        };
+
+        if entry.status != RuntimeDownloadStatus::Queued {
+            state.queue.remove(index);
+            continue;
+        }
+
+        if is_anime_video_download(&entry.request) && active_anime_count >= VIDEO_DOWNLOAD_MAX_CONCURRENT_ANIME {
+            index += 1;
+            continue;
+        }
+
+        return state.queue.remove(index);
+    }
+
+    None
 }
 
 enum VideoDownloadTaskOutcome {
@@ -7996,8 +8125,29 @@ fn subtitle_is_english_or_unknown(subtitle: &ResolvedMovieSubtitle) -> bool {
         || label.contains("[en]")
 }
 
-fn select_preferred_download_subtitle(
+fn subtitle_matches_stream_provider(
+    subtitle: &ResolvedMovieSubtitle,
+    stream_provider: &str,
+) -> bool {
+    let normalized_provider = stream_provider.trim().to_ascii_lowercase();
+    if normalized_provider.is_empty() {
+        return false;
+    }
+
+    let normalized_source = subtitle.source.trim().to_ascii_lowercase();
+    let normalized_label = subtitle.label.trim().to_ascii_lowercase();
+
+    (!normalized_source.is_empty()
+        && (normalized_source.contains(&normalized_provider)
+            || normalized_provider.contains(&normalized_source)))
+        || (!normalized_label.is_empty()
+            && (normalized_label.contains(&normalized_provider)
+                || normalized_provider.contains(&normalized_label)))
+}
+
+fn select_preferred_stream_download_subtitle(
     subtitles: &[ResolvedMovieSubtitle],
+    stream_provider: &str,
 ) -> Option<ResolvedMovieSubtitle> {
     let mut candidates = subtitles.to_vec();
     if candidates.is_empty() {
@@ -8009,8 +8159,9 @@ fn select_preferred_download_subtitle(
     }
 
     candidates.sort_by(|a, b| {
-        subtitle_preference_score(b)
-            .cmp(&subtitle_preference_score(a))
+        subtitle_matches_stream_provider(b, stream_provider)
+            .cmp(&subtitle_matches_stream_provider(a, stream_provider))
+            .then_with(|| subtitle_preference_score(b).cmp(&subtitle_preference_score(a)))
             .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
             .then_with(|| a.label.cmp(&b.label))
             .then_with(|| a.url.cmp(&b.url))
@@ -8219,7 +8370,7 @@ async fn maybe_download_subtitle_sidecar(
         url,
     });
     let provider_subtitle = || {
-        select_preferred_download_subtitle(&stream.subtitles).and_then(|subtitle| {
+        select_preferred_stream_download_subtitle(&stream.subtitles, &stream.provider).and_then(|subtitle| {
             if subtitle.url.trim().is_empty() {
                 None
             } else {
@@ -9601,6 +9752,70 @@ fn cleanup_stale_hls_artifacts(
     }
 }
 
+fn cleanup_completed_hls_artifacts(
+    save_dir: &StdPath,
+    save_name: &str,
+    target_path: &StdPath,
+) {
+    cleanup_stale_hls_artifacts(save_dir, save_name, target_path);
+
+    let Ok(entries) = fs::read_dir(save_dir) else {
+        return;
+    };
+
+    let normalized_save_name = save_name.to_ascii_lowercase();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == target_path {
+            continue;
+        }
+
+        if path.is_dir() {
+            let file_name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if file_name.starts_with(&normalized_save_name) {
+                let _ = fs::remove_dir_all(&path);
+            }
+            continue;
+        }
+
+        if !path.is_file() {
+            continue;
+        }
+
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if !stem.starts_with(&normalized_save_name) {
+            continue;
+        }
+
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        if matches!(
+            extension.as_str(),
+            "ts" | "m4s" | "m4a" | "aac" | "mkv" | "mov" | "copy"
+        ) || file_name.ends_with(".mux.mp4")
+        {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
 fn existing_hls_recovery_candidates(target_path: &StdPath) -> Vec<PathBuf> {
     vec![
         target_path.with_extension("recover.mp4"),
@@ -10294,6 +10509,7 @@ async fn run_hls_video_download(
                         0,
                     );
                     maybe_download_subtitle_sidecar(request, stream, target_path).await;
+                    cleanup_completed_hls_artifacts(&save_dir, &save_name, target_path);
                     return VideoDownloadTaskOutcome::Completed {
                         file_path: target_path.to_path_buf(),
                         bytes_downloaded: recovered_bytes,
@@ -10399,6 +10615,7 @@ async fn run_hls_video_download(
                         0,
                     );
                     maybe_download_subtitle_sidecar(request, stream, target_path).await;
+                    cleanup_completed_hls_artifacts(&save_dir, &save_name, target_path);
                     return VideoDownloadTaskOutcome::Completed {
                         file_path: target_path.to_path_buf(),
                         bytes_downloaded: total_bytes,
@@ -10436,6 +10653,7 @@ async fn run_hls_video_download(
     );
 
     maybe_download_subtitle_sidecar(request, stream, target_path).await;
+    cleanup_completed_hls_artifacts(&save_dir, &save_name, target_path);
 
     VideoDownloadTaskOutcome::Completed {
         file_path: target_path.to_path_buf(),
@@ -10480,6 +10698,16 @@ async fn run_video_download_task(
         match promote_existing_hls_recovery_output(&target_path) {
             Ok(Some(total_bytes)) if validate_completed_video_file(&target_path).is_ok() => {
                 maybe_download_subtitle_sidecar(&request, &stream, &target_path).await;
+                let save_dir = target_path
+                    .parent()
+                    .map(|value| value.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."));
+                let save_name = target_path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("download")
+                    .to_string();
+                cleanup_completed_hls_artifacts(&save_dir, &save_name, &target_path);
                 return VideoDownloadTaskOutcome::Completed {
                     file_path: target_path,
                     bytes_downloaded: total_bytes,
@@ -10537,6 +10765,7 @@ fn schedule_video_downloads(app: tauri::AppHandle) {
         };
 
         reconcile_active_download_state(&mut state);
+        let mut active_anime_count = active_anime_download_count(&state);
 
         loop {
             if let Some(limit) = state.max_concurrent {
@@ -10545,7 +10774,7 @@ fn schedule_video_downloads(app: tauri::AppHandle) {
                 }
             }
 
-            let Some(next_id) = state.queue.pop_front() else {
+            let Some(next_id) = pop_next_schedulable_download_id(&mut state, active_anime_count) else {
                 break;
             };
 
@@ -10566,6 +10795,9 @@ fn schedule_video_downloads(app: tauri::AppHandle) {
                 entry.active = Some(control.clone());
                 entry.request.clone()
             };
+            if is_anime_video_download(&request) {
+                active_anime_count += 1;
+            }
             state.active_count += 1;
             jobs.push((request, control));
         }
@@ -11447,6 +11679,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             minimize_window,
             toggle_maximize,
+            set_player_fullscreen,
             close_window,
             open_iframe_player_window,
             search_hianime,

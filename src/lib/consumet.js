@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { getEnabledAnimeAddonProviders } from './animeAddons'
 import { resolveAnimeProviderStates } from './animeAddons/resolveAnimeStreams'
 
 export const ANIWATCH_BASE_URL = 'https://web-production-f746c.up.railway.app'
@@ -306,25 +307,38 @@ export async function getAnimeStream(episodeId, provider = 'animekai') {
 export async function preloadAnimePlayback(...titles) {
   const candidateTitles = titles.flat().filter(Boolean)
   try {
-    const states = await resolveAnimeProviderStates({ titles: candidateTitles })
-    const preferred = Array.isArray(states)
-      ? states.find((state) => Array.isArray(state?.episodes) && state.episodes.length > 0)
-      : null
+    const enabledProviders = getEnabledAnimeAddonProviders()
+    const providerPriority = ['gogoanime', 'animepahe']
 
-    if (!preferred?.animeId) {
-      return null
+    for (const providerId of providerPriority) {
+      const scopedProviders = enabledProviders.filter((provider) => provider?.id === providerId)
+      if (!scopedProviders.length) continue
+
+      const states = await resolveAnimeProviderStates({
+        titles: candidateTitles,
+        providers: scopedProviders,
+      })
+      const preferred = Array.isArray(states)
+        ? states.find((state) => Array.isArray(state?.episodes) && state.episodes.length > 0)
+        : null
+
+      if (!preferred?.animeId) {
+        continue
+      }
+
+      return {
+        providerId: preferred.providerId || '',
+        animeId: preferred.animeId,
+        episodes: Array.isArray(preferred.episodes) ? preferred.episodes : [],
+        matchedTitle: preferred.matchedTitle || candidateTitles[0] || '',
+        anime: preferred.anime || {
+          id: preferred.animeId,
+          title: preferred.title || candidateTitles[0] || '',
+        },
+      }
     }
 
-    return {
-      providerId: preferred.providerId || '',
-      animeId: preferred.animeId,
-      episodes: Array.isArray(preferred.episodes) ? preferred.episodes : [],
-      matchedTitle: preferred.matchedTitle || candidateTitles[0] || '',
-      anime: preferred.anime || {
-        id: preferred.animeId,
-        title: preferred.title || candidateTitles[0] || '',
-      },
-    }
+    return null
   } catch {
     return null
   }

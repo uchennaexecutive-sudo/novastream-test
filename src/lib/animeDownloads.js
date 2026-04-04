@@ -3,7 +3,7 @@ import { resolveAnimeProviderStates, resolveEpisodeStreamCandidates } from './an
 import { getAnimeEpisodes, getAnimeStream, resolveAnimeSearch } from './consumet'
 
 const providerStateCache = new Map()
-const ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS = 20000
+const ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS = 60000
 
 function withTimeout(promise, timeoutMs, message) {
   let timer = null
@@ -137,6 +137,15 @@ async function getAnimeProviderStatesInternal(titles = [], forceFresh = false) {
   return promise
 }
 
+async function getAnimeProviderStatesForDownload(titles = [], { allowRefresh = true } = {}) {
+  const cachedStates = await getAnimeProviderStatesInternal(titles, false)
+  if (cachedStates.length || !allowRefresh) {
+    return cachedStates
+  }
+
+  return getAnimeProviderStatesInternal(titles, true)
+}
+
 function pickPreferredSubtitle(subtitles = []) {
   const tracks = Array.isArray(subtitles) ? subtitles : []
   if (!tracks.length) return null
@@ -166,6 +175,104 @@ async function loadAnimeDownloadProvider(providerId = '') {
   return null
 }
 
+function sortProviderStates(states = [], preferredProviderId = '') {
+  const normalizedPreferredProviderId = String(preferredProviderId || '').trim().toLowerCase()
+  const orderedStates = Array.isArray(states) ? [...states] : []
+
+  if (!normalizedPreferredProviderId) {
+    return orderedStates
+  }
+
+  orderedStates.sort((left, right) => {
+    const leftPreferred = String(left?.providerId || '').trim().toLowerCase() === normalizedPreferredProviderId
+    const rightPreferred = String(right?.providerId || '').trim().toLowerCase() === normalizedPreferredProviderId
+
+    if (leftPreferred === rightPreferred) return 0
+    return leftPreferred ? -1 : 1
+  })
+
+  return orderedStates
+}
+
+async function resolveStreamCandidateBatch({
+  providerStates = [],
+  episodeNumber,
+  preferredProviderId = '',
+  failedUrls = [],
+  timeoutLabel = '',
+} = {}) {
+  if (!Array.isArray(providerStates) || !providerStates.length) {
+    return []
+  }
+
+  return withTimeout(
+    resolveEpisodeStreamCandidates({
+      providerStates,
+      episodeNumber,
+      preferredProviderId,
+      failedUrls,
+    }),
+    ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS,
+    timeoutLabel || `Episode ${Number(episodeNumber || 0)} stream resolution timed out`
+  )
+}
+
+async function resolveStreamCandidateWithFallback({
+  providerStates = [],
+  episodeNumber,
+  preferredProviderId = '',
+  failedUrls = [],
+  primaryTimeoutLabel = '',
+  fallbackTimeoutLabel = '',
+} = {}) {
+  const orderedStates = sortProviderStates(providerStates, preferredProviderId)
+  if (!orderedStates.length) {
+    return []
+  }
+
+  const normalizedPreferredProviderId = String(preferredProviderId || '').trim().toLowerCase()
+  const preferredStates = normalizedPreferredProviderId
+    ? orderedStates.filter((state) => String(state?.providerId || '').trim().toLowerCase() === normalizedPreferredProviderId)
+    : []
+  const fallbackStates = normalizedPreferredProviderId
+    ? orderedStates.filter((state) => String(state?.providerId || '').trim().toLowerCase() !== normalizedPreferredProviderId)
+    : orderedStates
+
+  if (preferredStates.length) {
+    try {
+      const preferredCandidates = await resolveStreamCandidateBatch({
+        providerStates: preferredStates,
+        episodeNumber,
+        preferredProviderId: normalizedPreferredProviderId,
+        failedUrls,
+        timeoutLabel: primaryTimeoutLabel,
+      })
+
+      if (preferredCandidates.length) {
+        return preferredCandidates
+      }
+    } catch (error) {
+      console.warn('[animeDownloads] preferred provider stream resolution failed, falling back', {
+        preferredProviderId: normalizedPreferredProviderId,
+        episodeNumber,
+        error,
+      })
+    }
+  }
+
+  if (!fallbackStates.length) {
+    return []
+  }
+
+  return resolveStreamCandidateBatch({
+    providerStates: fallbackStates,
+    episodeNumber,
+    preferredProviderId: '',
+    failedUrls,
+    timeoutLabel: fallbackTimeoutLabel,
+  })
+}
+
 export async function resolveAnimeDownloadStream({
   title = '',
   altTitle = '',
@@ -189,6 +296,7 @@ export async function resolveAnimeDownloadStream({
   const normalizedPreferredProviderId = String(preferredProviderId || '').trim()
   const normalizedProviderAnimeId = String(providerAnimeId || '').trim()
   const preferredProvider = await loadAnimeDownloadProvider(normalizedPreferredProviderId)
+  const normalizedPreferredProviderIdLower = normalizedPreferredProviderId.toLowerCase()
 
   if (preferredProvider && normalizedProviderAnimeId) {
     if (preferredProvider?.buildProviderState) {
@@ -218,8 +326,42 @@ export async function resolveAnimeDownloadStream({
     }
   }
 
+  if (providerStates.length) {
+    try {
+      const directCandidates = await resolveStreamCandidateBatch({
+        providerStates,
+        episodeNumber: normalizedEpisode,
+        preferredProviderId: normalizedPreferredProviderIdLower,
+        failedUrls: [],
+        timeoutLabel: `Episode ${normalizedEpisode} stream resolution timed out`,
+      })
+
+      if (directCandidates.length) {
+        const candidate = directCandidates[0]
+        const subtitleTrack = pickPreferredSubtitle(candidate.subtitles)
+
+        return {
+          streamUrl: String(candidate.url || '').trim(),
+          streamType: String(candidate.streamType || '').trim() || 'unknown',
+          headers: candidate.headers && typeof candidate.headers === 'object' ? candidate.headers : {},
+          subtitleUrl: subtitleTrack?.file || subtitleTrack?.url || subtitleTrack?.rawFile || null,
+          providerId: candidate.providerId || null,
+          qualityLabel: candidate.quality || null,
+          resolution: Number(candidate.resolution || 0) || null,
+        }
+      }
+    } catch (error) {
+      console.warn('[animeDownloads] direct provider stream resolution failed, continuing with fallback search', {
+        preferredProviderId: normalizedPreferredProviderId,
+        providerAnimeId: normalizedProviderAnimeId,
+        episodeNumber: normalizedEpisode,
+        error,
+      })
+    }
+  }
+
   const searchedProviderStates = await withTimeout(
-    getAnimeProviderStatesInternal(titles, true),
+    getAnimeProviderStatesForDownload(titles, { allowRefresh: true }),
     ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS,
     'Anime provider resolution timed out'
   )
@@ -240,37 +382,33 @@ export async function resolveAnimeDownloadStream({
     throw new Error('No anime providers matched this title')
   }
 
-  const candidates = await withTimeout(
-    resolveEpisodeStreamCandidates({
-      providerStates,
-      episodeNumber: normalizedEpisode,
-      preferredProviderId: String(preferredProviderId || '').trim(),
-      failedUrls: [],
-    }),
-    ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS,
-    `Episode ${normalizedEpisode} stream resolution timed out`
-  )
+  const candidates = await resolveStreamCandidateWithFallback({
+    providerStates,
+    episodeNumber: normalizedEpisode,
+    preferredProviderId: normalizedPreferredProviderIdLower,
+    failedUrls: [],
+    primaryTimeoutLabel: `Episode ${normalizedEpisode} stream resolution timed out`,
+    fallbackTimeoutLabel: `Episode ${normalizedEpisode} fallback stream resolution timed out`,
+  })
 
   if (!candidates.length) {
     const broaderTitles = buildBroaderAnimeTitles(titles)
     if (broaderTitles.join('::') !== titles.join('::')) {
       const broaderStates = await withTimeout(
-        getAnimeProviderStatesInternal(broaderTitles, true),
+        getAnimeProviderStatesForDownload(broaderTitles, { allowRefresh: true }),
         ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS,
         'Anime provider fallback resolution timed out'
       )
 
       if (broaderStates.length) {
-        const broaderCandidates = await withTimeout(
-          resolveEpisodeStreamCandidates({
-            providerStates: broaderStates,
-            episodeNumber: normalizedEpisode,
-            preferredProviderId: '',
-            failedUrls: [],
-          }),
-          ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS,
-          `Episode ${normalizedEpisode} fallback stream resolution timed out`
-        )
+        const broaderCandidates = await resolveStreamCandidateWithFallback({
+          providerStates: broaderStates,
+          episodeNumber: normalizedEpisode,
+          preferredProviderId: normalizedPreferredProviderIdLower,
+          failedUrls: [],
+          primaryTimeoutLabel: `Episode ${normalizedEpisode} stream resolution timed out`,
+          fallbackTimeoutLabel: `Episode ${normalizedEpisode} fallback stream resolution timed out`,
+        })
 
         if (broaderCandidates.length) {
           const candidate = broaderCandidates[0]
