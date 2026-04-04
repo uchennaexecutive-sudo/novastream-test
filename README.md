@@ -6,11 +6,7 @@
 
 *Built with Tauri 2 · React 18 · Rust*
 
-<<<<<<< Updated upstream
-[![Version](https://img.shields.io/badge/version-1.5.4-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
-=======
-[![Version](https://img.shields.io/badge/version-1.5.6-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
->>>>>>> Stashed changes
+[![Version](https://img.shields.io/badge/version-1.5.9-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -29,7 +25,7 @@
 
 ## What is Nova Stream?
 
-Nova Stream is a fast, native desktop app for browsing and watching movies, TV series, anime, and animation - all from one place. It runs as a lightweight native application built with Tauri, giving you real desktop performance with a cinematic interface.
+Nova Stream is a fast, native desktop app for browsing and watching movies, TV series, anime, and animation — all from one place. It runs as a lightweight native application built with Tauri, giving you real desktop performance with a cinematic interface.
 
 No browser tabs. No extensions. No fuss.
 
@@ -38,33 +34,43 @@ No browser tabs. No extensions. No fuss.
 ## Features
 
 ### Content & Discovery
-- **Movies, Series, Anime, Animation** - all in one unified browse experience
+- **Movies, Series, Anime, Animation** — all in one unified browse experience
 - **TMDB-powered** discovery with genre filters, trending, top-rated, and paginated grids
 - **AniList-backed anime** browsing with Trending / Popular / Top Rated tabs and genre chips
-- **Anime News Network feed** - live news carousel on the Anime page so you always know what's airing
-- **Fast search** - debounced multi-search across Movies, Series, and Anime simultaneously
+- **Anime News Network feed** — live news carousel on the Anime page so you always know what's airing
+- **Fast search** — debounced multi-search across Movies, Series, and Anime simultaneously
 
 ### Playback
-- **Native custom player** - no browser embeds, no sandbox restrictions
-- **Multi-provider fallback** - automatically tries the next source when one fails
+- **Native custom player** — no browser embeds, no sandbox restrictions
+- **Multi-provider fallback** — automatically tries the next source when one fails
 - **Anime streaming** via Gogoanime (primary) with AnimePahe as fallback
 - **Movie / Series / Animation streaming** via embedded Nuvio resolver with staged provider tiers
-- **English subtitles** - Wyzie-backed subtitle resolution with WEB-aligned track ranking
-- **Continue Watching** - auto-resumes from where you left off, deduplicated per show
-- **Episode navigation** inside the player - previous / next without leaving playback
+- **English subtitles** — Wyzie-backed subtitle resolution with WEB-aligned track ranking
+- **Continue Watching** — auto-resumes from where you left off, deduplicated per show
+- **Episode navigation** inside the player — previous / next without leaving playback
+
+### Downloads & Offline
+- **Download anything** — movies, series episodes, anime, and animation saved for offline viewing
+- **Downloads / Library tabs** — active queue and completed offline library in one place
+- **Offline playback** — downloaded titles play locally via Rust media proxy with byte-range support
+- **Offline subtitles** — subtitle sidecars saved alongside the video so subtitles work offline
+- **Grouped library** — series and anime episodes grouped by show with collapsible episode lists
+- **Storage overview** — per-type breakdown (Movies / Series / Anime / Animation) with usage bar
+- **Queue management** — pause, resume, cancel, retry failed downloads
+- **Configurable download location** — change where files are saved from Settings
 
 ### Accounts & Sync
-- **Optional Supabase accounts** - sign up, sign in, or skip entirely and stay local
-- **Cross-device sync** - watchlist, history, playback position, theme, and preferences sync across all your devices
-- **DiceBear avatars** - choose from 6 styles, 10 seeds, fully personalized profile
-- **Guest mode** - full app experience with localStorage-only storage, no account required
+- **Optional Supabase accounts** — sign up, sign in, or skip entirely and stay local
+- **Cross-device sync** — watchlist, history, playback position, theme, and preferences sync across all your devices
+- **DiceBear avatars** — choose from 6 styles, 10 seeds, fully personalized profile
+- **Guest mode** — full app experience with localStorage-only storage, no account required
 
 ### App Experience
-- **6 themes** - Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
-- **Collapsible sidebar** - collapses to 72px, expands to 240px on hover with smooth animation
-- **Ambient orbs** - cinematic background accents that shift with your theme
-- **Auto-update** - streamed download with progress bar, no re-download on next launch
-- **Frameless window** - custom overlay title bar with native minimize / maximize / close
+- **6 themes** — Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
+- **Collapsible sidebar** — collapses to 72px, expands to 240px on hover with smooth animation
+- **Ambient orbs** — cinematic background accents that shift with your theme
+- **Auto-update** — streamed download with progress bar, no re-download on next launch
+- **Frameless window** — custom overlay title bar with native minimize / maximize / close
 
 ---
 
@@ -95,8 +101,8 @@ No browser tabs. No extensions. No fuss.
 
 | Platform | Download | Notes |
 |----------|----------|-------|
-| **Windows** | Portable `.exe` | No install needed - run directly |
-| **macOS** | `.dmg` | Unsigned - see macOS note below |
+| **Windows** | Portable `.exe` | No install needed — run directly |
+| **macOS** | `.dmg` | Unsigned — see macOS note below |
 
 > **Linux** support may follow in a later release.
 
@@ -108,7 +114,7 @@ No browser tabs. No extensions. No fuss.
 
 1. Go to the [**Releases**](https://github.com/uchennaexecutive-sudo/novastream-test/releases) page
 2. Download `NOVA-STREAM-x.x.x-portable.exe`
-3. Run the file - no installation required
+3. Run the file — no installation required
 
 Auto-update is built in. Nova Stream will notify you when a new version is available and handle the download + restart automatically.
 
@@ -169,7 +175,7 @@ Releases are managed with `release.ps1` and built automatically via GitHub Actio
 
 ## Current Version
 
-**v1.5.7** - Fix anime Continue Watching cards so detail pages load episode and season data correctly.
+**v1.5.9** — Fix vendored Nuvio lockfile sync so tagged release builds install sidecar dependencies correctly in CI.
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 
@@ -177,4 +183,4 @@ See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases
 
 ## License
 
-Private project - all rights reserved.
+Private project — all rights reserved.
