@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "version": "1.6.1",
   "notes": "v1.6.1 - Auto-release",
   "pub_date": "2026-04-05T00:03:28Z",
@@ -8,3 +9,14 @@
     }
   }
 }
+=======
+    "version":  "1.6.2",
+    "notes":  "v1.6.2 - Icon changes",
+    "pub_date":  "2026-04-05T00:22:24Z",
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.2/NOVA-STREAM-1.6.2-portable.exe"
+                                         }
+                  }
+}
+>>>>>>> Stashed changes
