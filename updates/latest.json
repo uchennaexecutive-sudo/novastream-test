@@ -1,22 +1,10 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.6.1",
-  "notes": "v1.6.1 - Auto-release",
-  "pub_date": "2026-04-05T00:03:28Z",
-  "platforms": {
-    "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.1/NOVA-STREAM-1.6.1-portable.exe"
-    }
-  }
-}
-=======
     "version":  "1.6.2",
-    "notes":  "v1.6.2 - Icon changes",
-    "pub_date":  "2026-04-05T00:22:24Z",
+    "notes":  "v1.6.2 - Revert app icon to previous design",
+    "pub_date":  "2026-04-05T00:26:38Z",
     "platforms":  {
                       "windows-x86_64":  {
                                              "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.2/NOVA-STREAM-1.6.2-portable.exe"
                                          }
                   }
 }
->>>>>>> Stashed changes
