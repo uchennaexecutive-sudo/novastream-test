@@ -1,22 +1,10 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.6.2",
-  "notes": "v1.6.2 - Auto-release",
-  "pub_date": "2026-04-05T00:36:00Z",
+  "version": "1.6.3",
+  "notes": "v1.6.3 - Auto-release",
+  "pub_date": "2026-04-05T14:09:10Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.2/NOVA-STREAM-1.6.2-portable.exe"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.3/NOVA-STREAM-1.6.3-portable.exe"
     }
   }
 }
-=======
-    "version":  "1.6.3",
-    "notes":  "v1.6.3 - Fix Anime Browser Sessions and downloads V2",
-    "pub_date":  "2026-04-05T13:58:58Z",
-    "platforms":  {
-                      "windows-x86_64":  {
-                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.3/NOVA-STREAM-1.6.3-portable.exe"
-                                         }
-                  }
-}
->>>>>>> Stashed changes
