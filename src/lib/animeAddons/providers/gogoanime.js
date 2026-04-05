@@ -1389,9 +1389,28 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
 
 async function fetchProviderSearchResults(query) {
     const cacheKey = String(query || '').trim().toLowerCase()
-    return getCachedPromise(searchResultCache, cacheKey, () => (
-        gogoanimeSearch(query)
-    ))
+    if (searchResultCache.has(cacheKey)) {
+        return searchResultCache.get(cacheKey)
+    }
+
+    const promise = Promise.resolve()
+        .then(() => gogoanimeSearch(query))
+        .then((results) => {
+            // Don't permanently cache empty results — let the next call retry.
+            // A temporary network hiccup or title mismatch returning [] would
+            // otherwise lock Gogoanime out for the entire session.
+            if (!Array.isArray(results) || results.length === 0) {
+                searchResultCache.delete(cacheKey)
+            }
+            return results || []
+        })
+        .catch((error) => {
+            searchResultCache.delete(cacheKey)
+            throw error
+        })
+
+    searchResultCache.set(cacheKey, promise)
+    return promise
 }
 
 async function fetchProviderAnimeInfo(animeId) {
@@ -1403,9 +1422,28 @@ async function fetchProviderAnimeInfo(animeId) {
 
 async function fetchProviderStreamingLinks(animeId, episodeNumber) {
     const cacheKey = `${String(animeId || '').trim().toLowerCase()}::${Number(episodeNumber) || 0}`
-    return getCachedPromise(streamingLinksCache, cacheKey, () => (
-        gogoanimeGetStreamingLinks(animeId, Number(episodeNumber))
-    ))
+    if (streamingLinksCache.has(cacheKey)) {
+        return streamingLinksCache.get(cacheKey)
+    }
+
+    const promise = Promise.resolve()
+        .then(() => gogoanimeGetStreamingLinks(animeId, Number(episodeNumber)))
+        .then((data) => {
+            // Don't permanently cache empty server lists — a temporary bot-detection
+            // or parse failure would lock out this episode for the entire session.
+            const servers = Array.isArray(data?.servers) ? data.servers : []
+            if (servers.length === 0) {
+                streamingLinksCache.delete(cacheKey)
+            }
+            return data || { servers: [] }
+        })
+        .catch((error) => {
+            streamingLinksCache.delete(cacheKey)
+            throw error
+        })
+
+    streamingLinksCache.set(cacheKey, promise)
+    return promise
 }
 
 const gogoanimeProvider = {
@@ -1655,6 +1693,12 @@ const gogoanimeProvider = {
             return []
         }
     },
+}
+
+export function clearGogoanimeProviderCache() {
+    searchResultCache.clear()
+    animeInfoCache.clear()
+    streamingLinksCache.clear()
 }
 
 export default gogoanimeProvider 

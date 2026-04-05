@@ -2048,6 +2048,8 @@ fn build_resolver_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .cookie_store(true)
+        .gzip(true)
+        .brotli(true)
         .build()
         .map_err(|e| e.to_string())
 }
@@ -2143,6 +2145,8 @@ fn resolver_session(session_id: Option<&str>) -> Option<ResolverPlaybackSession>
 fn aniwatch_client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .gzip(true)
+        .brotli(true)
         .build()
         .expect("failed to build AniWatch client")
 }
@@ -2500,6 +2504,8 @@ if should_use_animekai_session {
 
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
+        .gzip(true)
+        .brotli(true)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -2683,6 +2689,8 @@ async fn fetch_anime_text_with_session(
     } else {
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
+            .gzip(true)
+            .brotli(true)
             .build()
             .map_err(|e| e.to_string())?
     };
@@ -4276,6 +4284,8 @@ async fn fetch_movie_manifest(
 ) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
+        .gzip(true)
+        .brotli(true)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -6181,6 +6191,8 @@ async fn fetch_movie_subtitles(
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
         .timeout(Duration::from_secs(20))
+        .gzip(true)
+        .brotli(true)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -6368,6 +6380,8 @@ async fn fetch_movie_text(url: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
         .timeout(Duration::from_secs(20))
+        .gzip(true)
+        .brotli(true)
         .build()
         .map_err(|e| e.to_string())?;
     let empty_headers = HashMap::new();

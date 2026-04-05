@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.6.2
+Premium streaming desktop application (Tauri 2) - v1.6.3
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -217,6 +217,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.6.3 - Fix Anime browser sessions and download V2
 - v1.6.2 - Revert app icon to previous design
 - v1.6.1 - Rebrand app icon across all platforms to match in-app logo, fix fullscreen F-key toggle and Alt+Tab switching
 - v1.6.0 - Download fixes + Fullscreen fix V1

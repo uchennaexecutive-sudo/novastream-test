@@ -20,20 +20,34 @@ const BROWSER_HEADERS = {
 }
 
 const providerSessionByAnimeId = new Map()
-let sessionWindowQueue = Promise.resolve()
+const SESSION_WINDOW_CONCURRENCY = 3
+let sessionWindowActiveCount = 0
+const sessionWindowPendingQueue = []
 const RETRYABLE_SESSION_ERROR_PATTERNS = [
     'Resolver session window did not finish loading',
     'timeout',
     'channel closed',
 ]
 
-function enqueueSessionWindowTask(task) {
-    const nextTask = sessionWindowQueue
-        .catch(() => {})
-        .then(() => task())
+function drainSessionWindowQueue() {
+    while (sessionWindowActiveCount < SESSION_WINDOW_CONCURRENCY && sessionWindowPendingQueue.length > 0) {
+        const { task, resolve, reject } = sessionWindowPendingQueue.shift()
+        sessionWindowActiveCount += 1
+        Promise.resolve()
+            .then(() => task())
+            .then(resolve, reject)
+            .finally(() => {
+                sessionWindowActiveCount -= 1
+                drainSessionWindowQueue()
+            })
+    }
+}
 
-    sessionWindowQueue = nextTask.catch(() => {})
-    return nextTask
+function enqueueSessionWindowTask(task) {
+    return new Promise((resolve, reject) => {
+        sessionWindowPendingQueue.push({ task, resolve, reject })
+        drainSessionWindowQueue()
+    })
 }
 
 function uniqueTitles(titles = []) {
@@ -221,24 +235,6 @@ async function fetchProviderTextWithOptionalPageFallback(
     preferredSessionId = null
 ) {
     try {
-        const directText = await fetchProviderTextDirect(url, headers, method, body)
-        if (directText) {
-            return {
-                text: directText,
-                sessionId: resolveProviderSession(animeId, preferredSessionId),
-            }
-        }
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        if (message.includes('HTTP 404')) {
-            return {
-                text: '',
-                sessionId: resolveProviderSession(animeId, preferredSessionId),
-            }
-        }
-    }
-
-    try {
         return await fetchProviderTextWithSession(
             url,
             headers,
@@ -295,24 +291,6 @@ async function fetchProviderJsonWithSession(
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-            if (attempt === 0) {
-                try {
-                    const directText = await fetchProviderTextDirect(url, headers, 'GET', null)
-                    if (looksLikeJsonPayload(directText)) {
-                        return {
-                            payload: JSON.parse(directText || '{}'),
-                            sessionId: resolveProviderSession(animeId, preferredSessionId),
-                        }
-                    }
-                } catch (error) {
-                    console.warn(`[animeAddons/${PROVIDER_ID}] direct json fetch failed`, {
-                        animeId,
-                        url,
-                        error: error instanceof Error ? error.message : String(error),
-                    })
-                }
-            }
-
             if (attempt > 0) {
                 clearProviderSession(animeId)
             }
@@ -617,6 +595,39 @@ function buildAnimepaheMp4Url(m3u8Url = '', embedUrl = '') {
     }
 }
 
+function isKwikUrl(url = '') {
+    try {
+        return new URL(String(url || '').trim()).hostname.includes('kwik')
+    } catch {
+        return false
+    }
+}
+
+function extractKwikToken(html = '') {
+    const $ = load(String(html || ''))
+    const token = String($('input[name="_token"]').attr('value') || '').trim()
+    if (token) return token
+
+    const match =
+        String(html || '').match(/name=["']_token["'][^>]*value=["']([^"']+)["']/) ||
+        String(html || '').match(/value=["']([^"']+)["'][^>]*name=["']_token["']/)
+    return match ? String(match[1] || '').trim() : ''
+}
+
+function extractKwikFormAction(html = '', embedUrl = '') {
+    const $ = load(String(html || ''))
+    const formAction = String($('form[method="POST"]').attr('action') || '').trim()
+    if (formAction) return formAction
+
+    try {
+        const url = new URL(String(embedUrl || '').trim())
+        url.pathname = url.pathname.replace('/e/', '/f/')
+        return url.toString()
+    } catch {
+        return ''
+    }
+}
+
 async function tryDirectHtmlResolution(embedUrl = '', animeId = '', preferredSessionId = null, referer = '') {
     try {
         const result = await fetchIsolatedTextWithSession(
@@ -629,6 +640,52 @@ async function tryDirectHtmlResolution(embedUrl = '', animeId = '', preferredSes
         )
 
         const directUrls = extractDirectMediaUrls(result.text)
+
+        if (!directUrls.length && isKwikUrl(embedUrl) && result.text) {
+            const token = extractKwikToken(result.text)
+            const formAction = extractKwikFormAction(result.text, embedUrl)
+
+            if (token && formAction) {
+                try {
+                    const postBody = `_token=${encodeURIComponent(token)}`
+                    const postResult = await enqueueSessionWindowTask(() => (
+                        invoke('fetch_anime_text_with_session', {
+                            url: formAction,
+                            headers: {
+                                ...BROWSER_HEADERS,
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                Referer: embedUrl,
+                            },
+                            method: 'POST',
+                            body: postBody,
+                            sessionId: result.sessionId,
+                        })
+                    ))
+
+                    const postText = typeof postResult?.text === 'string' ? postResult.text : ''
+                    const postUrls = extractDirectMediaUrls(postText)
+
+                    if (postUrls.length) {
+                        const playableUrl = String(postUrls[0] || '').trim()
+                        return {
+                            playableUrl,
+                            streamType: detectAnimeStreamType(playableUrl),
+                            sessionId: postResult?.sessionId || result.sessionId,
+                            subtitles: [],
+                            headers: {
+                                Referer: embedUrl,
+                            },
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`[animeAddons/${PROVIDER_ID}] kwik post-form flow failed`, {
+                        embedUrl,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                }
+            }
+        }
+
         if (!directUrls.length) {
             return {
                 playableUrl: '',
@@ -972,8 +1029,14 @@ const animepaheProvider = {
                     ? `${option.resolutionLabel}p${option.isDub ? ' Dub' : ''}${option.fanSub ? ` ${option.fanSub}` : ''}`
                     : `${option.isDub ? 'Dub' : 'Sub'}`
 
+                // Only derive a direct MP4 URL when the stream is hosted on a Kwik domain.
+                // Streams captured via dynamic embed capture come from owocdn.top CDN;
+                // deriving kwik.cx/mp4/... from an owocdn.top HLS URL produces an invalid host.
+                const streamHostIsKwik = (() => {
+                    try { return new URL(playableUrl).hostname.includes('kwik') } catch { return false }
+                })()
                 const directMp4Url =
-                    streamType === 'hls'
+                    streamType === 'hls' && streamHostIsKwik
                         ? buildAnimepaheMp4Url(playableUrl, option.embedUrl)
                         : ''
 

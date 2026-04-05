@@ -1,6 +1,6 @@
 [package]
 name = "nova-stream"
-version = "1.6.2"
+version = "1.6.3"
 description = "NOVA STREAM - Premium Streaming Desktop App"
 authors = ["you"]
 license = ""
@@ -20,7 +20,7 @@ log = "0.4"
 tauri = { version = "2.10.3", features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-process = "2"
 tauri-plugin-dialog = "2"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "cookies"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "cookies", "gzip", "brotli"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"

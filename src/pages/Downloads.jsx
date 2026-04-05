@@ -11,7 +11,7 @@ import DownloadLibraryRow from '../components/Downloads/DownloadLibraryRow'
 import LibraryGroup from '../components/Downloads/LibraryGroup'
 import StorageIndicator from '../components/Downloads/StorageIndicator'
 import useDownloadStore from '../store/useDownloadStore'
-import { prepareAnimeDownloadRuntimeData } from '../lib/animeDownloads'
+import { prepareAnimeDownloadRuntimeData, clearAnimeDownloadCache } from '../lib/animeDownloads'
 import {
   cancelVideoDownload,
   deleteVideoDownload as deleteVideoDownloadFile,
@@ -302,6 +302,7 @@ export default function Downloads() {
       let preparedDownload = download
 
       if (download.contentType === 'anime') {
+        clearAnimeDownloadCache()
         preparedDownload = await prepareAnimeDownloadRuntimeData(download)
 
         useDownloadStore.getState().updateDownload(id, {

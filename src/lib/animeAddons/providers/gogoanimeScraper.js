@@ -1,7 +1,7 @@
 import { load } from 'cheerio'
 import { invoke } from '@tauri-apps/api/core'
 
-const GOGO_BASE_URL = 'https://www3.gogoanimes.fi'
+const GOGO_BASE_URL = 'https://anitaku.to'
 
 function absoluteUrl(value = '') {
     const rawValue = String(value || '').trim()

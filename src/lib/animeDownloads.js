@@ -1,9 +1,10 @@
 import { getEnabledAnimeAddonProviders } from './animeAddons'
 import { resolveAnimeProviderStates, resolveEpisodeStreamCandidates } from './animeAddons/resolveAnimeStreams'
 import { getAnimeEpisodes, getAnimeStream, resolveAnimeSearch } from './consumet'
+import { clearGogoanimeProviderCache } from './animeAddons/providers/gogoanime'
 
 const providerStateCache = new Map()
-const ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS = 60000
+const ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS = 180000
 
 function withTimeout(promise, timeoutMs, message) {
   let timer = null
@@ -385,7 +386,7 @@ export async function resolveAnimeDownloadStream({
   const candidates = await resolveStreamCandidateWithFallback({
     providerStates,
     episodeNumber: normalizedEpisode,
-    preferredProviderId: normalizedPreferredProviderIdLower,
+    preferredProviderId: 'gogoanime',
     failedUrls: [],
     primaryTimeoutLabel: `Episode ${normalizedEpisode} stream resolution timed out`,
     fallbackTimeoutLabel: `Episode ${normalizedEpisode} fallback stream resolution timed out`,
@@ -404,7 +405,7 @@ export async function resolveAnimeDownloadStream({
         const broaderCandidates = await resolveStreamCandidateWithFallback({
           providerStates: broaderStates,
           episodeNumber: normalizedEpisode,
-          preferredProviderId: normalizedPreferredProviderIdLower,
+          preferredProviderId: 'gogoanime',
           failedUrls: [],
           primaryTimeoutLabel: `Episode ${normalizedEpisode} stream resolution timed out`,
           fallbackTimeoutLabel: `Episode ${normalizedEpisode} fallback stream resolution timed out`,
@@ -472,4 +473,5 @@ export async function prepareAnimeDownloadRuntimeData(download = {}, { fallbackA
 
 export function clearAnimeDownloadCache() {
   providerStateCache.clear()
+  clearGogoanimeProviderCache()
 }

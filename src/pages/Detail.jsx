@@ -29,7 +29,7 @@ import {
   resolveAnimeCanonicalRoot,
 } from '../lib/animeMapper'
 import { searchAnime as searchAniListAnime } from '../lib/anilist'
-import { prepareAnimeDownloadRuntimeData } from '../lib/animeDownloads'
+import { prepareAnimeDownloadRuntimeData, clearAnimeDownloadCache } from '../lib/animeDownloads'
 import useDownloadStore, { getDownloadItemByIdentity } from '../store/useDownloadStore'
 import { pauseVideoDownload, startVideoDownload } from '../lib/videoDownloads'
 
@@ -873,6 +873,7 @@ export default function Detail() {
       let preparedItem = item
 
       if (item.contentType === 'anime') {
+        clearAnimeDownloadCache()
         preparedItem = await prepareAnimeDownloadRuntimeData(item, {
           fallbackAltTitle: animeAltTitle || '',
         })
