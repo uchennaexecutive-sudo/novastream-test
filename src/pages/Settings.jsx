@@ -636,6 +636,11 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.6.4 - Fix Gogoanime streaming cache, resolve JWPlayer eval-packed embeds via Rust packer unpack, and extract server-embedded subtitle tracks so subtitles show correctly</p>
+            <p>v1.6.3 - Fix anime browser sessions and downloads</p>
+            <p>v1.6.2 - Revert app icon to previous design</p>
+            <p>v1.6.1 - Rebrand app icon across all platforms, fix fullscreen F-key toggle and Alt+Tab switching</p>
+            <p>v1.6.0 - Download fixes and fullscreen fix</p>
             <p>v1.5.9 - Fix vendored Nuvio lockfile sync so tagged release builds install sidecar dependencies correctly in CI</p>
             <p>v1.5.8 - Ship downloads and offline playback with anime support, hardened HLS downloads, AnimePahe fallback fixes, configurable storage, and working offline subtitles</p>
             <p>v1.5.7 - Fix anime Continue Watching cards so detail pages load episode and season data correctly</p>

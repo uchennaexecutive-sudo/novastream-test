@@ -681,6 +681,30 @@ async function tryMegacloudGetSources(iframeUrl, videoId, activeSessionId) {
     return { playableUrl, subtitles, sessionId: newSessionId }
 }
 
+function extractServerUrlSubtitles(rawUrl = '') {
+    const subtitles = []
+    try {
+        const parsed = new URL(String(rawUrl || '').trim())
+        const params = parsed.searchParams
+        let index = 1
+        while (true) {
+            const captionUrl = params.get(`caption_${index}`)
+            if (!captionUrl) break
+            const lang = params.get(`sub_${index}`) || 'English'
+            subtitles.push({
+                file: captionUrl,
+                url: captionUrl,
+                lang,
+                kind: 'captions',
+            })
+            index += 1
+        }
+    } catch {
+        // malformed URL — skip
+    }
+    return subtitles
+}
+
 async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
     const normalizedServerUrl = String(serverUrl || '').trim().startsWith('//')
         ? `https:${String(serverUrl || '').trim()}`
@@ -695,6 +719,10 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
             sessionId: sessionId || null,
         }
     }
+
+    // Extract subtitle tracks baked into the server URL as caption_N / sub_N query params
+    // (used by otakuhg.site / otakuvid.online JWPlayer embed pages).
+    const serverUrlSubtitles = extractServerUrlSubtitles(normalizedServerUrl)
 
     let activeSessionId = sessionId || null
 
@@ -735,7 +763,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
 
                 return {
                     playableUrl: validatedDirectCandidate.playableUrl,
-                    subtitles: [],
+                    subtitles: serverUrlSubtitles,
                     streamType: validatedDirectCandidate.streamType,
                     headers: directServerHeaders,
                     sessionId: activeSessionId,
@@ -783,7 +811,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
             if (validated.ok) {
                 return {
                     playableUrl: validated.playableUrl,
-                    subtitles: [],
+                    subtitles: serverUrlSubtitles,
                     streamType: validated.streamType,
                     headers: directHeaders,
                     sessionId: validated.sessionId,
@@ -835,7 +863,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
             if (validated.ok) {
                 return {
                     playableUrl: validated.playableUrl,
-                    subtitles: [],
+                    subtitles: serverUrlSubtitles,
                     streamType: validated.streamType,
                     headers: nestedHeaders,
                     sessionId: validated.sessionId,
@@ -887,7 +915,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
 
             return {
                 playableUrl: validatedEmbeddedUrl.playableUrl,
-                subtitles: [],
+                subtitles: serverUrlSubtitles,
                 streamType: validatedEmbeddedUrl.streamType,
                 headers: genericPlaybackHeaders,
                 sessionId: activeSessionId,
@@ -927,7 +955,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
                 if (validatedGenericCapture.ok) {
                     return {
                         playableUrl: validatedGenericCapture.playableUrl,
-                        subtitles: genericCapture.subtitles || [],
+                        subtitles: [...serverUrlSubtitles, ...(genericCapture.subtitles || [])],
                         streamType: validatedGenericCapture.streamType,
                         headers: genericCaptureHeaders,
                         sessionId: activeSessionId,
@@ -989,7 +1017,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
 
                 return {
                     playableUrl: validated.playableUrl,
-                    subtitles: [],
+                    subtitles: serverUrlSubtitles,
                     streamType: validated.streamType,
                     headers: playbackHeaders,
                     sessionId: activeSessionId,
@@ -1077,7 +1105,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
 
                     return {
                         playableUrl: validated.playableUrl,
-                        subtitles: preferredSubtitles,
+                        subtitles: [...serverUrlSubtitles, ...(preferredSubtitles || [])],
                         streamType: validated.streamType,
                         headers: preferredHeaders,
                         sessionId: activeSessionId,
@@ -1252,7 +1280,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
 
                 return {
                     playableUrl: validatedMegacloud.playableUrl,
-                    subtitles: megacloudResult?.subtitles || [],
+                    subtitles: [...serverUrlSubtitles, ...(megacloudResult?.subtitles || [])],
                     streamType: validatedMegacloud.streamType,
                     headers: buildPlaybackHeaders(activeIframeUrl),
                     sessionId: activeSessionId,
@@ -1306,7 +1334,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
 
                     return {
                         playableUrl: validatedCapture.playableUrl,
-                        subtitles: dynamicCapture.subtitles || [],
+                        subtitles: [...serverUrlSubtitles, ...(dynamicCapture.subtitles || [])],
                         streamType: validatedCapture.streamType,
                         headers: captureHeaders,
                         sessionId: activeSessionId,
@@ -1362,7 +1390,7 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
                     })
                     return {
                         playableUrl: validatedFallback.playableUrl,
-                        subtitles: [],
+                        subtitles: serverUrlSubtitles,
                         streamType: validatedFallback.streamType,
                         headers: buildPlaybackHeaders(activeIframeUrl),
                         sessionId: activeSessionId,

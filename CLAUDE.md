@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.6.3
+Premium streaming desktop application (Tauri 2) - v1.6.4
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -81,6 +81,11 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   4. Rust still handles session-aware fetch, embed capture, and native playback transport for the selected candidate
 - DotStream is deprioritized and rejected where possible; the working path is the non-DotStream dynamic capture/native playback flow
 - Dynamic subtitle tracks captured from the live embed/runtime are forwarded into the native player
+- Server URLs that embed subtitle tracks as `caption_N` / `sub_N` query params (used by `otakuhg.site`, `otakuvid.online`, and similar JWPlayer hosts) are parsed by `extractServerUrlSubtitles` in `gogoanime.js` and merged into every stream candidate's `subtitles` array so they reach the player automatically
+- `streamingLinksCache` in `gogoanime.js` no longer permanently caches empty server lists; an empty result deletes the cache entry so the next request retries cleanly — `clearGogoanimeProviderCache` also clears this cache
+- `resolve_embed_stream_static` in Rust now tries `unpack_packer_script` as a fallback for all providers, enabling JWPlayer eval-packed embed pages (P,A,C,K,E,D packer format, used by `otakuhg.site` / `otakuvid.online`) to resolve an HLS URL without the timeout-prone dynamic browser capture window
+- `packer_script_regex` in Rust matches both single- and double-quote P,A,C,K,E,D packer invocations
+- AnimePahe Hi10P / BD Kametsu encodes are WebView2 codec-incompatible (`bufferAddCodecError`); when this occurs the player auto-falls through to Gogoanime — this is the expected behavior, not a bug to fix
 - Gogo source-quality guardrails reject obvious CAM / bad wrapper cases when they are detected
 - Anime fallback changes must remain provider-scoped; do not use shared timeout/path tweaks that weaken Gogoanime because AnimePahe exists as fallback
 - Anime next-episode behavior now resets provider stickiness on episode change so each episode starts with Gogoanime as fresh primary and only falls through to AnimePahe when that specific episode fails on Gogo
@@ -217,6 +222,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.6.4 - Fix Gogoanime streaming cache, resolve otakuhg.site JWPlayer embeds via Rust packer unpack, and extract server-embedded subtitle tracks
 - v1.6.3 - Fix Anime browser sessions and download V2
 - v1.6.2 - Revert app icon to previous design
 - v1.6.1 - Rebrand app icon across all platforms to match in-app logo, fix fullscreen F-key toggle and Alt+Tab switching

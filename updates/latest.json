@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "version": "1.6.3",
   "notes": "v1.6.3 - Auto-release",
   "pub_date": "2026-04-05T14:09:10Z",
@@ -8,3 +9,14 @@
     }
   }
 }
+=======
+    "version":  "1.6.4",
+    "notes":  "v1.6.4 - Fix Gogoanime streaming cache, resolve JWPlayer embeds via Rust packer unpack, and extract server-embedded subtitle tracks",
+    "pub_date":  "2026-04-05T19:44:18Z",
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.4/NOVA-STREAM-1.6.4-portable.exe"
+                                         }
+                  }
+}
+>>>>>>> Stashed changes

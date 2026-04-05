@@ -6942,8 +6942,11 @@ fn vidora_cookie_regex() -> Regex {
 }
 
 fn packer_script_regex() -> Regex {
+    // Matches both single-quoted and double-quoted p,a,c,k,e,d eval-packed scripts.
+    // Single-quote variant is the classic format; double-quote is used by some
+    // JWPlayer embed pages (e.g. otakuhg.site, otakuvid.online).
     Regex::new(
-        r#"(?s)eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(?P<p>.*?)',\s*(?P<a>\d+),\s*(?P<c>\d+),\s*'(?P<k>.*?)'\.split\('\|'\)\)"#,
+        r#"(?s)eval\(function\(p,a,c,k,e,d\)\{.*?\}\(["'](?P<p>.*?)["'],\s*(?P<a>\d+),\s*(?P<c>\d+),\s*["'](?P<k>.*?)["']\.split\(["']|["']\)\)"#,
     )
     .unwrap()
 }
@@ -7142,7 +7145,12 @@ async fn resolve_embed_stream_static(
             extract_moviesapi_direct_media_url(&body, &final_url)
                 .or_else(|| extract_direct_media_url(&body, &final_url))
         } else {
+            // Try plain URL scan first; if nothing found, try unpacking eval-packed
+            // JS (p,a,c,k,e,d packer format used by JWPlayer embed pages on sites
+            // like otakuhg.site / otakuvid.online) as a fallback so those pages
+            // resolve without needing the timeout-prone dynamic browser capture.
             extract_direct_media_url(&body, &final_url)
+                .or_else(|| extract_moviesapi_direct_media_url(&body, &final_url))
         };
 
         if let Some(stream_url) = direct_media_url {
