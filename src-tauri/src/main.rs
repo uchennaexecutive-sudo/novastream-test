@@ -1393,6 +1393,133 @@ fn embedded_nuvio_runtime_root() -> Result<PathBuf, String> {
     Ok(base_dir.join("NOVA STREAM").join("runtime"))
 }
 
+fn embedded_nuvio_runtime_versions_root() -> Result<PathBuf, String> {
+    Ok(embedded_nuvio_runtime_root()?.join("versions"))
+}
+
+fn embedded_nuvio_runtime_marker_path() -> Result<PathBuf, String> {
+    Ok(embedded_nuvio_runtime_root()?.join("current-runtime.txt"))
+}
+
+fn embedded_nuvio_runtime_dir_name(version: &str) -> String {
+    let sanitized = version
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' || character == '.'
+            {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    format!("runtime-{sanitized}")
+}
+
+fn embedded_nuvio_runtime_is_complete(runtime_root: &std::path::Path) -> bool {
+    let node_name = if cfg!(target_os = "windows") {
+        "node.exe"
+    } else {
+        "node"
+    };
+    let ffmpeg_name = if cfg!(target_os = "windows") {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
+
+    runtime_root
+        .join("vendor")
+        .join("nuvio-streams-addon")
+        .join("server.js")
+        .exists()
+        && runtime_root
+            .join("vendor")
+            .join("nuvio-streams-addon")
+            .join("package.json")
+            .exists()
+        && runtime_root.join("vendor").join("nuvio-streams-addon").join("addon.js").exists()
+        && runtime_root.join("node").join(node_name).exists()
+        && (!cfg!(target_os = "windows")
+            || runtime_root.join("vendor").join("tools").join(ffmpeg_name).exists())
+}
+
+fn read_embedded_nuvio_runtime_marker() -> Option<PathBuf> {
+    let marker_path = embedded_nuvio_runtime_marker_path().ok()?;
+    let versions_root = embedded_nuvio_runtime_versions_root().ok()?;
+    let marker_value = fs::read_to_string(marker_path).ok()?;
+    let marker_name = marker_value.trim();
+
+    if marker_name.is_empty() {
+        return None;
+    }
+
+    let candidate = versions_root.join(marker_name);
+    if embedded_nuvio_runtime_is_complete(&candidate) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn write_embedded_nuvio_runtime_marker(active_runtime_root: &std::path::Path) -> Result<(), String> {
+    let runtime_root = embedded_nuvio_runtime_root()?;
+    let marker_path = embedded_nuvio_runtime_marker_path()?;
+    let dir_name = active_runtime_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "failed to resolve embedded Nuvio runtime directory name".to_string())?;
+
+    fs::create_dir_all(&runtime_root)
+        .map_err(|e| format!("failed to create Nuvio runtime root: {e}"))?;
+    fs::write(marker_path, dir_name)
+        .map_err(|e| format!("failed to write embedded Nuvio runtime marker: {e}"))
+}
+
+fn resolve_existing_embedded_nuvio_runtime(version: &str) -> Option<PathBuf> {
+    let versions_root = embedded_nuvio_runtime_versions_root().ok()?;
+    let canonical_root = versions_root.join(embedded_nuvio_runtime_dir_name(version));
+
+    if embedded_nuvio_runtime_is_complete(&canonical_root) {
+        let _ = write_embedded_nuvio_runtime_marker(&canonical_root);
+        return Some(canonical_root);
+    }
+
+    if let Some(marked_root) = read_embedded_nuvio_runtime_marker() {
+        let marked_name = marked_root.file_name().and_then(|value| value.to_str())?;
+        if marked_name.starts_with(&embedded_nuvio_runtime_dir_name(version))
+            && embedded_nuvio_runtime_is_complete(&marked_root)
+        {
+            return Some(marked_root);
+        }
+    }
+
+    let prefix = embedded_nuvio_runtime_dir_name(version);
+    let mut matching_versions = fs::read_dir(&versions_root)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .map(|value| value.starts_with(&prefix))
+                .unwrap_or(false)
+                && embedded_nuvio_runtime_is_complete(path)
+        })
+        .collect::<Vec<_>>();
+
+    matching_versions.sort_by_key(|path| {
+        fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+    });
+
+    let resolved = matching_versions.pop()?;
+    let _ = write_embedded_nuvio_runtime_marker(&resolved);
+    Some(resolved)
+}
+
 fn stop_nuvio_sidecar_for_runtime_refresh() {
     log_resolver_debug("[nuvio_sidecar] stopping existing sidecar before runtime refresh");
     stop_nuvio_sidecar();
@@ -1400,49 +1527,18 @@ fn stop_nuvio_sidecar_for_runtime_refresh() {
     std::thread::sleep(std::time::Duration::from_millis(500));
 }
 
-fn clear_embedded_nuvio_runtime(runtime_root: &std::path::Path) -> Result<(), String> {
-    fs::create_dir_all(runtime_root)
-        .map_err(|e| format!("failed to create Nuvio runtime root: {e}"))?;
-
-    for (path, label) in [
-        (runtime_root.join("vendor"), "embedded Nuvio vendor directory"),
-        (runtime_root.join("node"), "embedded Nuvio node directory"),
-    ] {
-        if path.exists() {
-            fs::remove_dir_all(&path)
-                .map_err(|e| format!("failed to remove {label}: {e}"))?;
-        }
-    }
-
-    Ok(())
-}
-
 fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
     let runtime_root = embedded_nuvio_runtime_root()?;
-    let version_file = runtime_root.join(".nuvio-runtime-version");
     let version = embedded_nuvio_runtime_version();
-    let node_name = if cfg!(target_os = "windows") {
-        "node.exe"
-    } else {
-        "node"
-    };
-    let sidecar_dir = runtime_root.join("vendor").join("nuvio-streams-addon");
-    let ffmpeg_name = if cfg!(target_os = "windows") {
-        "ffmpeg.exe"
-    } else {
-        "ffmpeg"
-    };
-    let ffmpeg_path = runtime_root.join("vendor").join("tools").join(ffmpeg_name);
-    let node_path = runtime_root.join("node").join(node_name);
+    let versions_root = embedded_nuvio_runtime_versions_root()?;
 
-    if version_file.exists()
-        && fs::read_to_string(&version_file).ok().as_deref() == Some(version.as_str())
-        && sidecar_dir.join("server.js").exists()
-        && sidecar_dir.join("package.json").exists()
-        && node_path.exists()
-        && (!cfg!(target_os = "windows") || ffmpeg_path.exists())
-    {
-        return Ok(runtime_root);
+    fs::create_dir_all(&runtime_root)
+        .map_err(|e| format!("failed to create Nuvio runtime root: {e}"))?;
+    fs::create_dir_all(&versions_root)
+        .map_err(|e| format!("failed to create Nuvio versions root: {e}"))?;
+
+    if let Some(existing_runtime) = resolve_existing_embedded_nuvio_runtime(&version) {
+        return Ok(existing_runtime);
     }
 
     for attempt in 0..2 {
@@ -1450,8 +1546,20 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
             stop_nuvio_sidecar_for_runtime_refresh();
         }
 
-        let extraction_result = (|| -> Result<(), String> {
-            clear_embedded_nuvio_runtime(&runtime_root)?;
+        let extraction_result = (|| -> Result<PathBuf, String> {
+            let staging_root = versions_root.join(format!(
+                ".staging-{}-{}-{}",
+                embedded_nuvio_runtime_dir_name(&version),
+                std::process::id(),
+                now_ms()
+            ));
+
+            if staging_root.exists() {
+                let _ = fs::remove_dir_all(&staging_root);
+            }
+
+            fs::create_dir_all(&staging_root)
+                .map_err(|e| format!("failed to create embedded Nuvio staging directory: {e}"))?;
 
             let reader = Cursor::new(EMBEDDED_NUVIO_RUNTIME_ARCHIVE);
             let mut archive = ZipArchive::new(reader)
@@ -1466,7 +1574,7 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
                     .enclosed_name()
                     .map(|path| path.to_owned())
                     .ok_or("embedded Nuvio archive contained an unsafe path".to_string())?;
-                let output_path = runtime_root.join(enclosed);
+                let output_path = staging_root.join(enclosed);
 
                 if entry.is_dir() {
                     fs::create_dir_all(&output_path)
@@ -1500,14 +1608,40 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
                 }
             }
 
+            let version_file = staging_root.join(".nuvio-runtime-version");
             fs::write(&version_file, &version)
                 .map_err(|e| format!("failed to write embedded Nuvio runtime version: {e}"))?;
 
-            Ok(())
+            if !embedded_nuvio_runtime_is_complete(&staging_root) {
+                return Err("embedded Nuvio runtime extraction completed but required files were missing".to_string());
+            }
+
+            let canonical_root = versions_root.join(embedded_nuvio_runtime_dir_name(&version));
+            let final_root = if !canonical_root.exists() {
+                canonical_root
+            } else {
+                versions_root.join(format!(
+                    "{}-{}",
+                    embedded_nuvio_runtime_dir_name(&version),
+                    now_ms()
+                ))
+            };
+
+            fs::rename(&staging_root, &final_root).map_err(|e| {
+                format!(
+                    "failed to activate embedded Nuvio runtime {} -> {}: {e}",
+                    staging_root.display(),
+                    final_root.display()
+                )
+            })?;
+
+            write_embedded_nuvio_runtime_marker(&final_root)?;
+
+            Ok(final_root)
         })();
 
         match extraction_result {
-            Ok(()) => return Ok(runtime_root),
+            Ok(final_root) => return Ok(final_root),
             Err(error) if attempt == 0 => {
                 log_resolver_debug(&format!(
                     "[nuvio_sidecar] embedded runtime extraction failed on first attempt: {}",
@@ -1531,27 +1665,26 @@ fn nuvio_sidecar_dir_candidates() -> Vec<PathBuf> {
         if let Some(repo_root) = repo_root.as_ref() {
             candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
         }
+        if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
+            candidates.push(runtime_root.join("vendor").join("nuvio-streams-addon"));
+        }
     } else if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
         candidates.push(runtime_root.join("vendor").join("nuvio-streams-addon"));
     }
 
-    if !cfg!(debug_assertions) {
-        if let Some(repo_root) = repo_root.as_ref() {
-            candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
-        }
-    } else if let Some(repo_root) = repo_root.as_ref() {
-        candidates.push(repo_root.join("vendor").join("nuvio-streams-addon"));
-    }
-
     if let Ok(current_exe) = env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
-            candidates.push(
-                exe_dir
-                    .join("resources")
-                    .join("vendor")
-                    .join("nuvio-streams-addon"),
-            );
-            candidates.push(exe_dir.join("vendor").join("nuvio-streams-addon"));
+            if cfg!(debug_assertions) {
+                candidates.push(exe_dir.join("vendor").join("nuvio-streams-addon"));
+            }
+
+            let bundled_candidate = exe_dir
+                .join("resources")
+                .join("vendor")
+                .join("nuvio-streams-addon");
+            if bundled_candidate.exists() {
+                candidates.push(bundled_candidate);
+            }
         }
     }
 
@@ -11568,25 +11701,40 @@ async fn apply_update() -> Result<(), String> {
 
     let script = format!(
         "@echo off\r\n\
-         echo [%date% %time%] apply script started >> \"{}\"\r\n\
+         setlocal EnableExtensions\r\n\
+         set \"LOG={0}\"\r\n\
+         set \"SRC={1}\"\r\n\
+         set \"DST={2}\"\r\n\
+         echo [%date% %time%] apply script started >> \"%LOG%\"\r\n\
          timeout /t 2 /nobreak >nul\r\n\
-         copy /y \"{}\" \"{}\" >> \"{}\" 2>&1\r\n\
-         if errorlevel 1 exit /b 1\r\n\
-         echo [%date% %time%] copy succeeded >> \"{}\"\r\n\
-         rmdir /s /q \"{}\" >nul 2>&1\r\n\
-         echo [%date% %time%] cleanup complete >> \"{}\"\r\n\
-         start \"\" \"{}\"\r\n\
-         echo [%date% %time%] restart launched >> \"{}\"\r\n\
-         del \"%~f0\" >nul 2>&1\r\n",
+         for /l %%I in (1,1,20) do (\r\n\
+         \tcopy /y \"%SRC%\" \"%DST%\" >nul 2>>\"%LOG%\"\r\n\
+         \tif not errorlevel 1 (\r\n\
+         \t\techo [%date% %time%] copy succeeded attempt=%%I >> \"%LOG%\"\r\n\
+         \t\tset \"LAUNCH_TARGET=%DST%\"\r\n\
+         \t\tgoto launch_updated_app\r\n\
+         \t)\r\n\
+         \techo [%date% %time%] copy retry %%I failed >> \"%LOG%\"\r\n\
+         \ttimeout /t 1 /nobreak >nul\r\n\
+         )\r\n\
+         echo [%date% %time%] copy failed after retries; launching updater payload in place >> \"%LOG%\"\r\n\
+         set \"LAUNCH_TARGET=%SRC%\"\r\n\
+         :launch_updated_app\r\n\
+         if /I \"%LAUNCH_TARGET%\"==\"%DST%\" (\r\n\
+         \trmdir /s /q \"{3}\" >nul 2>&1\r\n\
+         \techo [%date% %time%] cleanup complete >> \"%LOG%\"\r\n\
+         ) else (\r\n\
+         \techo [%date% %time%] preserved updater directory for in-place launch >> \"%LOG%\"\r\n\
+         )\r\n\
+         start \"\" \"%LAUNCH_TARGET%\"\r\n\
+         echo [%date% %time%] restart launched target=%LAUNCH_TARGET% >> \"%LOG%\"\r\n\
+         timeout /t 2 /nobreak >nul\r\n\
+         del \"%~f0\" >nul 2>&1\r\n\
+         endlocal\r\n",
         updater_log_path.to_string_lossy(),
         update_path,
         current_path,
-        updater_log_path.to_string_lossy(),
-        updater_log_path.to_string_lossy(),
         update_dir.to_string_lossy(),
-        updater_log_path.to_string_lossy(),
-        current_path,
-        updater_log_path.to_string_lossy(),
     );
 
     fs::write(&batch_path, &script).map_err(|e| {

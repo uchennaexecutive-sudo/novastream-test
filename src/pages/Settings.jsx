@@ -636,6 +636,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.6.6 - Harden Windows auto-update and embedded Nuvio runtime refresh so movie, series, and animation playback recover reliably after update</p>
             <p>v1.6.4 - Fix Gogoanime streaming cache, resolve JWPlayer eval-packed embeds via Rust packer unpack, and extract server-embedded subtitle tracks so subtitles show correctly</p>
             <p>v1.6.3 - Fix anime browser sessions and downloads</p>
             <p>v1.6.2 - Revert app icon to previous design</p>
