@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "version": "1.6.4",
   "notes": "v1.6.4 - Auto-release",
   "pub_date": "2026-04-05T19:55:51Z",
@@ -8,3 +9,14 @@
     }
   }
 }
+=======
+    "version":  "1.5.8",
+    "notes":  "v1.5.8 - Update release workflow for macOS app build process",
+    "pub_date":  "2026-04-08T01:47:43Z",
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.5.8/NOVA-STREAM-1.5.8-portable.exe"
+                                         }
+                  }
+}
+>>>>>>> Stashed changes
