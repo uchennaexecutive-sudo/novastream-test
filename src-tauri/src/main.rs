@@ -1595,13 +1595,14 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
+                    let embedded_node_name = "node";
 
                     if let Some(mode) = entry.unix_mode() {
                         let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(mode));
                     } else if output_path
                         .file_name()
                         .and_then(|name| name.to_str())
-                        == Some(node_name)
+                        == Some(embedded_node_name)
                     {
                         let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(0o755));
                     }
