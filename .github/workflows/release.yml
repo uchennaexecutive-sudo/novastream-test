@@ -106,7 +106,7 @@ jobs:
           git add updates/latest.json
           git commit -m "chore: update latest.json for v${{ steps.version.outputs.VERSION }}" || true
           git push origin main
-          
+
   build-macos:
     needs: build
     runs-on: macos-latest
@@ -137,8 +137,12 @@ jobs:
         working-directory: vendor/nuvio-streams-addon
         run: npm ci --omit=dev --no-audit --no-fund
 
-      - name: Build Tauri app (macOS app bundle)
-        run: npx tauri build --bundles app
+      - name: Add macOS targets
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build Tauri app (macOS universal bundle)
+        run: npx tauri build --target universal-apple-darwin --bundles app
 
       - name: Get version from tag
         id: version
@@ -151,7 +155,7 @@ jobs:
         run: |
           echo "=== Looking for macOS app bundle ==="
 
-          APP_PATH=$(find src-tauri/target/release/bundle -name "*.app" -type d | head -n 1)
+          APP_PATH=$(find src-tauri/target/universal-apple-darwin/release/bundle -name "*.app" -type d | head -n 1)
 
           if [ -n "$APP_PATH" ]; then
             echo "Found app bundle: $APP_PATH"
