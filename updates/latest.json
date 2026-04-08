@@ -1,25 +1,13 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.6.6",
-  "notes": "v1.6.6 - Auto-release",
-  "pub_date": "2026-04-08T17:09:28Z",
+  "version": "1.6.7",
+  "notes": "v1.6.7 - Auto-release",
+  "pub_date": "2026-04-08T23:40:03Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.6/NOVA-STREAM-1.6.6-portable.exe"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.7/NOVA-STREAM-1.6.7-portable.exe"
+    },
+    "darwin-universal": {
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.7/NOVA-STREAM-1.6.7-macos.dmg"
     }
   }
 }
-=======
-    "version":  "1.6.7",
-    "notes":  "v1.6.7 - Expand macOS support with bundled tools, helper-app DMG install/update flow, Intel Mac reduced visual effects, and smoother Home scrolling",
-    "pub_date":  "2026-04-08T23:27:43Z",
-    "platforms":  {
-                      "windows-x86_64":  {
-                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.7/NOVA-STREAM-1.6.7-portable.exe"
-                                         },
-                      "darwin-universal":  {
-                                               "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.7/NOVA-STREAM-1.6.7-macos.dmg"
-                                           }
-                  }
-}
->>>>>>> Stashed changes
