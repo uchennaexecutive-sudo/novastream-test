@@ -27,6 +27,7 @@ import {
   getMovieSubtitles,
   getSeriesSubtitles,
 } from '../../lib/movieSubtitles'
+import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2]
 const FALLBACK_RESOLUTIONS = [
@@ -456,6 +457,7 @@ export default function MoviePlayer({
   offlinePlayback = null,
   onClose,
 }) {
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
   const videoRef = useRef(null)
   const playerContainerRef = useRef(null)
   const progressRef = useRef(null)
@@ -1496,8 +1498,8 @@ export default function MoviePlayer({
           inset: 0,
           zIndex: 9999,
           background: 'rgba(0,0,0,0.85)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
+          backdropFilter: reducedEffectsMode ? 'blur(2px)' : 'blur(8px)',
+          WebkitBackdropFilter: reducedEffectsMode ? 'blur(2px)' : 'blur(8px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -1522,12 +1524,12 @@ export default function MoviePlayer({
             overflow: 'hidden',
             background: '#000',
             border: isFullscreen ? 'none' : '1px solid var(--border)',
-            boxShadow: isFullscreen ? 'none' : '0 0 80px rgba(0,0,0,0.9)',
+            boxShadow: isFullscreen ? 'none' : reducedEffectsMode ? '0 0 42px rgba(0,0,0,0.64)' : '0 0 80px rgba(0,0,0,0.9)',
             cursor: controlsVisible ? 'default' : 'none',
           }}
           initial={{ scale: 0.92, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+          transition={{ duration: reducedEffectsMode ? 0.18 : 0.35, ease: [0.4, 0, 0.2, 1] }}
           onMouseMove={revealControls}
           onClickCapture={revealControls}
         >
@@ -1541,8 +1543,8 @@ export default function MoviePlayer({
                 width: '100%',
                 height: '100%',
                 objectFit: 'cover',
-                filter: 'blur(24px)',
-                opacity: 0.16,
+                filter: reducedEffectsMode ? 'blur(10px)' : 'blur(24px)',
+                opacity: reducedEffectsMode ? 0.1 : 0.16,
                 transform: 'scale(1.05)',
               }}
             />
@@ -1688,7 +1690,7 @@ export default function MoviePlayer({
                     zIndex: 30,
                     padding: '18px 18px 14px',
                     background: 'linear-gradient(180deg, transparent, rgba(0,0,0,0.78) 18%, rgba(0,0,0,0.92))',
-                    backdropFilter: 'blur(14px)',
+                    backdropFilter: reducedEffectsMode ? 'blur(6px)' : 'blur(14px)',
                   }}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}

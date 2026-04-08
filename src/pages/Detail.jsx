@@ -22,6 +22,7 @@ import RatingBadge from '../components/UI/RatingBadge'
 import GlassBadge from '../components/UI/GlassBadge'
 import MediaCard from '../components/Cards/MediaCard'
 import EpisodeSelector from '../components/Player/EpisodeSelector'
+import useAppStore, { getReducedEffectsMode } from '../store/useAppStore'
 import { addToWatchlist, isInWatchlist } from '../lib/supabase'
 import {
   buildAnimeCanonicalFromAniList,
@@ -207,6 +208,7 @@ export default function Detail() {
   const isMovieLike = isMovieLikeMediaType(type)
   const location = useLocation()
   const navigate = useNavigate()
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
 
   const requestedResumeAt = Math.max(0, Math.floor(Number(location.state?.resumeAt) || 0))
   const requestedResumeSeason = Number(location.state?.resumeSeason) || null
@@ -1027,8 +1029,8 @@ export default function Detail() {
         inset: 0,
         zIndex: 9999,
         background: 'rgba(0,0,0,0.82)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
+        backdropFilter: reducedEffectsMode ? 'blur(2px)' : 'blur(8px)',
+        WebkitBackdropFilter: reducedEffectsMode ? 'blur(2px)' : 'blur(8px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -1054,9 +1056,9 @@ export default function Detail() {
             src={backdrop}
             alt={title}
             className="w-full h-full object-cover"
-            initial={{ scale: 1.05 }}
+            initial={reducedEffectsMode ? false : { scale: 1.05 }}
             animate={{ scale: 1 }}
-            transition={{ duration: 8, ease: 'easeOut' }}
+            transition={reducedEffectsMode ? { duration: 0 } : { duration: 8, ease: 'easeOut' }}
           />
         ) : (
           <div
@@ -1077,16 +1079,19 @@ export default function Detail() {
             top: 76,
             left: 20,
             zIndex: 20,
-            background: 'rgba(10,10,16,0.65)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
+            background: reducedEffectsMode ? 'rgba(10,10,16,0.88)' : 'rgba(10,10,16,0.65)',
+            backdropFilter: reducedEffectsMode ? 'blur(6px)' : 'blur(16px)',
+            WebkitBackdropFilter: reducedEffectsMode ? 'blur(6px)' : 'blur(16px)',
             border: '1px solid rgba(255,255,255,0.1)',
             color: 'rgba(255,255,255,0.85)',
           }}
-          initial={{ opacity: 0, x: -8 }}
+          initial={reducedEffectsMode ? { opacity: 0 } : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.15, duration: 0.3 }}
-          whileHover={{
+          transition={{ delay: reducedEffectsMode ? 0 : 0.15, duration: reducedEffectsMode ? 0.2 : 0.3 }}
+          whileHover={reducedEffectsMode ? {
+            borderColor: 'var(--border-hover)',
+            color: '#fff',
+          } : {
             background: 'rgba(10,10,16,0.88)',
             borderColor: 'var(--border-hover)',
             boxShadow: '0 0 16px var(--accent-glow)',
@@ -1105,12 +1110,12 @@ export default function Detail() {
             className="rounded-2xl overflow-hidden flex-shrink-0 sticky top-20"
             style={{
               border: '1px solid var(--border)',
-              boxShadow: '0 24px 48px rgba(0,0,0,0.6)',
+              boxShadow: reducedEffectsMode ? '0 16px 28px rgba(0,0,0,0.36)' : '0 24px 48px rgba(0,0,0,0.6)',
               aspectRatio: '2/3',
             }}
-            initial={{ opacity: 0, y: 30 }}
+            initial={reducedEffectsMode ? { opacity: 0, y: 10 } : { opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1, duration: 0.6 }}
+            transition={{ delay: 0.1, duration: reducedEffectsMode ? 0.24 : 0.6 }}
           >
             {poster ? (
               <img src={poster} alt={title} className="w-full h-full object-cover" />
@@ -1123,9 +1128,9 @@ export default function Detail() {
 
           <motion.div
             className="pt-6"
-            initial={{ opacity: 0, y: 30 }}
+            initial={reducedEffectsMode ? { opacity: 0, y: 12 } : { opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.6 }}
+            transition={{ delay: 0.2, duration: reducedEffectsMode ? 0.26 : 0.6 }}
           >
             <h1
               className="font-display font-bold mb-3 leading-[1.1]"
@@ -1199,9 +1204,9 @@ export default function Detail() {
                   color: '#fff',
                   padding: '16px 40px',
                   fontSize: 18,
-                  boxShadow: '0 0 30px var(--accent-glow)',
+                  boxShadow: reducedEffectsMode ? '0 0 16px var(--accent-glow)' : '0 0 30px var(--accent-glow)',
                 }}
-                whileHover={{ scale: 1.02, boxShadow: '0 0 40px var(--accent-glow)' }}
+                whileHover={reducedEffectsMode ? { scale: 1.01 } : { scale: 1.02, boxShadow: '0 0 40px var(--accent-glow)' }}
                 whileTap={{ scale: 0.98 }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -1214,14 +1219,17 @@ export default function Detail() {
                 onClick={handleWatchlist}
                 className="font-semibold rounded-xl"
                 style={{
-                  background: 'transparent',
+                  background: reducedEffectsMode ? 'var(--bg-surface)' : 'transparent',
                   color: 'var(--text-primary)',
                   padding: '16px 40px',
                   fontSize: 18,
                   border: '1px solid var(--border)',
-                  backdropFilter: 'blur(12px)',
+                  backdropFilter: reducedEffectsMode ? 'blur(6px)' : 'blur(12px)',
                 }}
-                whileHover={{
+                whileHover={reducedEffectsMode ? {
+                  scale: 1.01,
+                  borderColor: 'var(--accent)',
+                } : {
                   scale: 1.02,
                   borderColor: 'var(--accent)',
                   boxShadow: '0 0 20px var(--accent-glow)',
@@ -1279,9 +1287,12 @@ export default function Detail() {
                       padding: '14px 28px',
                       fontSize: 16,
                       border: '1px solid rgba(74,222,128,0.30)',
-                      backdropFilter: 'blur(12px)',
+                      backdropFilter: reducedEffectsMode ? 'blur(6px)' : 'blur(12px)',
                     }}
-                    whileHover={{
+                    whileHover={reducedEffectsMode ? {
+                      scale: 1.01,
+                      borderColor: 'rgba(74,222,128,0.55)',
+                    } : {
                       scale: 1.02,
                       borderColor: 'rgba(74,222,128,0.55)',
                       boxShadow: '0 0 20px rgba(74,222,128,0.18)',
@@ -1357,6 +1368,7 @@ export default function Detail() {
                 width="100%"
                 height="100%"
                 controls
+                light={reducedEffectsMode ? (backdrop || poster || true) : false}
               />
             </div>
           </section>

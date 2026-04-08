@@ -1,6 +1,16 @@
 import { motion, AnimatePresence } from 'framer-motion'
 
-export default function UpdateToast({ version, notes, onRestart }) {
+export default function UpdateToast({ version, notes, applyMode = 'restart', onAction }) {
+  const isInstallerFlow = applyMode === 'installer'
+  const title = isInstallerFlow ? 'Installer Ready' : 'Update Ready'
+  const description = isInstallerFlow
+    ? `NOVA STREAM v${version} is ready to install.`
+    : `NOVA STREAM v${version} has been downloaded.`
+  const helperNote = isInstallerFlow
+    ? 'Open the disk image, then launch NOVA STREAM Installer.app to finish updating.'
+    : null
+  const buttonLabel = isInstallerFlow ? 'Open Installer' : 'Restart to Apply'
+
   return (
     <AnimatePresence>
       <motion.div
@@ -30,13 +40,18 @@ export default function UpdateToast({ version, notes, onRestart }) {
             className="font-display font-bold text-base"
             style={{ color: 'var(--text-primary)' }}
           >
-            Update Ready
+            {title}
           </h3>
         </div>
 
         <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-          NOVA STREAM v{version} has been downloaded.
+          {description}
         </p>
+        {helperNote && (
+          <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+            {helperNote}
+          </p>
+        )}
         {notes && (
           <p className="text-xs mb-4 font-mono" style={{ color: 'var(--text-muted)' }}>
             {notes}
@@ -45,7 +60,7 @@ export default function UpdateToast({ version, notes, onRestart }) {
         {!notes && <div className="mb-4" />}
 
         <button
-          onClick={onRestart}
+          onClick={onAction}
           className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all"
           style={{
             background: 'var(--accent)',
@@ -53,7 +68,7 @@ export default function UpdateToast({ version, notes, onRestart }) {
             boxShadow: '0 0 20px var(--accent-glow)',
           }}
         >
-          Restart to Apply
+          {buttonLabel}
         </button>
       </motion.div>
     </AnimatePresence>

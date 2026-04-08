@@ -127,6 +127,9 @@ function Update-LatestJsonManifest {
       'windows-x86_64' = [ordered]@{
         url = "https://github.com/$Repository/releases/download/v$Version/NOVA-STREAM-$Version-portable.exe"
       }
+      'darwin-universal' = [ordered]@{
+        url = "https://github.com/$Repository/releases/download/v$Version/NOVA-STREAM-$Version-macos.dmg"
+      }
     }
   }
 
@@ -140,6 +143,10 @@ function Update-LatestJsonManifest {
 
   if ($verified -notmatch ('NOVA-STREAM-' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '-portable\.exe')) {
     throw "Verification failed for $Path. Expected Windows release URL for v$Version"
+  }
+
+  if ($verified -notmatch ('NOVA-STREAM-' + [System.Text.RegularExpressions.Regex]::Escape($Version) + '-macos\.dmg')) {
+    throw "Verification failed for $Path. Expected macOS release URL for v$Version"
   }
 }
 

@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion'
-import useAppStore from '../../store/useAppStore'
+import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 
 export default function TopBar() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
 
   return (
     <div
@@ -13,10 +14,12 @@ export default function TopBar() {
         right: 0,
         height: 56,
         paddingRight: 145,
-        background: 'linear-gradient(180deg, rgba(8,8,14,0.22) 0%, rgba(8,8,14,0.12) 60%, transparent 100%)',
-        backdropFilter: 'blur(48px) saturate(200%)',
-        WebkitBackdropFilter: 'blur(48px) saturate(200%)',
-        boxShadow: '0 1px 0 rgba(255,255,255,0.05)',
+        background: reducedEffectsMode
+          ? 'linear-gradient(180deg, rgba(8,8,14,0.90) 0%, rgba(8,8,14,0.76) 65%, rgba(8,8,14,0.28) 100%)'
+          : 'linear-gradient(180deg, rgba(8,8,14,0.22) 0%, rgba(8,8,14,0.12) 60%, transparent 100%)',
+        backdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
+        WebkitBackdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
+        boxShadow: reducedEffectsMode ? '0 1px 0 var(--border)' : '0 1px 0 rgba(255,255,255,0.05)',
         zIndex: 40,
         position: 'fixed',
       }}
@@ -31,15 +34,17 @@ export default function TopBar() {
         onClick={() => setSearchOpen(true)}
         className="relative flex items-center gap-3 px-4 py-2 rounded-xl text-sm cursor-pointer"
         style={{
-          background: 'rgba(14, 14, 20, 0.5)',
+          background: reducedEffectsMode ? 'rgba(14,14,20,0.86)' : 'rgba(14, 14, 20, 0.5)',
           color: 'var(--text-muted)',
           border: '1px solid rgba(255,255,255,0.08)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.16)',
+          backdropFilter: reducedEffectsMode ? 'blur(8px)' : 'blur(20px)',
+          WebkitBackdropFilter: reducedEffectsMode ? 'blur(8px)' : 'blur(20px)',
+          boxShadow: reducedEffectsMode ? '0 2px 10px rgba(0,0,0,0.18)' : '0 4px 16px rgba(0,0,0,0.16)',
           zIndex: 1,
         }}
-        whileHover={{
+        whileHover={reducedEffectsMode ? {
+          borderColor: 'rgba(255,255,255,0.14)',
+        } : {
           borderColor: 'rgba(255,255,255,0.18)',
           boxShadow: '0 0 20px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.16)',
         }}

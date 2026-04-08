@@ -89,6 +89,7 @@ jobs:
           
           VERSION="${{ steps.version.outputs.VERSION }}"
           PORTABLE_NAME="${{ steps.artifacts.outputs.PORTABLE_NAME }}"
+          MACOS_NAME="NOVA-STREAM-$VERSION-macos.dmg"
 
           cat > updates/latest.json << EOF
           {
@@ -98,6 +99,9 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$PORTABLE_NAME"
+              },
+              "darwin-universal": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$MACOS_NAME"
               }
             }
           }
@@ -141,6 +145,25 @@ jobs:
         run: |
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
+      - name: Download embedded macOS Node runtimes
+        shell: bash
+        run: |
+          NODE_RUNTIME_VERSION="20.20.2"
+          NODE_RUNTIME_DIR="$RUNNER_TEMP/nova-stream-node-runtimes"
+
+          mkdir -p "$NODE_RUNTIME_DIR"
+
+          curl -fsSL "https://nodejs.org/download/release/v${NODE_RUNTIME_VERSION}/node-v${NODE_RUNTIME_VERSION}-darwin-x64.tar.gz" \
+            -o "$NODE_RUNTIME_DIR/node-darwin-x64.tar.gz"
+          curl -fsSL "https://nodejs.org/download/release/v${NODE_RUNTIME_VERSION}/node-v${NODE_RUNTIME_VERSION}-darwin-arm64.tar.gz" \
+            -o "$NODE_RUNTIME_DIR/node-darwin-arm64.tar.gz"
+
+          tar -xzf "$NODE_RUNTIME_DIR/node-darwin-x64.tar.gz" -C "$NODE_RUNTIME_DIR"
+          tar -xzf "$NODE_RUNTIME_DIR/node-darwin-arm64.tar.gz" -C "$NODE_RUNTIME_DIR"
+
+          echo "NOVA_STREAM_NODE_BINARY_MACOS_X64=$NODE_RUNTIME_DIR/node-v${NODE_RUNTIME_VERSION}-darwin-x64/bin/node" >> "$GITHUB_ENV"
+          echo "NOVA_STREAM_NODE_BINARY_MACOS_ARM64=$NODE_RUNTIME_DIR/node-v${NODE_RUNTIME_VERSION}-darwin-arm64/bin/node" >> "$GITHUB_ENV"
+
       - name: Build Tauri app (macOS universal bundle)
         run: npx tauri build --target universal-apple-darwin --bundles app
 
@@ -175,11 +198,12 @@ jobs:
           ARTIFACT_NAME="${{ steps.artifacts.outputs.ARTIFACT_NAME }}"
           APP_PATH="${{ steps.artifacts.outputs.APP_PATH }}"
           APP_NAME="$(basename "$APP_PATH")"
+          INSTALLER_APP_NAME="NOVA STREAM Installer.app"
           STAGING_DIR="$(mktemp -d)"
 
           ditto "$APP_PATH" "$STAGING_DIR/$APP_NAME"
-          cp "release/macos/install-first.command" "$STAGING_DIR/Install First.command"
-          chmod +x "$STAGING_DIR/Install First.command"
+          ditto "release/macos/$INSTALLER_APP_NAME" "$STAGING_DIR/$INSTALLER_APP_NAME"
+          chmod +x "$STAGING_DIR/$INSTALLER_APP_NAME/Contents/MacOS/install-helper"
           ln -s /Applications "$STAGING_DIR/Applications"
 
           hdiutil create \
@@ -198,3 +222,35 @@ jobs:
         shell: bash
         run: |
           gh release upload "v${{ steps.version.outputs.VERSION }}" "${{ steps.package_artifact.outputs.UPLOAD_NAME }}" --clobber
+
+      - name: Refresh latest.json with macOS artifact
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PORTABLE_NAME="NOVA-STREAM-$VERSION-portable.exe"
+          MACOS_NAME="${{ steps.package_artifact.outputs.UPLOAD_NAME }}"
+
+          cat > updates/latest.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "v$VERSION - Auto-release",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "windows-x86_64": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$PORTABLE_NAME"
+              },
+              "darwin-universal": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$MACOS_NAME"
+              }
+            }
+          }
+          EOF
+
+          git add updates/latest.json
+          git commit -m "chore: refresh latest.json for v${{ steps.version.outputs.VERSION }}" || true
+          git push origin main

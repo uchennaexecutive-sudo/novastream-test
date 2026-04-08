@@ -2,14 +2,18 @@ import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { imgW500 } from '../../lib/tmdb'
+import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import { buildDetailNavigationForTmdbItem, getTmdbMediaType } from '../../lib/animeClassification'
 
 function MediaCard({ item, type, aspectRatio = 'portrait' }) {
   const navigate = useNavigate()
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
+  const isMainScrolling = useAppStore(s => s.isMainScrolling)
   const mediaType = getTmdbMediaType(item, type)
   const title = item.title || item.name || item.original_title || ''
   const poster = imgW500(item.poster_path || item.backdrop_path)
   const rating = item.vote_average
+  const hoverEnabled = !isMainScrolling
 
   const isSquare = aspectRatio === 'square'
 
@@ -26,21 +30,28 @@ function MediaCard({ item, type, aspectRatio = 'portrait' }) {
         border: '1px solid var(--border)',
         boxShadow: 'var(--card-shadow)',
         height: 264,
+        contain: 'layout paint style',
+        contentVisibility: 'auto',
+        containIntrinsicSize: '264px',
       }}
-      whileHover={{
-        y: -8,
-        boxShadow: '0 0 30px var(--accent-glow), 0 20px 60px rgba(0,0,0,0.4)',
+      whileHover={hoverEnabled ? {
+        y: reducedEffectsMode ? -3 : -8,
+        boxShadow: reducedEffectsMode
+          ? '0 10px 28px rgba(0,0,0,0.24)'
+          : '0 0 30px var(--accent-glow), 0 20px 60px rgba(0,0,0,0.4)',
         borderColor: 'var(--border-hover)',
-        transition: { duration: 0.3, ease: 'easeOut' },
-      }}
+        transition: { duration: reducedEffectsMode ? 0.18 : 0.3, ease: 'easeOut' },
+      } : undefined}
       onClick={handleOpen}
     >
       {poster ? (
         <img
           src={poster}
           alt={title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          className={`w-full h-full object-cover transition-transform ${reducedEffectsMode ? 'duration-300' : 'duration-500'} ${reducedEffectsMode || !hoverEnabled ? '' : 'group-hover:scale-105'}`}
           loading="lazy"
+          decoding="async"
+          draggable={false}
         />
       ) : (
         <div
@@ -53,7 +64,7 @@ function MediaCard({ item, type, aspectRatio = 'portrait' }) {
 
       {/* Hover overlay */}
       <div
-        className="absolute inset-x-0 bottom-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out p-3 pt-10"
+        className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out p-3 pt-10 ${hoverEnabled ? 'translate-y-full group-hover:translate-y-0' : 'translate-y-full'}`}
         style={{
           background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 60%, transparent 100%)',
         }}
@@ -70,10 +81,10 @@ function MediaCard({ item, type, aspectRatio = 'portrait' }) {
         </div>
 
         <div
-          className="mt-2.5 w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 group-hover:shadow-lg"
+          className={`mt-2.5 w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${hoverEnabled ? 'group-hover:shadow-lg' : ''}`}
           style={{
             background: 'var(--accent)',
-            boxShadow: '0 0 16px var(--accent-glow)',
+            boxShadow: reducedEffectsMode ? '0 0 10px var(--accent-glow)' : '0 0 16px var(--accent-glow)',
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
@@ -89,7 +100,7 @@ function MediaCard({ item, type, aspectRatio = 'portrait' }) {
           style={{
             background: 'rgba(0,0,0,0.7)',
             color: rating >= 7 ? '#4ade80' : rating >= 5 ? '#fbbf24' : '#f87171',
-            backdropFilter: 'blur(8px)',
+            backdropFilter: reducedEffectsMode ? 'none' : 'blur(8px)',
             border: '1px solid rgba(255,255,255,0.1)',
           }}
         >

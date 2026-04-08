@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { Home, Film, Tv2, Swords, Palette, Bookmark, Download, History, Settings, LogIn } from 'lucide-react'
 import useAuthStore from '../../store/useAuthStore'
+import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import { dicebearUrl } from '../../lib/supabaseClient'
 
 const TOPBAR_HEIGHT = 56 // must match TopBar.jsx height
@@ -27,6 +28,7 @@ export default function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, profile, setAuthModalOpen } = useAuthStore()
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
 
   const avatarStyle = profile?.avatar_style || 'bottts'
   const avatarSeed = profile?.avatar_seed || (user?.id || 'nova')
@@ -37,15 +39,19 @@ export default function Sidebar() {
       className="fixed left-0 bottom-0 flex flex-col"
       style={{
         top: 0,
-        background: 'linear-gradient(180deg, rgba(8,8,14,0.20) 0%, rgba(8,8,14,0.10) 60%, rgba(8,8,14,0.04) 100%)',
-        backdropFilter: 'blur(48px) saturate(200%)',
-        WebkitBackdropFilter: 'blur(48px) saturate(200%)',
-        boxShadow: 'var(--inner-glow)',
+        background: reducedEffectsMode
+          ? 'linear-gradient(180deg, rgba(8,8,14,0.88) 0%, rgba(8,8,14,0.76) 60%, rgba(8,8,14,0.68) 100%)'
+          : 'linear-gradient(180deg, rgba(8,8,14,0.20) 0%, rgba(8,8,14,0.10) 60%, rgba(8,8,14,0.04) 100%)',
+        backdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
+        WebkitBackdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
+        boxShadow: reducedEffectsMode
+          ? '0 0 0 1px var(--border)'
+          : 'var(--inner-glow)',
         zIndex: 50,
         overflow: 'hidden',
       }}
       animate={{ width: hovered ? 240 : 72 }}
-      transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+      transition={{ duration: reducedEffectsMode ? 0.2 : 0.35, ease: [0.4, 0, 0.2, 1] }}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
@@ -62,7 +68,7 @@ export default function Sidebar() {
           style={{
             background: 'var(--accent)',
             color: '#fff',
-            boxShadow: '0 0 20px var(--accent-glow)',
+            boxShadow: reducedEffectsMode ? '0 0 12px var(--accent-glow)' : '0 0 20px var(--accent-glow)',
           }}
         >
           N
@@ -190,6 +196,7 @@ export default function Sidebar() {
 }
 
 function SidebarLink({ item, isActive, hovered }) {
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
   const Icon = item.Icon
   return (
     <NavLink
@@ -207,13 +214,15 @@ function SidebarLink({ item, isActive, hovered }) {
           className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-7 rounded-r-full"
           style={{
             background: 'var(--accent)',
-            boxShadow: '0 0 12px var(--accent-glow-strong), 2px 0 20px var(--accent-glow)',
+            boxShadow: reducedEffectsMode
+              ? '0 0 8px var(--accent-glow)'
+              : '0 0 12px var(--accent-glow-strong), 2px 0 20px var(--accent-glow)',
           }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
         />
       )}
 
-      <span className="w-6 flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-110">
+      <span className={`w-6 flex items-center justify-center flex-shrink-0 transition-transform duration-200 ${reducedEffectsMode ? '' : 'group-hover:scale-110'}`}>
         <Icon size={18} strokeWidth={isActive ? 2.5 : 1.75} />
       </span>
 

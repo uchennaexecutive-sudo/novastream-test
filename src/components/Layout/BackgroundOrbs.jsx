@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'framer-motion'
-import useAppStore from '../../store/useAppStore'
+import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 
 const orbs = [
   {
@@ -47,7 +47,8 @@ const orbs = [
 export default function BackgroundOrbs() {
   const sysReducedMotion = useReducedMotion()
   const appReducedMotion = useAppStore(s => s.preferences.reduceAnimations)
-  const reducedMotion = sysReducedMotion || appReducedMotion
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
+  const reducedMotion = sysReducedMotion || appReducedMotion || reducedEffectsMode
 
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 0 }}>
@@ -56,11 +57,11 @@ export default function BackgroundOrbs() {
           key={i}
           className="absolute rounded-full"
           style={{
-            width: orb.size,
-            height: orb.size,
+            width: reducedEffectsMode ? orb.size * 0.72 : orb.size,
+            height: reducedEffectsMode ? orb.size * 0.72 : orb.size,
             background: `radial-gradient(circle at 40% 40%, ${orb.color}, transparent 65%)`,
-            filter: 'blur(100px)',
-            opacity: orb.opacity,
+            filter: reducedEffectsMode ? 'blur(54px)' : 'blur(100px)',
+            opacity: reducedEffectsMode ? orb.opacity * 0.55 : orb.opacity,
             left: orb.left,
             top: orb.top,
             willChange: reducedMotion ? 'auto' : 'transform',

@@ -1417,17 +1417,61 @@ fn embedded_nuvio_runtime_dir_name(version: &str) -> String {
     format!("runtime-{sanitized}")
 }
 
-fn embedded_nuvio_runtime_is_complete(runtime_root: &std::path::Path) -> bool {
-    let node_name = if cfg!(target_os = "windows") {
+fn current_macos_arch_label() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else {
+        std::env::consts::ARCH
+    }
+}
+
+fn current_packaged_tool_name(tool_base_name: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{tool_base_name}.exe")
+    } else if cfg!(target_os = "macos") {
+        format!("{tool_base_name}-macos-{}", current_macos_arch_label())
+    } else {
+        tool_base_name.to_string()
+    }
+}
+
+fn host_tool_name(tool_base_name: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{tool_base_name}.exe")
+    } else {
+        tool_base_name.to_string()
+    }
+}
+
+fn current_packaged_node_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "node.exe"
+    } else if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "node-macos-arm64"
+        } else if cfg!(target_arch = "x86_64") {
+            "node-macos-x64"
+        } else {
+            "node"
+        }
+    } else {
+        "node"
+    }
+}
+
+fn host_node_name() -> &'static str {
+    if cfg!(target_os = "windows") {
         "node.exe"
     } else {
         "node"
-    };
-    let ffmpeg_name = if cfg!(target_os = "windows") {
-        "ffmpeg.exe"
-    } else {
-        "ffmpeg"
-    };
+    }
+}
+
+fn embedded_nuvio_runtime_is_complete(runtime_root: &std::path::Path) -> bool {
+    let node_name = current_packaged_node_name();
+    let ffmpeg_name = current_packaged_tool_name("ffmpeg");
 
     runtime_root
         .join("vendor")
@@ -1442,7 +1486,7 @@ fn embedded_nuvio_runtime_is_complete(runtime_root: &std::path::Path) -> bool {
         && runtime_root.join("vendor").join("nuvio-streams-addon").join("addon.js").exists()
         && runtime_root.join("node").join(node_name).exists()
         && (!cfg!(target_os = "windows")
-            || runtime_root.join("vendor").join("tools").join(ffmpeg_name).exists())
+            || runtime_root.join("vendor").join("tools").join(&ffmpeg_name).exists())
 }
 
 fn read_embedded_nuvio_runtime_marker() -> Option<PathBuf> {
@@ -1595,15 +1639,25 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let embedded_node_name = "node";
+                    let is_embedded_node = output_path
+                        .parent()
+                        .and_then(|parent| parent.file_name())
+                        .and_then(|name| name.to_str())
+                        .map(|name| name == "node")
+                        .unwrap_or(false)
+                        && output_path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .map(|name| {
+                                name == "node"
+                                    || name == "node.exe"
+                                    || name.starts_with("node-macos-")
+                            })
+                            .unwrap_or(false);
 
                     if let Some(mode) = entry.unix_mode() {
                         let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(mode));
-                    } else if output_path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        == Some(embedded_node_name)
-                    {
+                    } else if is_embedded_node {
                         let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(0o755));
                     }
                 }
@@ -1718,40 +1772,43 @@ fn npm_command() -> &'static str {
 }
 
 fn resolve_node_binary() -> PathBuf {
-    let node_name = if cfg!(target_os = "windows") {
-        "node.exe"
-    } else {
-        "node"
-    };
+    let packaged_name = current_packaged_node_name();
+    let host_name = host_node_name();
 
     if cfg!(debug_assertions) {
         if let Some(repo_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
-            let candidate = repo_root.join("vendor").join("tools").join(node_name);
-            if candidate.exists() {
-                return candidate;
-            }
-        }
-    } else if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
-        let candidate = runtime_root.join("node").join(node_name);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-
-    if let Ok(current_exe) = env::current_exe() {
-        if let Some(exe_dir) = current_exe.parent() {
-            for candidate in [
-                exe_dir.join("resources").join("node").join(node_name),
-                exe_dir.join("node").join(node_name),
-            ] {
+            for node_name in [packaged_name, host_name] {
+                let candidate = repo_root.join("vendor").join("tools").join(node_name);
                 if candidate.exists() {
                     return candidate;
                 }
             }
         }
+    } else if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
+        for node_name in [packaged_name, host_name] {
+            let candidate = runtime_root.join("node").join(node_name);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
     }
 
-    PathBuf::from(node_name)
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            for node_name in [packaged_name, host_name] {
+                for candidate in [
+                    exe_dir.join("resources").join("node").join(node_name),
+                    exe_dir.join("node").join(node_name),
+                ] {
+                    if candidate.exists() {
+                        return candidate;
+                    }
+                }
+            }
+        }
+    }
+
+    PathBuf::from(host_name)
 }
 
 fn install_nuvio_sidecar_dependencies(sidecar_dir: PathBuf) -> Result<(), String> {
@@ -7669,6 +7726,86 @@ fn updater_runtime_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterContext {
+    platform_key: String,
+    apply_mode: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeEnvironment {
+    os: String,
+    arch: String,
+}
+
+fn runtime_os_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        std::env::consts::OS
+    }
+}
+
+fn runtime_arch_name() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else {
+        std::env::consts::ARCH
+    }
+}
+
+fn updater_manifest_platform_key() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "darwin-universal"
+    } else {
+        "windows-x86_64"
+    }
+}
+
+fn updater_apply_mode() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "installer"
+    } else {
+        "restart"
+    }
+}
+
+fn updater_download_paths(update_dir: &StdPath) -> (PathBuf, PathBuf) {
+    if cfg!(target_os = "macos") {
+        (
+            update_dir.join("nova-stream-macos.dmg"),
+            update_dir.join("nova-stream-macos.dmg.part"),
+        )
+    } else {
+        (
+            update_dir.join("nova-stream.exe"),
+            update_dir.join("nova-stream.exe.part"),
+        )
+    }
+}
+
+#[tauri::command]
+fn get_updater_context() -> UpdaterContext {
+    UpdaterContext {
+        platform_key: updater_manifest_platform_key().to_string(),
+        apply_mode: updater_apply_mode().to_string(),
+    }
+}
+
+#[tauri::command]
+fn get_runtime_environment() -> RuntimeEnvironment {
+    RuntimeEnvironment {
+        os: runtime_os_name().to_string(),
+        arch: runtime_arch_name().to_string(),
+    }
+}
+
 fn nuvio_sidecar_log_path() -> PathBuf {
     env::temp_dir().join("nova-stream-nuvio-sidecar.log")
 }
@@ -9014,21 +9151,54 @@ fn find_binary_in_path(name: &str) -> Option<PathBuf> {
     None
 }
 
-fn resolve_ffmpeg_binary() -> Option<PathBuf> {
-    let local_name = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
+fn push_unique_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !candidates.iter().any(|existing| existing == &candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn resolve_tool_binary(tool_base_name: &str) -> Option<PathBuf> {
+    let packaged_name = current_packaged_tool_name(tool_base_name);
+    let host_name = host_tool_name(tool_base_name);
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir.parent()?;
     let mut candidates = Vec::new();
 
     if !cfg!(debug_assertions) {
         if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
-            candidates.push(runtime_root.join("vendor").join("tools").join(local_name));
+            push_unique_candidate(
+                &mut candidates,
+                runtime_root.join("vendor").join("tools").join(&packaged_name),
+            );
+            push_unique_candidate(
+                &mut candidates,
+                runtime_root.join("vendor").join("tools").join(&host_name),
+            );
         }
     }
 
-    candidates.push(repo_root.join("vendor").join("tools").join(local_name));
-    candidates.push(repo_root.join("release").join("win-unpacked").join(local_name));
-    candidates.push(manifest_dir.join(local_name));
+    push_unique_candidate(
+        &mut candidates,
+        repo_root.join("vendor").join("tools").join(&packaged_name),
+    );
+    push_unique_candidate(
+        &mut candidates,
+        repo_root.join("vendor").join("tools").join(&host_name),
+    );
+
+    if cfg!(target_os = "windows") {
+        push_unique_candidate(
+            &mut candidates,
+            repo_root.join("release").join("win-unpacked").join(&packaged_name),
+        );
+        push_unique_candidate(
+            &mut candidates,
+            repo_root.join("release").join("win-unpacked").join(&host_name),
+        );
+    }
+
+    push_unique_candidate(&mut candidates, manifest_dir.join(&packaged_name));
+    push_unique_candidate(&mut candidates, manifest_dir.join(&host_name));
 
     for candidate in candidates {
         if candidate.exists() {
@@ -9036,7 +9206,11 @@ fn resolve_ffmpeg_binary() -> Option<PathBuf> {
         }
     }
 
-    find_binary_in_path(local_name)
+    find_binary_in_path(&host_name)
+}
+
+fn resolve_ffmpeg_binary() -> Option<PathBuf> {
+    resolve_tool_binary("ffmpeg")
 }
 
 fn validate_completed_video_file(path: &StdPath) -> Result<(), String> {
@@ -9814,32 +9988,7 @@ fn attempt_ffmpeg_recover_hls_output(
 }
 
 fn resolve_n_m3u8dl_binary() -> Option<PathBuf> {
-    let local_name = if cfg!(target_os = "windows") {
-        "N_m3u8DL-RE.exe"
-    } else {
-        "N_m3u8DL-RE"
-    };
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir.parent()?;
-    let mut candidates = Vec::new();
-
-    if !cfg!(debug_assertions) {
-        if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
-            candidates.push(runtime_root.join("vendor").join("tools").join(local_name));
-        }
-    }
-
-    candidates.push(repo_root.join("vendor").join("tools").join(local_name));
-    candidates.push(repo_root.join("release").join("win-unpacked").join(local_name));
-    candidates.push(manifest_dir.join(local_name));
-
-    for candidate in candidates {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-
-    find_binary_in_path(local_name)
+    resolve_tool_binary("N_m3u8DL-RE")
 }
 
 fn build_hls_temp_dir(target_path: &StdPath) -> PathBuf {
@@ -11548,8 +11697,7 @@ fn set_video_download_max_concurrent(
 async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, String> {
     let current_exe = env::current_exe().map_err(|e| e.to_string())?;
     let update_dir = updater_runtime_dir()?;
-    let update_path = update_dir.join("nova-stream.exe");
-    let temp_update_path = update_dir.join("nova-stream.exe.part");
+    let (update_path, temp_update_path) = updater_download_paths(&update_dir);
 
     append_updater_log(&format!(
         "download start url={} current_exe={} target={}",
@@ -11679,12 +11827,39 @@ async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, S
     Ok(update_path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
-async fn apply_update() -> Result<(), String> {
+#[cfg(target_os = "macos")]
+fn apply_update_for_current_platform() -> Result<(), String> {
+    let update_dir = updater_runtime_dir()?;
+    let (update_dmg, _) = updater_download_paths(&update_dir);
+
+    append_updater_log(&format!("apply start macos update={}", update_dmg.display()));
+
+    if !update_dmg.exists() {
+        append_updater_log("apply aborted: macOS update file not found");
+        return Err("Update file not found".to_string());
+    }
+
+    let mut command = Command::new("open");
+    command.arg(&update_dmg);
+    command.stdin(Stdio::null());
+    command.stdout(Stdio::null());
+    command.stderr(Stdio::null());
+
+    command.spawn().map_err(|e| {
+        append_updater_log(&format!("apply failed opening dmg error={e}"));
+        e.to_string()
+    })?;
+
+    append_updater_log(&format!("apply opened dmg path={}", update_dmg.display()));
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_update_for_current_platform() -> Result<(), String> {
     let current_exe = env::current_exe().map_err(|e| e.to_string())?;
     let current_path = current_exe.to_string_lossy().to_string();
     let update_dir = updater_runtime_dir()?;
-    let update_exe = update_dir.join("nova-stream.exe");
+    let (update_exe, _) = updater_download_paths(&update_dir);
     let update_path = update_exe.to_string_lossy().to_string();
     let updater_log_path = env::temp_dir().join("nova-stream-updater.log");
 
@@ -11770,6 +11945,11 @@ async fn apply_update() -> Result<(), String> {
     ));
 
     std::process::exit(0)
+}
+
+#[tauri::command]
+async fn apply_update() -> Result<(), String> {
+    apply_update_for_current_platform()
 }
 
 #[tauri::command]
@@ -11948,6 +12128,8 @@ fn main() {
             set_download_location,
             reset_download_location,
             set_video_download_max_concurrent,
+            get_updater_context,
+            get_runtime_environment,
             download_update,
             apply_update,
             fetch_ann_feed,

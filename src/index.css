@@ -28,6 +28,14 @@ body {
   height: 100%;
 }
 
+[data-reduced-effects="true"] {
+  --glass-blur: blur(8px);
+  --glass-blur-heavy: blur(14px);
+  --card-shadow: 0 8px 24px rgba(0,0,0,0.38);
+  --card-shadow-hover: 0 14px 36px rgba(0,0,0,0.42);
+  --inner-glow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
 /* ─── Premium Scrollbar ─── */
 ::-webkit-scrollbar {
   width: 6px;
@@ -153,6 +161,36 @@ div, section, nav, main, aside, header, footer, button, a, span, p, h1, h2, h3, 
 [data-reduce-motion="true"] .accent-pulse,
 [data-reduce-motion="true"] .glow-dot {
   animation: none;
+}
+
+[data-reduced-effects="true"] .accent-pulse,
+[data-reduced-effects="true"] .glow-dot {
+  animation: none;
+}
+
+[data-reduced-effects="true"] .glass,
+[data-reduced-effects="true"] .glass-heavy {
+  background: var(--bg-surface);
+}
+
+[data-reduced-effects="true"] div,
+[data-reduced-effects="true"] section,
+[data-reduced-effects="true"] nav,
+[data-reduced-effects="true"] main,
+[data-reduced-effects="true"] aside,
+[data-reduced-effects="true"] header,
+[data-reduced-effects="true"] footer,
+[data-reduced-effects="true"] button,
+[data-reduced-effects="true"] a,
+[data-reduced-effects="true"] span,
+[data-reduced-effects="true"] p,
+[data-reduced-effects="true"] h1,
+[data-reduced-effects="true"] h2,
+[data-reduced-effects="true"] h3,
+[data-reduced-effects="true"] h4,
+[data-reduced-effects="true"] h5,
+[data-reduced-effects="true"] h6 {
+  transition-duration: 0.16s;
 }
 
 /* ─── Filter Chip Active State ─── */

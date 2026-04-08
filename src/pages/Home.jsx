@@ -22,28 +22,48 @@ import { isLikelyAnimeTmdbItem } from '../lib/animeClassification'
 
 const ContentRow = memo(function ContentRow({ title, icon, items, loading, type, renderItem, skeletonCount = 8 }) {
   const scrollRef = useRef(null)
+  const dragStateRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
   const [isDragging, setIsDragging] = useState(false)
-  const [startX, setStartX] = useState(0)
-  const [scrollLeft, setScrollLeft] = useState(0)
 
-  const onMouseDown = (event) => {
+  const onMouseDown = useCallback((event) => {
+    if (!scrollRef.current) return
+
+    dragStateRef.current = {
+      active: true,
+      startX: event.pageX - scrollRef.current.offsetLeft,
+      scrollLeft: scrollRef.current.scrollLeft,
+    }
     setIsDragging(true)
-    setStartX(event.pageX - scrollRef.current.offsetLeft)
-    setScrollLeft(scrollRef.current.scrollLeft)
-  }
+  }, [])
 
-  const onMouseMove = (event) => {
-    if (!isDragging) return
+  const stopDragging = useCallback(() => {
+    dragStateRef.current.active = false
+    setIsDragging(false)
+  }, [])
+
+  const onMouseMove = useCallback((event) => {
+    if (!dragStateRef.current.active || !scrollRef.current) return
     event.preventDefault()
     const x = event.pageX - scrollRef.current.offsetLeft
-    scrollRef.current.scrollLeft = scrollLeft - (x - startX) * 1.5
-  }
-
-  const onMouseUp = () => setIsDragging(false)
+    scrollRef.current.scrollLeft = dragStateRef.current.scrollLeft - (x - dragStateRef.current.startX) * 1.5
+  }, [])
 
   const scroll = useCallback((direction) => {
     if (!scrollRef.current) return
     scrollRef.current.scrollBy({ left: direction * 600, behavior: 'smooth' })
+  }, [])
+
+  const onWheel = useCallback((event) => {
+    if (!scrollRef.current) return
+
+    const isMostlyVertical = Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+    if (!isMostlyVertical) return
+
+    const mainScroller = scrollRef.current.closest('main')
+    if (!mainScroller) return
+
+    event.preventDefault()
+    mainScroller.scrollTop += event.deltaY
   }, [])
 
   const rowItems = useMemo(() => {
@@ -64,6 +84,7 @@ const ContentRow = memo(function ContentRow({ title, icon, items, loading, type,
       style={{
         contentVisibility: 'auto',
         containIntrinsicSize: '360px',
+        contain: 'layout paint style',
       }}
     >
       <div className="flex items-center justify-between px-6 mb-4">
@@ -91,11 +112,16 @@ const ContentRow = memo(function ContentRow({ title, icon, items, loading, type,
       <div
         ref={scrollRef}
         className="flex gap-4 px-6 overflow-x-auto hide-scrollbar scroll-smooth"
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        style={{
+          cursor: isDragging ? 'grabbing' : 'grab',
+          contain: 'layout paint style',
+          overscrollBehaviorX: 'contain',
+        }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
+        onMouseUp={stopDragging}
+        onMouseLeave={stopDragging}
+        onWheel={onWheel}
       >
         {rowItems}
       </div>
@@ -222,6 +248,10 @@ export default function Home() {
   }, [trending])
 
   const heroItems = useMemo(() => trending.slice(0, 5), [trending])
+  const renderContinueItem = useCallback(
+    (item) => <ContinueCard key={`${item.content_id}-${item.season || 0}-${item.episode || 0}`} item={item} />,
+    []
+  )
 
   return (
     <div>
@@ -263,7 +293,7 @@ export default function Home() {
             icon="▶"
             items={continueWatching}
             loading={watchRowsLoading}
-            renderItem={(item) => <ContinueCard key={`${item.content_id}-${item.season || 0}-${item.episode || 0}`} item={item} />}
+            renderItem={renderContinueItem}
             skeletonCount={4}
           />
         )}

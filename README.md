@@ -6,7 +6,7 @@
 
 *Built with Tauri 2 · React 18 · Rust*
 
-[![Version](https://img.shields.io/badge/version-1.6.4-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.6.7-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -69,8 +69,10 @@ No browser tabs. No extensions. No fuss.
 - **6 themes** — Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
 - **Collapsible sidebar** — collapses to 72px, expands to 240px on hover with smooth animation
 - **Ambient orbs** — cinematic background accents that shift with your theme
-- **Auto-update** — streamed download with progress bar, no re-download on next launch
-- **Frameless window** — custom overlay title bar with native minimize / maximize / close
+- **Auto-update** - streamed download with progress bar, no re-download on next launch
+- **Mac installer helper + updater flow** - universal DMG with a bundled installer app, while Windows keeps in-place auto-apply updates
+- **Intel Mac compatibility mode** - reduced visual effects mode for older Intel Macs, with manual override in Settings
+- **Frameless window** - custom overlay title bar with native minimize / maximize / close
 
 ---
 
@@ -125,11 +127,11 @@ Auto-update is built in. Nova Stream will notify you when a new version is avail
 1. Go to the [**Releases**](https://github.com/uchennaexecutive-sudo/novastream-test/releases) page
 2. Download `NOVA-STREAM-x.x.x-macos.dmg`
 3. Open the DMG
-4. Double-click **Install First.command**
+4. Double-click **NOVA STREAM Installer.app**
 5. Approve the macOS prompt if it appears, then enter your password when asked
-6. The script copies **NOVA STREAM** into Applications, clears the blocked-launch quarantine flag, and opens the app
+6. The helper copies **NOVA STREAM** into Applications, clears the blocked-launch quarantine flag, and opens the app
 
-> The app is currently unsigned. The DMG includes `Install First.command` to automate the copy + quarantine-clear step before first launch.
+> The app is currently unsigned. The DMG includes `NOVA STREAM Installer.app` to automate the copy + quarantine-clear step before first launch.
 
 ---
 
@@ -169,13 +171,16 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
-Releases are managed with `release.ps1` and built automatically via GitHub Actions.
+macOS notes:
+- Local macOS builds must be run on a Mac.
+- For a local universal macOS app build, run `npm run tauri:build -- --target universal-apple-darwin`.
+- Tagged releases are still done with `release.ps1`, and GitHub Actions builds the universal macOS DMG with `NOVA STREAM Installer.app`.
 
 ---
 
 ## Current Version
 
-**v1.6.4** — Fix Gogoanime streaming cache, resolve otakuhg.site JWPlayer embeds via Rust packer unpack, and extract server-embedded subtitle tracks
+**v1.6.7** - Expand macOS support with bundled tools, helper-app DMG install/update flow, Intel Mac reduced visual effects, and smoother Home scrolling
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 

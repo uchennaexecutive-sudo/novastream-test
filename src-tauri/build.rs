@@ -17,6 +17,26 @@ fn node_binary_name() -> &'static str {
     }
 }
 
+fn current_macos_node_archive_name() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "node-macos-arm64"
+    } else if cfg!(target_arch = "x86_64") {
+        "node-macos-x64"
+    } else {
+        "node"
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_explicit_binary_from_env(var_name: &str) -> Option<PathBuf> {
+    let candidate = PathBuf::from(env::var_os(var_name)?);
+    if candidate.exists() {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
 fn resolve_node_binary() -> Result<PathBuf, Box<dyn Error>> {
     if let Some(explicit_path) = env::var_os("NOVA_STREAM_NODE_BINARY") {
         let candidate = PathBuf::from(explicit_path);
@@ -35,6 +55,42 @@ fn resolve_node_binary() -> Result<PathBuf, Box<dyn Error>> {
 
     find_binary_in_path(node_binary_name())
         .ok_or_else(|| format!("{} not found in PATH during build", node_binary_name()).into())
+}
+
+fn resolve_embedded_node_binaries() -> Result<Vec<(PathBuf, String)>, Box<dyn Error>> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut binaries = Vec::new();
+
+        if let Some(path) = resolve_explicit_binary_from_env("NOVA_STREAM_NODE_BINARY_MACOS_X64") {
+            binaries.push((path, "node-macos-x64".to_string()));
+        }
+
+        if let Some(path) = resolve_explicit_binary_from_env("NOVA_STREAM_NODE_BINARY_MACOS_ARM64") {
+            binaries.push((path, "node-macos-arm64".to_string()));
+        }
+
+        if !binaries.is_empty() {
+            if binaries.len() < 2 {
+                println!(
+                    "cargo:warning=macOS build is packaging only one embedded Node runtime; set NOVA_STREAM_NODE_BINARY_MACOS_X64 and NOVA_STREAM_NODE_BINARY_MACOS_ARM64 for full universal support"
+                );
+            }
+
+            return Ok(binaries);
+        }
+    }
+
+    let node_path = resolve_node_binary()?;
+    let archive_name = if cfg!(target_os = "windows") {
+        "node.exe".to_string()
+    } else if cfg!(target_os = "macos") {
+        current_macos_node_archive_name().to_string()
+    } else {
+        "node".to_string()
+    };
+
+    Ok(vec![(node_path, archive_name)])
 }
 
 fn find_binary_in_path(name: &str) -> Option<PathBuf> {
@@ -167,6 +223,12 @@ fn fingerprint_directory(source_dir: &Path) -> Result<u64, Box<dyn Error>> {
     Ok(hasher.finish())
 }
 
+fn fingerprint_file(file_path: &Path) -> Result<u64, Box<dyn Error>> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hash_file_contents(&mut hasher, file_path)?;
+    Ok(hasher.finish())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     tauri_build::build();
 
@@ -174,19 +236,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     let repo_root = manifest_dir.parent().ok_or("missing repo root")?;
     let sidecar_dir = repo_root.join("vendor").join("nuvio-streams-addon");
     let tools_dir = repo_root.join("vendor").join("tools");
-    let node_path = resolve_node_binary()?;
+    let node_binaries = resolve_embedded_node_binaries()?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let archive_path = out_dir.join("nuvio-runtime.zip");
     let mut runtime_fingerprint = fingerprint_directory(&sidecar_dir)?;
     if tools_dir.exists() {
         runtime_fingerprint ^= fingerprint_directory(&tools_dir)?;
     }
+    for (node_path, _) in &node_binaries {
+        runtime_fingerprint ^= fingerprint_file(node_path)?;
+    }
 
     println!("cargo:rerun-if-changed={}", sidecar_dir.display());
     if tools_dir.exists() {
         println!("cargo:rerun-if-changed={}", tools_dir.display());
     }
-    println!("cargo:rerun-if-changed={}", node_path.display());
+    for (node_path, _) in &node_binaries {
+        println!("cargo:rerun-if-changed={}", node_path.display());
+    }
     println!("cargo:rustc-env=NUVIO_RUNTIME_BUILD_ID={runtime_fingerprint:016x}");
 
     if archive_path.exists() {
@@ -208,11 +275,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             "vendor/tools",
         )?;
     }
-    zip_file(
-        &mut zip,
-        &node_path,
-        &format!("node/{}", node_binary_name()),
-    )?;
+    for (node_path, archive_name) in &node_binaries {
+        zip_file(
+            &mut zip,
+            node_path,
+            &format!("node/{archive_name}"),
+        )?;
+    }
     zip.finish()?;
 
     Ok(())

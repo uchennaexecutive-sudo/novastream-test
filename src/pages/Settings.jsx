@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { HardDrive, FolderOpen, Trash2, AlertCircle, Download, RotateCcw } from 'lucide-react'
-import useAppStore from '../store/useAppStore'
+import useAppStore, { getIsIntelMacRuntime, getReducedEffectsMode } from '../store/useAppStore'
 import useDownloadStore from '../store/useDownloadStore'
 import { THEMES } from '../themes'
 import ThemeCard from '../components/UI/ThemeCard'
@@ -42,7 +42,12 @@ function Toggle({ label, value, onChange }) {
 function UpdateStatusSection() {
   const updateState = useAppStore(s => s.updateState)
   const updateVersion = useAppStore(s => s.updateVersion)
+  const updateApplyMode = useAppStore(s => s.updateApplyMode)
   const downloadProgress = useAppStore(s => s.downloadProgress)
+  const readyLabel = updateApplyMode === 'installer'
+    ? `v${updateVersion} ready - open installer to continue`
+    : `v${updateVersion} ready - restart to apply`
+  const readyBadgeLabel = updateApplyMode === 'installer' ? 'Installer Ready' : 'Restart Required'
 
   // For downloading state, use real progress from Rust stream; otherwise use fixed values
   const statusConfig = {
@@ -55,6 +60,11 @@ function UpdateStatusSection() {
   }
 
   const config = statusConfig[updateState] || statusConfig['idle']
+  const effectiveConfig = updateState === 'ready'
+    ? { ...config, label: readyLabel }
+    : updateState === 'error'
+      ? { ...config, label: 'Update check failed - retrying...' }
+      : config
 
   // Real progress value for the bar
   const barProgress = updateState === 'downloading' ? downloadProgress
@@ -74,10 +84,10 @@ function UpdateStatusSection() {
     >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className="text-xl">{config.icon}</span>
+          <span className="text-xl">{effectiveConfig.icon}</span>
           <div>
-            <p className="text-sm font-semibold" style={{ color: config.color }}>
-              {config.label}
+            <p className="text-sm font-semibold" style={{ color: effectiveConfig.color }}>
+              {effectiveConfig.label}
             </p>
             <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
               Current: v{APP_VERSION}
@@ -109,7 +119,7 @@ function UpdateStatusSection() {
             animate={{ opacity: [1, 0.5, 1] }}
             transition={{ repeat: Infinity, duration: 2 }}
           >
-            Restart Required
+            {readyBadgeLabel}
           </motion.div>
         )}
       </div>
@@ -150,6 +160,9 @@ export default function Settings() {
   const navigate = useNavigate()
   const preferences = useAppStore(s => s.preferences)
   const setPreference = useAppStore(s => s.setPreference)
+  const runtimeInfo = useAppStore(s => s.runtimeInfo)
+  const isIntelMacRuntime = useAppStore(getIsIntelMacRuntime)
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
   const maxConcurrentDownloads = useDownloadStore(s => s.maxConcurrent)
   const setMaxConcurrentDownloads = useDownloadStore(s => s.setMaxConcurrent)
   const preferredQuality = useDownloadStore(s => s.preferredQuality)
@@ -601,6 +614,64 @@ export default function Settings() {
         </div>
       </section>
 
+      <section className="mb-10">
+        <h2 className="font-display font-semibold text-lg mb-4" style={{ color: 'var(--text-primary)' }}>
+          Performance
+        </h2>
+        <div
+          className="rounded-2xl p-5"
+          style={{
+            background: 'var(--bg-glass)',
+            border: '1px solid var(--border)',
+            backdropFilter: 'blur(20px)',
+            boxShadow: 'var(--card-shadow), var(--inner-glow)',
+          }}
+        >
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-sm font-medium mb-0.5" style={{ color: 'var(--text-secondary)' }}>
+                Reduced Visual Effects
+              </p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Auto targets Intel Macs. You can also force it on or off manually on any platform for testing.
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { value: 'auto', label: 'Auto' },
+                { value: 'on', label: 'On' },
+                { value: 'off', label: 'Off' },
+              ].map((option) => {
+                const isActive = preferences.intelMacCompatibilityMode === option.value
+                return (
+                  <button
+                    key={option.value}
+                    onClick={() => setPreference('intelMacCompatibilityMode', option.value)}
+                    className="px-4 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                    style={{
+                      background: isActive ? 'var(--accent)' : 'var(--bg-elevated)',
+                      color: isActive ? '#fff' : 'var(--text-secondary)',
+                      boxShadow: isActive ? '0 0 16px var(--accent-glow)' : 'none',
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+            {preferences.intelMacCompatibilityMode === 'auto'
+              ? isIntelMacRuntime
+                ? 'Auto is currently active because this is an Intel Mac.'
+                : `Auto is currently off on this ${runtimeInfo.os === 'unknown' ? 'device' : runtimeInfo.os} runtime.`
+              : reducedEffectsMode
+                ? 'Reduced visual effects are forced on.'
+                : 'Reduced visual effects are forced off.'}
+          </p>
+        </div>
+      </section>
+
       {/* About */}
       <section>
         <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
@@ -636,6 +707,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.6.7 - Expand macOS support with bundled tools, helper-app DMG install and update flow, Intel Mac reduced visual effects, and smoother Home scrolling</p>
             <p>v1.6.6 - Harden Windows auto-update and embedded Nuvio runtime refresh so movie, series, and animation playback recover reliably after update</p>
             <p>v1.6.4 - Fix Gogoanime streaming cache, resolve JWPlayer eval-packed embeds via Rust packer unpack, and extract server-embedded subtitle tracks so subtitles show correctly</p>
             <p>v1.6.3 - Fix anime browser sessions and downloads</p>

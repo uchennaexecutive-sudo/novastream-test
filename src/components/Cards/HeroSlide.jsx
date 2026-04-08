@@ -1,18 +1,20 @@
 import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { imgOriginal } from '../../lib/tmdb'
+import { imgW1280 } from '../../lib/tmdb'
 import GlassButton from '../UI/GlassButton'
 import RatingBadge from '../UI/RatingBadge'
 import GlassBadge from '../UI/GlassBadge'
+import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import { GENRE_MAP } from '../../lib/tmdb'
 import { buildDetailNavigationForTmdbItem, getTmdbMediaType } from '../../lib/animeClassification'
 
 function HeroSlide({ item }) {
   const navigate = useNavigate()
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
   const title = item.title || item.name
   const type = getTmdbMediaType(item)
-  const backdrop = imgOriginal(item.backdrop_path)
+  const backdrop = imgW1280(item.backdrop_path)
   const overview = item.overview?.slice(0, 200) + (item.overview?.length > 200 ? '...' : '')
   const genres = (item.genre_ids || []).slice(0, 3).map(id => GENRE_MAP[id]).filter(Boolean)
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)
@@ -30,9 +32,12 @@ function HeroSlide({ item }) {
           src={backdrop}
           alt={title}
           className="absolute inset-0 w-full h-full object-cover"
-          initial={{ scale: 1.05 }}
-          animate={{ scale: 1 }}
-          transition={{ duration: 8, ease: 'easeOut' }}
+          decoding="async"
+          fetchPriority="high"
+          draggable={false}
+          initial={reducedEffectsMode ? false : { scale: 1.05 }}
+          animate={reducedEffectsMode ? { scale: 1 } : { scale: 1 }}
+          transition={reducedEffectsMode ? { duration: 0 } : { duration: 8, ease: 'easeOut' }}
         />
       ) : (
         <div
@@ -67,15 +72,15 @@ function HeroSlide({ item }) {
       <motion.div
         className="absolute bottom-16 left-8 max-w-2xl z-10 p-7 rounded-2xl"
         style={{
-          background: 'var(--bg-glass)',
-          backdropFilter: 'blur(32px)',
-          WebkitBackdropFilter: 'blur(32px)',
+          background: reducedEffectsMode ? 'var(--bg-surface)' : 'var(--bg-glass)',
+          backdropFilter: reducedEffectsMode ? 'blur(10px)' : 'blur(32px)',
+          WebkitBackdropFilter: reducedEffectsMode ? 'blur(10px)' : 'blur(32px)',
           border: '1px solid var(--border)',
-          boxShadow: 'var(--card-shadow), var(--inner-glow)',
+          boxShadow: reducedEffectsMode ? 'var(--card-shadow)' : 'var(--card-shadow), var(--inner-glow)',
         }}
-        initial={{ opacity: 0, y: 50, filter: 'blur(8px)' }}
-        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
+        initial={reducedEffectsMode ? { opacity: 0, y: 18 } : { opacity: 0, y: 50, filter: 'blur(8px)' }}
+        animate={reducedEffectsMode ? { opacity: 1, y: 0 } : { opacity: 1, y: 0, filter: 'blur(0px)' }}
+        transition={{ duration: reducedEffectsMode ? 0.28 : 0.8, ease: [0.4, 0, 0.2, 1] }}
       >
         {/* Title */}
         <h1
@@ -113,7 +118,7 @@ function HeroSlide({ item }) {
           <GlassButton
             variant="filled"
             onClick={handleOpen}
-            className="accent-pulse"
+            className={reducedEffectsMode ? '' : 'accent-pulse'}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="5 3 19 12 5 21 5 3" />

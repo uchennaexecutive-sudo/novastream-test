@@ -12,11 +12,13 @@ const TOPBAR_HEIGHT = 56
 
 export default function Layout() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
+  const setMainScrolling = useAppStore(s => s.setMainScrolling)
   const appReducedMotion = useAppStore(s => s.preferences.reduceAnimations)
   const location = useLocation()
   const sysReducedMotion = useReducedMotion()
   const mainRef = useRef(null)
   const prevPathRef = useRef(location.pathname)
+  const scrollIdleTimerRef = useRef(null)
 
   // Save/restore scroll positions across navigation (in-memory, cleared on restart)
   useEffect(() => {
@@ -62,6 +64,27 @@ export default function Layout() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [setSearchOpen])
+
+  useEffect(() => {
+    const mainElement = mainRef.current
+    if (!mainElement) return undefined
+
+    const handleScroll = () => {
+      setMainScrolling(true)
+      window.clearTimeout(scrollIdleTimerRef.current)
+      scrollIdleTimerRef.current = window.setTimeout(() => {
+        setMainScrolling(false)
+      }, 140)
+    }
+
+    mainElement.addEventListener('scroll', handleScroll, { passive: true })
+
+    return () => {
+      mainElement.removeEventListener('scroll', handleScroll)
+      window.clearTimeout(scrollIdleTimerRef.current)
+      setMainScrolling(false)
+    }
+  }, [setMainScrolling])
 
   return (
     <div

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabaseClient'
 import { syncFromCloud } from '../lib/supabase'
-import useAppStore from './useAppStore'
+import useAppStore, { DEFAULT_PREFERENCES } from './useAppStore'
 
 // Apply profile theme + preferences to the running app (no Supabase write-back)
 function applyProfileSettings(profile) {
@@ -15,10 +15,13 @@ function applyProfileSettings(profile) {
   }
 
   if (profile.preferences && typeof profile.preferences === 'object') {
-    const defaults = { defaultEmbed: 'vidsrc', autoplayNext: true, rememberPosition: true, reduceAnimations: false }
-    const prefs = { ...defaults, ...profile.preferences }
-    localStorage.setItem('nova-preferences', JSON.stringify(prefs))
-    useAppStore.setState({ preferences: prefs })
+    const hasExplicitIntelMacCompatibilityMode = Object.prototype.hasOwnProperty.call(
+      profile.preferences,
+      'intelMacCompatibilityMode'
+    )
+    const prefs = { ...DEFAULT_PREFERENCES, ...profile.preferences }
+    appStore.setPreferencesSnapshot(prefs, { hasExplicitIntelMacCompatibilityMode })
+    appStore.promoteIntelMacCompatibilityDefault()
     document.documentElement.setAttribute('data-reduce-motion', prefs.reduceAnimations ? 'true' : 'false')
   }
 }

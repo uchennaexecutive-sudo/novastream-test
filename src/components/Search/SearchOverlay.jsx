@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { searchAnime as searchAniListAnime } from '../../lib/anilist'
-import useAppStore from '../../store/useAppStore'
+import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import { searchMulti, searchAnimeOnTMDB, imgW500 } from '../../lib/tmdb'
 import { buildDetailNavigationForTmdbItem, isLikelyAnimeTmdbItem } from '../../lib/animeClassification'
 
@@ -28,6 +28,7 @@ const normalizeAnimeKey = (value) =>
 
 export default function SearchOverlay() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [animeResults, setAnimeResults] = useState([])
@@ -157,7 +158,11 @@ export default function SearchOverlay() {
   return (
     <motion.div
       className="fixed inset-0 flex items-start justify-center pt-24"
-      style={{ zIndex: 9998, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(16px)' }}
+      style={{
+        zIndex: 9998,
+        background: reducedEffectsMode ? 'rgba(0,0,0,0.78)' : 'rgba(0,0,0,0.75)',
+        backdropFilter: reducedEffectsMode ? 'blur(4px)' : 'blur(16px)',
+      }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -166,15 +171,15 @@ export default function SearchOverlay() {
       <motion.div
         className="w-full max-w-2xl rounded-2xl overflow-hidden"
         style={{
-          background: 'var(--bg-glass)',
+          background: reducedEffectsMode ? 'var(--bg-surface)' : 'var(--bg-glass)',
           border: '1px solid var(--border)',
-          backdropFilter: 'blur(40px)',
-          WebkitBackdropFilter: 'blur(40px)',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.5), var(--inner-glow)',
+          backdropFilter: reducedEffectsMode ? 'blur(10px)' : 'blur(40px)',
+          WebkitBackdropFilter: reducedEffectsMode ? 'blur(10px)' : 'blur(40px)',
+          boxShadow: reducedEffectsMode ? 'var(--card-shadow)' : '0 24px 80px rgba(0,0,0,0.5), var(--inner-glow)',
         }}
         initial={{ y: -30, opacity: 0, scale: 0.96 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+        transition={{ duration: reducedEffectsMode ? 0.18 : 0.3, ease: [0.4, 0, 0.2, 1] }}
       >
         <div className="p-4 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border)' }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round">

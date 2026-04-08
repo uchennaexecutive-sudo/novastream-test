@@ -3,6 +3,7 @@ import axios from 'axios'
 const API_KEY = '49bd672b0680fac7de50e5b9f139a98b'
 const BASE = 'https://api.themoviedb.org/3'
 const IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
+const IMG_W1280 = 'https://image.tmdb.org/t/p/w1280'
 const IMG_W500 = 'https://image.tmdb.org/t/p/w500'
 
 const tmdb = axios.create({
@@ -12,6 +13,7 @@ const tmdb = axios.create({
 })
 
 export const imgOriginal = (path) => path ? `${IMG_ORIGINAL}${path}` : null
+export const imgW1280 = (path) => path ? `${IMG_W1280}${path}` : null
 export const imgW500 = (path) => path ? `${IMG_W500}${path}` : null
 
 export const getTrending = (type = 'all', window = 'week') =>

@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.6.6
+Premium streaming desktop application (Tauri 2) - v1.6.7
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -35,7 +35,10 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Layout - sidebar (top-aligned logo, collapses to 72px, expands to 240px on hover), top bar (search), ambient orbs
 - [x] Tauri desktop - native Windows exe, `decorations: false` with custom overlay TitleBar.jsx (minimize/maximize/close, z:60, top-right 138px)
 - [x] Auto-update - raw GitHub feed check, resilient download retries, streamed progress, local updater logging, and restart prompt
-- [x] macOS release artifact via GitHub Actions (`.dmg`, unsigned)
+- [x] macOS release artifact via GitHub Actions (`.dmg`, unsigned) with bundled ffmpeg + N_m3u8DL-RE, universal embedded Node runtime support, and helper installer app
+- [x] macOS update flow - Windows keeps in-place auto-apply while macOS downloads and opens the DMG installer flow
+- [x] Intel Mac compatibility mode - reduced visual effects mode defaults on for macOS x86_64, remains user-toggleable in Settings, and preserves the existing look with lighter compositing
+- [x] Home scroll polish - reduced hover jitter, row drift, and image decode cost for smoother browsing
 - [x] Auth & profiles - optional Supabase accounts, sign up / sign in / forgot password, frictionless onboarding (splash → auth → avatar picker → home), DiceBear avatars, profile page with stats and account management
 - [x] Cross-device sync - Supabase-backed watchlist, history, progress, theme, and preferences; write-through sync; cloud wins on conflicts; guests stay localStorage-only
 - [x] Anime news feed - ANN RSS carousel on Anime page, paginated 2-up cards, OG image extraction via Rust (base64 data URLs), localStorage image cache for instant return visits
@@ -56,6 +59,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Frontend: listens via `@tauri-apps/api/event`, retries failed downloads with backoff, and re-checks on a longer interval after failures or up-to-date checks
 - Store: `updateState`, `updateVersion`, `downloadProgress` in Zustand
 - Rust deps: `reqwest` (stream + rustls-tls), `futures-util`, `tokio`
+- Windows keeps the current auto-apply updater path. macOS now uses a DMG handoff path that downloads the release DMG and opens the installer helper instead of replacing the app in place.
 
 ## Anime Streaming
 - Anime discovery and anime detail identity are now AniList-driven
@@ -182,15 +186,16 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 3. GitHub Actions CI auto-builds + creates release + updates `updates/latest.json`
 
 - Release workflow now publishes `updates/latest.json` after GitHub release creation. Do not add extra asset polling steps unless they are verified on `windows-latest`.
-- macOS CI now builds the macOS app bundle, stages `Install First.command`, and packages a custom DMG for GitHub Releases
+- macOS CI now builds an unsigned universal app, bundles macOS tools and runtime assets, stages `NOVA STREAM Installer.app`, and packages a custom DMG for GitHub Releases
 
 > `release.ps1` automatically bumps and verifies the runtime version in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src/main.jsx`, keeps `package-lock.json` in sync, and seeds `updates/latest.json` before the tagged build.
 > Never manually edit version numbers - just run `release.ps1`
 > **Always use `release.ps1`** - never push manually. The CI bot commits `latest.json` back to `main` after each build, causing rejections. The script handles rebase + force-tag automatically, while GitHub Actions rewrites `updates/latest.json` after the tagged build publishes the release asset.
-- GitHub Actions now also builds a custom macOS DMG containing the app, `Install First.command`, and the Applications shortcut, then uploads it to the GitHub Release page
+- GitHub Actions now also builds a custom macOS DMG containing the app, `NOVA STREAM Installer.app`, and the Applications shortcut, then uploads it to the GitHub Release page
 - Current macOS release artifact is `NOVA-STREAM-x.x.x-macos.dmg`
 - The app is still unsigned, so macOS trust warnings may still require manual open/allow steps until signing/notarization is added
 - Windows release flow remains unchanged and still publishes the portable exe + `updates/latest.json`
+- Local macOS release testing should be done on a Mac host. The workflow already targets `universal-apple-darwin` and packages the helper-app DMG flow from CI.
 
 ## Anime Detail / Search Routing
 - `src/pages/Detail.jsx` now uses AniList identity state (`anilistId`, anime titles, anime year) for anime-specific detail handling
@@ -222,6 +227,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.6.7 - Expand macOS support with bundled tools, helper-app DMG install/update flow, Intel Mac reduced visual effects, and smoother Home scrolling
 - v1.6.6 - Harden Windows auto-update and embedded Nuvio runtime refresh so movie, series, and animation playback recover reliably after update
 - v1.6.4 - Fix Gogoanime streaming cache, resolve otakuhg.site JWPlayer embeds via Rust packer unpack, and extract server-embedded subtitle tracks
 - v1.6.3 - Fix Anime browser sessions and download V2
