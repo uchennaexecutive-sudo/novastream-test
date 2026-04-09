@@ -1,0 +1,39 @@
+#!/bin/bash
+set -euo pipefail
+
+HELPER_APP="$(cd "$(dirname "$0")/../.." && pwd)"
+DMG_DIR="$(dirname "$HELPER_APP")"
+HELPER_NAME="$(basename "$HELPER_APP")"
+SRC_APP=""
+
+while IFS= read -r -d '' candidate; do
+  candidate_name="$(basename "$candidate")"
+  if [ "$candidate_name" != "$HELPER_NAME" ]; then
+    SRC_APP="$candidate"
+    break
+  fi
+done < <(find "$DMG_DIR" -maxdepth 1 -mindepth 1 -type d -name "*.app" -print0 | sort -z)
+
+if [ -z "$SRC_APP" ]; then
+  osascript -e 'display dialog "No NOVA STREAM.app bundle was found next to the installer helper." buttons {"OK"} default button "OK" with icon stop'
+  exit 1
+fi
+
+APP_NAME="$(basename "$SRC_APP")"
+DST_APP="/Applications/$APP_NAME"
+
+if ! osascript "$SRC_APP" "$DST_APP" <<'APPLESCRIPT'
+on run argv
+  set srcPath to item 1 of argv
+  set dstPath to item 2 of argv
+  do shell script "rm -rf " & quoted form of dstPath & " && ditto " & quoted form of srcPath & " " & quoted form of dstPath & " && xattr -cr " & quoted form of dstPath with administrator privileges
+end run
+APPLESCRIPT
+then
+  osascript -e 'display dialog "Install was canceled or failed before NOVA STREAM could be prepared." buttons {"OK"} default button "OK" with icon caution'
+  exit 1
+fi
+
+open "$DST_APP"
+
+osascript -e 'display dialog "NOVA STREAM was installed to Applications and will open now." buttons {"OK"} default button "OK" with icon note'

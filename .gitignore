@@ -4,6 +4,8 @@ release/*
 !release/macos/
 release/macos/*
 !release/macos/install-first.command
+!release/macos/NOVA STREAM Installer.app/
+!release/macos/NOVA STREAM Installer.app/**
 src-tauri/target/
 .env
 *.log
