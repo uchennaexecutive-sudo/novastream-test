@@ -49,8 +49,15 @@ export const getAnimationMovies = (page = 1) =>
 export const getAnimeSeries = (page = 1) =>
   tmdb.get('/discover/tv', { params: { with_genres: 16, with_keywords: 210024, page } }).then(r => r.data)
 
-export const getDetails = (type, id) =>
-  tmdb.get(`/${type}/${id}`, { params: { append_to_response: 'credits,videos,similar,images' } }).then(r => r.data)
+export const getDetails = (type, id, appendToResponse = 'credits') => {
+  const appendValue = Array.isArray(appendToResponse)
+    ? appendToResponse.filter(Boolean).join(',')
+    : String(appendToResponse || '').trim()
+
+  return tmdb.get(`/${type}/${id}`, {
+    params: appendValue ? { append_to_response: appendValue } : {},
+  }).then(r => r.data)
+}
 
 export const getSeasonDetails = (seriesId, season) =>
   tmdb.get(`/tv/${seriesId}/season/${season}`).then(r => r.data)

@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.6.7
+Premium streaming desktop application (Tauri 2) - v1.6.8
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -227,6 +227,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
 ## Version History
+- v1.6.8 - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements
 - v1.6.7 - Expand macOS support with bundled tools, helper-app DMG install/update flow, Intel Mac reduced visual effects, and smoother Home scrolling
 - v1.6.6 - Harden Windows auto-update and embedded Nuvio runtime refresh so movie, series, and animation playback recover reliably after update
 - v1.6.4 - Fix Gogoanime streaming cache, resolve otakuhg.site JWPlayer embeds via Rust packer unpack, and extract server-embedded subtitle tracks

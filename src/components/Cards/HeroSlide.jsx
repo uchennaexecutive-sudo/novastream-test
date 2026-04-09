@@ -73,13 +73,14 @@ function HeroSlide({ item }) {
         className="absolute bottom-16 left-8 max-w-2xl z-10 p-7 rounded-2xl"
         style={{
           background: reducedEffectsMode ? 'var(--bg-surface)' : 'var(--bg-glass)',
-          backdropFilter: reducedEffectsMode ? 'blur(10px)' : 'blur(32px)',
-          WebkitBackdropFilter: reducedEffectsMode ? 'blur(10px)' : 'blur(32px)',
+          backdropFilter: reducedEffectsMode ? 'blur(8px)' : 'blur(20px)',
+          WebkitBackdropFilter: reducedEffectsMode ? 'blur(8px)' : 'blur(20px)',
           border: '1px solid var(--border)',
           boxShadow: reducedEffectsMode ? 'var(--card-shadow)' : 'var(--card-shadow), var(--inner-glow)',
+          contain: 'paint',
         }}
-        initial={reducedEffectsMode ? { opacity: 0, y: 18 } : { opacity: 0, y: 50, filter: 'blur(8px)' }}
-        animate={reducedEffectsMode ? { opacity: 1, y: 0 } : { opacity: 1, y: 0, filter: 'blur(0px)' }}
+        initial={reducedEffectsMode ? { opacity: 0, y: 18 } : { opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ duration: reducedEffectsMode ? 0.28 : 0.8, ease: [0.4, 0, 0.2, 1] }}
       >
         {/* Title */}

@@ -12,7 +12,6 @@ const TOPBAR_HEIGHT = 56
 
 export default function Layout() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
-  const setMainScrolling = useAppStore(s => s.setMainScrolling)
   const appReducedMotion = useAppStore(s => s.preferences.reduceAnimations)
   const location = useLocation()
   const sysReducedMotion = useReducedMotion()
@@ -68,12 +67,26 @@ export default function Layout() {
   useEffect(() => {
     const mainElement = mainRef.current
     if (!mainElement) return undefined
+    const rootElement = document.documentElement
+
+    mainElement.dataset.scrolling = 'false'
+    rootElement.dataset.mainScrolling = 'false'
 
     const handleScroll = () => {
-      setMainScrolling(true)
+      if (mainElement.dataset.scrolling !== 'true') {
+        mainElement.dataset.scrolling = 'true'
+      }
+      if (rootElement.dataset.mainScrolling !== 'true') {
+        rootElement.dataset.mainScrolling = 'true'
+      }
       window.clearTimeout(scrollIdleTimerRef.current)
       scrollIdleTimerRef.current = window.setTimeout(() => {
-        setMainScrolling(false)
+        if (mainElement.dataset.scrolling !== 'false') {
+          mainElement.dataset.scrolling = 'false'
+        }
+        if (rootElement.dataset.mainScrolling !== 'false') {
+          rootElement.dataset.mainScrolling = 'false'
+        }
       }, 140)
     }
 
@@ -82,9 +95,10 @@ export default function Layout() {
     return () => {
       mainElement.removeEventListener('scroll', handleScroll)
       window.clearTimeout(scrollIdleTimerRef.current)
-      setMainScrolling(false)
+      mainElement.dataset.scrolling = 'false'
+      rootElement.dataset.mainScrolling = 'false'
     }
-  }, [setMainScrolling])
+  }, [])
 
   return (
     <div
@@ -97,7 +111,7 @@ export default function Layout() {
       <Sidebar />
       <main
         ref={mainRef}
-        className="relative ml-[72px] overflow-y-auto overflow-x-hidden"
+        className="main-scroller relative ml-[72px] overflow-y-auto overflow-x-hidden"
         style={{
           zIndex: 1,
           height: '100vh',

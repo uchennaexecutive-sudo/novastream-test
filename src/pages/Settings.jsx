@@ -707,6 +707,7 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.6.8 - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements</p>
             <p>v1.6.7 - Expand macOS support with bundled tools, helper-app DMG install and update flow, Intel Mac reduced visual effects, and smoother Home scrolling</p>
             <p>v1.6.6 - Harden Windows auto-update and embedded Nuvio runtime refresh so movie, series, and animation playback recover reliably after update</p>
             <p>v1.6.4 - Fix Gogoanime streaming cache, resolve JWPlayer eval-packed embeds via Rust packer unpack, and extract server-embedded subtitle tracks so subtitles show correctly</p>

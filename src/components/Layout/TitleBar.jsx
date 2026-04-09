@@ -10,14 +10,38 @@ export default function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
+    let active = true
     let unlisten = null
+
+    const syncMaximizedState = async (win) => {
+      try {
+        const nextValue = await win.isMaximized()
+        if (active) {
+          setIsMaximized(prev => (prev === nextValue ? prev : nextValue))
+        }
+      } catch {}
+    }
+
     getWin().then(async (win) => {
-      setIsMaximized(await win.isMaximized())
-      win.listen('tauri://resize', async () => {
-        setIsMaximized(await win.isMaximized())
-      }).then((fn) => { unlisten = fn })
+      if (!active) return
+
+      await syncMaximizedState(win)
+
+      const removeListener = await win.listen('tauri://resize', () => {
+        void syncMaximizedState(win)
+      })
+
+      if (active) {
+        unlisten = removeListener
+      } else {
+        removeListener()
+      }
     }).catch(() => {})
-    return () => { if (unlisten) unlisten() }
+
+    return () => {
+      active = false
+      if (unlisten) unlisten()
+    }
   }, [])
 
   const handleMinimize = async () => {

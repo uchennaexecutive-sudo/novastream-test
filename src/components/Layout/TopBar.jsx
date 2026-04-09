@@ -1,9 +1,12 @@
 import { motion } from 'framer-motion'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
+import useMainScrollActivity from '../../hooks/useMainScrollActivity'
 
 export default function TopBar() {
   const setSearchOpen = useAppStore(s => s.setSearchOpen)
   const reducedEffectsMode = useAppStore(getReducedEffectsMode)
+  const isMainScrolling = useMainScrollActivity()
+  const scrollOptimizedEffects = reducedEffectsMode || isMainScrolling
 
   return (
     <div
@@ -14,14 +17,16 @@ export default function TopBar() {
         right: 0,
         height: 56,
         paddingRight: 145,
-        background: reducedEffectsMode
+        background: scrollOptimizedEffects
           ? 'linear-gradient(180deg, rgba(8,8,14,0.90) 0%, rgba(8,8,14,0.76) 65%, rgba(8,8,14,0.28) 100%)'
           : 'linear-gradient(180deg, rgba(8,8,14,0.22) 0%, rgba(8,8,14,0.12) 60%, transparent 100%)',
-        backdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
-        WebkitBackdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
-        boxShadow: reducedEffectsMode ? '0 1px 0 var(--border)' : '0 1px 0 rgba(255,255,255,0.05)',
+        backdropFilter: scrollOptimizedEffects ? 'blur(10px)' : 'blur(24px) saturate(150%)',
+        WebkitBackdropFilter: scrollOptimizedEffects ? 'blur(10px)' : 'blur(24px) saturate(150%)',
+        boxShadow: scrollOptimizedEffects ? '0 1px 0 var(--border)' : '0 1px 0 rgba(255,255,255,0.05)',
         zIndex: 40,
         position: 'fixed',
+        contain: 'paint',
+        transform: 'translateZ(0)',
       }}
     >
       {/* Drag region — covers left empty portion, stops before search button */}
@@ -34,15 +39,15 @@ export default function TopBar() {
         onClick={() => setSearchOpen(true)}
         className="relative flex items-center gap-3 px-4 py-2 rounded-xl text-sm cursor-pointer"
         style={{
-          background: reducedEffectsMode ? 'rgba(14,14,20,0.86)' : 'rgba(14, 14, 20, 0.5)',
+          background: scrollOptimizedEffects ? 'rgba(14,14,20,0.86)' : 'rgba(14, 14, 20, 0.5)',
           color: 'var(--text-muted)',
           border: '1px solid rgba(255,255,255,0.08)',
-          backdropFilter: reducedEffectsMode ? 'blur(8px)' : 'blur(20px)',
-          WebkitBackdropFilter: reducedEffectsMode ? 'blur(8px)' : 'blur(20px)',
-          boxShadow: reducedEffectsMode ? '0 2px 10px rgba(0,0,0,0.18)' : '0 4px 16px rgba(0,0,0,0.16)',
+          backdropFilter: scrollOptimizedEffects ? 'blur(5px)' : 'blur(12px)',
+          WebkitBackdropFilter: scrollOptimizedEffects ? 'blur(5px)' : 'blur(12px)',
+          boxShadow: scrollOptimizedEffects ? '0 2px 10px rgba(0,0,0,0.18)' : '0 4px 16px rgba(0,0,0,0.16)',
           zIndex: 1,
         }}
-        whileHover={reducedEffectsMode ? {
+        whileHover={scrollOptimizedEffects ? {
           borderColor: 'rgba(255,255,255,0.14)',
         } : {
           borderColor: 'rgba(255,255,255,0.18)',

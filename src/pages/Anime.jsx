@@ -255,10 +255,38 @@ export default function Anime() {
   useEffect(() => {
     if (annNews.length === 0) return
     const totalPages = Math.ceil(annNews.length / 2)
-    const timer = setInterval(() => {
-      setNewsPage(p => (p + 1) % totalPages)
-    }, 6000)
-    return () => clearInterval(timer)
+
+    let timer = null
+
+    const stopRotation = () => {
+      if (timer) {
+        window.clearInterval(timer)
+        timer = null
+      }
+    }
+
+    const startRotation = () => {
+      if (document.hidden || timer) return
+      timer = window.setInterval(() => {
+        setNewsPage(p => (p + 1) % totalPages)
+      }, 6000)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopRotation()
+      } else {
+        startRotation()
+      }
+    }
+
+    startRotation()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      stopRotation()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [annNews.length])
 
   // Fetch OG images for all articles as soon as the feed loads

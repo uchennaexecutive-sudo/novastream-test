@@ -2,7 +2,6 @@ import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } fro
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronLeft, WifiOff } from 'lucide-react'
-import ReactPlayer from 'react-player'
 import { getDetails, imgOriginal, imgW500 } from '../lib/tmdb'
 import { preloadAnimePlayback } from '../lib/consumet'
 import { isMovieLikeMediaType } from '../lib/embeds'
@@ -36,6 +35,7 @@ import { pauseVideoDownload, startVideoDownload } from '../lib/videoDownloads'
 
 const AnimePlayer = lazy(() => import('../components/Player/AnimePlayer'))
 const MoviePlayer = lazy(() => import('../components/Player/MoviePlayer'))
+const ReactPlayer = lazy(() => import('react-player'))
 
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
@@ -65,6 +65,33 @@ function withTimeout(promise, timeoutMs, message) {
   return Promise.race([promise, timeoutPromise]).finally(() => {
     window.clearTimeout(timer)
   })
+}
+
+function scheduleDetailNonCritical(task, delay = 180) {
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(() => task(), { timeout: 1200 })
+    return () => window.cancelIdleCallback(handle)
+  }
+
+  const handle = window.setTimeout(task, delay)
+  return () => window.clearTimeout(handle)
+}
+
+function buildDownloadStatusMap(items, contentType) {
+  const nextMap = {}
+
+  for (const item of Array.isArray(items) ? items : []) {
+    if (item?.contentType !== contentType) continue
+    if (!item?.season || !item?.episode) continue
+
+    nextMap[getEpisodeProgressKey(item.season, item.episode)] = {
+      id: item.id,
+      status: item.status === 'failed' ? 'default' : (item.status || 'default'),
+      progress: item.status === 'failed' ? 0 : Number(item.progress || 0),
+    }
+  }
+
+  return nextMap
 }
 
 function parseEpisodeDate(dateValue) {
@@ -206,6 +233,7 @@ function mergeSupplementalAnimeSeasons(canonical, candidates = []) {
 export default function Detail() {
   const { type, id } = useParams()
   const isMovieLike = isMovieLikeMediaType(type)
+  const detailContentId = String(id || '')
   const location = useLocation()
   const navigate = useNavigate()
   const reducedEffectsMode = useAppStore(getReducedEffectsMode)
@@ -215,6 +243,10 @@ export default function Detail() {
   const requestedResumeEpisode = Number(location.state?.resumeEpisode) || null
 
   const [data, setData] = useState(null)
+  const [deferredDetailData, setDeferredDetailData] = useState({
+    trailer: null,
+    similar: [],
+  })
   const [loading, setLoading] = useState(true)
   const [detailError, setDetailError] = useState('')
   const [detailReloadKey, setDetailReloadKey] = useState(0)
@@ -228,7 +260,11 @@ export default function Detail() {
   const [resumeProgress, setResumeProgress] = useState(location.state?.resumeProgress || null)
   const [progressMap, setProgressMap] = useState({})
   const [inWatchlist, setInWatchlist] = useState(false)
-  const downloadItems = useDownloadStore((state) => state.items)
+  const allDownloadItems = useDownloadStore((state) => state.items)
+  const downloadItems = useMemo(
+    () => allDownloadItems.filter((item) => String(item?.contentId || '') === detailContentId),
+    [allDownloadItems, detailContentId]
+  )
   const preferredDownloadQuality = useDownloadStore((state) => state.preferredQuality)
   const setPreferredDownloadQuality = useDownloadStore((state) => state.setPreferredQuality)
   const enqueueDownload = useDownloadStore((state) => state.enqueueDownload)
@@ -265,6 +301,10 @@ export default function Detail() {
   useEffect(() => {
     setLoading(true)
     setDetailError('')
+    setDeferredDetailData({
+      trailer: null,
+      similar: [],
+    })
     setResumeProgress(location.state?.resumeProgress || null)
     setProgressMap({})
     setPlaySeason(requestedResumeSeason || 1)
@@ -281,7 +321,7 @@ export default function Detail() {
     autoOpenHandledRef.current = false
 
     withTimeout(
-      getDetails(type, id),
+      getDetails(type, id, 'credits'),
       DETAIL_REQUEST_TIMEOUT_MS,
       'This title took too long to load. Please try again.'
     )
@@ -306,6 +346,44 @@ export default function Detail() {
     requestedResumeSeason,
     type,
   ])
+
+  useEffect(() => {
+    if (!data?.id) return undefined
+
+    let cancelled = false
+    const cancelScheduledTask = scheduleDetailNonCritical(() => {
+      withTimeout(
+        getDetails(type, id, ['videos', 'similar']),
+        DETAIL_REQUEST_TIMEOUT_MS,
+        'Supplemental detail content took too long to load.'
+      )
+        .then((payload) => {
+          if (cancelled) return
+
+          const trailer = payload?.videos?.results?.find(
+            (video) => video.type === 'Trailer' && video.site === 'YouTube'
+          ) || null
+          const similar = Array.isArray(payload?.similar?.results)
+            ? payload.similar.results.slice(0, 12)
+            : []
+
+          setDeferredDetailData({ trailer, similar })
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setDeferredDetailData({
+              trailer: null,
+              similar: [],
+            })
+          }
+        })
+    }, 220)
+
+    return () => {
+      cancelled = true
+      cancelScheduledTask()
+    }
+  }, [data?.id, id, type])
 
   const applyProgressState = useCallback((progress, nextProgressMap = null) => {
     const nextResumeProgress = isResumableProgress(progress) ? progress : null
@@ -710,6 +788,16 @@ export default function Detail() {
     resumeProgress,
   ])
 
+  const seriesDownloadStatusMap = useMemo(
+    () => buildDownloadStatusMap(downloadItems, 'tv'),
+    [downloadItems]
+  )
+
+  const animeDownloadStatusMap = useMemo(
+    () => buildDownloadStatusMap(downloadItems, 'anime'),
+    [downloadItems]
+  )
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -773,11 +861,9 @@ export default function Detail() {
   const title = detailTitle
   const backdrop = imgOriginal(data.backdrop_path)
   const poster = imgW500(data.poster_path)
-  const trailer = data.videos?.results?.find(
-    (video) => video.type === 'Trailer' && video.site === 'YouTube'
-  )
   const cast = data.credits?.cast?.slice(0, 16) || []
-  const similar = data.similar?.results?.slice(0, 12) || []
+  const trailer = deferredDetailData.trailer
+  const similar = deferredDetailData.similar
   const genres = data.genres || []
   const numSeasons = data.number_of_seasons || 0
   const year = (data.release_date || data.first_air_date || '').slice(0, 4)
@@ -806,42 +892,6 @@ export default function Detail() {
   const canPlayOffline = Boolean(
     currentDownloadItem?.status === 'completed' && currentDownloadItem?.filePath
   )
-
-  const seriesDownloadStatusMap = (() => {
-    const nextMap = {}
-
-    for (const item of downloadItems) {
-      if (String(item?.contentId || '') !== String(data.id)) continue
-      if (item?.contentType !== 'tv') continue
-      if (!item?.season || !item?.episode) continue
-
-      nextMap[getEpisodeProgressKey(item.season, item.episode)] = {
-        id: item.id,
-        status: item.status === 'failed' ? 'default' : (item.status || 'default'),
-        progress: item.status === 'failed' ? 0 : Number(item.progress || 0),
-      }
-    }
-
-    return nextMap
-  })()
-
-  const animeDownloadStatusMap = (() => {
-    const nextMap = {}
-
-    for (const item of downloadItems) {
-      if (String(item?.contentId || '') !== String(data.id)) continue
-      if (item?.contentType !== 'anime') continue
-      if (!item?.season || !item?.episode) continue
-
-      nextMap[getEpisodeProgressKey(item.season, item.episode)] = {
-        id: item.id,
-        status: item.status === 'failed' ? 'default' : (item.status || 'default'),
-        progress: item.status === 'failed' ? 0 : Number(item.progress || 0),
-      }
-    }
-
-    return nextMap
-  })()
 
   const buildDownloadTarget = ({
     contentType = detailDownloadContentType,
@@ -1363,13 +1413,24 @@ export default function Detail() {
                 maxWidth: 900,
               }}
             >
-              <ReactPlayer
-                url={`https://www.youtube.com/watch?v=${trailer.key}`}
-                width="100%"
-                height="100%"
-                controls
-                light={reducedEffectsMode ? (backdrop || poster || true) : false}
-              />
+              <Suspense
+                fallback={(
+                  <div
+                    className="w-full h-full flex items-center justify-center"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
+                  >
+                    Loading trailer...
+                  </div>
+                )}
+              >
+                <ReactPlayer
+                  url={`https://www.youtube.com/watch?v=${trailer.key}`}
+                  width="100%"
+                  height="100%"
+                  controls
+                  light={reducedEffectsMode ? (backdrop || poster || true) : false}
+                />
+              </Suspense>
             </div>
           </section>
         )}

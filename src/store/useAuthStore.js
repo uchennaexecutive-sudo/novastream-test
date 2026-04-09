@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabaseClient'
 import { syncFromCloud } from '../lib/supabase'
 import useAppStore, { DEFAULT_PREFERENCES } from './useAppStore'
 
+let authListenerSubscription = null
+
 // Apply profile theme + preferences to the running app (no Supabase write-back)
 function applyProfileSettings(profile) {
   if (!profile) return
@@ -31,6 +33,7 @@ const useAuthStore = create((set, get) => ({
   session: null,
   profile: null,
   authLoading: true,
+  authInitialized: false,
 
   // Controls the sign-in overlay (triggered from sidebar or programmatically)
   authModalOpen: false,
@@ -38,31 +41,48 @@ const useAuthStore = create((set, get) => ({
 
   // Bootstrap auth session on app start
   init: async () => {
+    if (get().authInitialized) {
+      return get().session
+    }
+
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         const profile = await get()._fetchProfile(session.user.id)
-        set({ user: session.user, session, profile, authLoading: false })
+        set({ user: session.user, session, profile, authLoading: false, authInitialized: true })
         applyProfileSettings(profile)
         syncFromCloud().catch(() => {})
       } else {
-        set({ authLoading: false })
+        set({ authLoading: false, authInitialized: true })
       }
     } catch {
-      set({ authLoading: false })
+      set({ authLoading: false, authInitialized: true })
     }
 
-    // Listen for auth changes (sign in/out from any tab)
-    supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const profile = await get()._fetchProfile(session.user.id)
-        set({ user: session.user, session, profile })
-        applyProfileSettings(profile)
-        syncFromCloud().catch(() => {})
-      } else {
-        set({ user: null, session: null, profile: null })
-      }
-    })
+    if (!authListenerSubscription) {
+      const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (session?.user) {
+          const profile = await get()._fetchProfile(session.user.id)
+          set({ user: session.user, session, profile, authInitialized: true })
+          applyProfileSettings(profile)
+          syncFromCloud().catch(() => {})
+        } else {
+          set({ user: null, session: null, profile: null, authInitialized: true })
+        }
+      })
+
+      authListenerSubscription = data?.subscription || null
+    }
+
+    return get().session
+  },
+
+  cleanupAuthListener: () => {
+    if (authListenerSubscription) {
+      authListenerSubscription.unsubscribe()
+      authListenerSubscription = null
+    }
+    set({ authInitialized: false })
   },
 
   _fetchProfile: async (userId) => {

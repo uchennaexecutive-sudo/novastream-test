@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
+import useMainScrollActivity from '../../hooks/useMainScrollActivity'
 
 const orbs = [
   {
@@ -48,7 +49,9 @@ export default function BackgroundOrbs() {
   const sysReducedMotion = useReducedMotion()
   const appReducedMotion = useAppStore(s => s.preferences.reduceAnimations)
   const reducedEffectsMode = useAppStore(getReducedEffectsMode)
-  const reducedMotion = sysReducedMotion || appReducedMotion || reducedEffectsMode
+  const isMainScrolling = useMainScrollActivity()
+  const throttleAmbientEffects = isMainScrolling && !reducedEffectsMode
+  const reducedMotion = sysReducedMotion || appReducedMotion || reducedEffectsMode || throttleAmbientEffects
 
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 0 }}>
@@ -57,14 +60,15 @@ export default function BackgroundOrbs() {
           key={i}
           className="absolute rounded-full"
           style={{
-            width: reducedEffectsMode ? orb.size * 0.72 : orb.size,
-            height: reducedEffectsMode ? orb.size * 0.72 : orb.size,
+            width: reducedEffectsMode ? orb.size * 0.62 : throttleAmbientEffects ? orb.size * 0.7 : orb.size * 0.82,
+            height: reducedEffectsMode ? orb.size * 0.62 : throttleAmbientEffects ? orb.size * 0.7 : orb.size * 0.82,
             background: `radial-gradient(circle at 40% 40%, ${orb.color}, transparent 65%)`,
-            filter: reducedEffectsMode ? 'blur(54px)' : 'blur(100px)',
-            opacity: reducedEffectsMode ? orb.opacity * 0.55 : orb.opacity,
+            filter: reducedEffectsMode ? 'blur(36px)' : throttleAmbientEffects ? 'blur(44px)' : 'blur(72px)',
+            opacity: reducedEffectsMode ? orb.opacity * 0.42 : throttleAmbientEffects ? orb.opacity * 0.32 : orb.opacity * 0.8,
             left: orb.left,
             top: orb.top,
             willChange: reducedMotion ? 'auto' : 'transform',
+            transform: 'translateZ(0)',
           }}
           animate={reducedMotion ? {} : {
             x: orb.x,

@@ -19,12 +19,12 @@ export default function UpdateToast({ version, notes, applyMode = 'restart', onA
           zIndex: 99998,
           width: 340,
           background: 'var(--bg-surface)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
           border: '1px solid var(--border)',
           borderRadius: 16,
           padding: 20,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+          boxShadow: '0 16px 42px rgba(0,0,0,0.34)',
         }}
         initial={{ x: 100, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}

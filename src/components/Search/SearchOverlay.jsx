@@ -36,18 +36,31 @@ export default function SearchOverlay() {
   const inputRef = useRef(null)
   const navigate = useNavigate()
   const timerRef = useRef(null)
+  const mountedRef = useRef(true)
+  const requestIdRef = useRef(0)
 
   useEffect(() => {
+    mountedRef.current = true
     inputRef.current?.focus()
     const handler = (e) => { if (e.key === 'Escape') setSearchOpen(false) }
     window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    return () => {
+      mountedRef.current = false
+      requestIdRef.current += 1
+      window.clearTimeout(timerRef.current)
+      window.removeEventListener('keydown', handler)
+    }
   }, [setSearchOpen])
 
   const doSearch = useCallback((q) => {
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
+
     if (!q.trim()) {
-      setResults([])
-      setAnimeResults([])
+      if (mountedRef.current) {
+        setResults([])
+        setAnimeResults([])
+      }
       return
     }
 
@@ -71,6 +84,10 @@ export default function SearchOverlay() {
 
       if (aniResults.status === 'rejected') {
         console.error('[SearchOverlay] AniList search failed:', aniResults.reason)
+      }
+
+      if (!mountedRef.current || requestId !== requestIdRef.current) {
+        return
       }
 
       setResults(resolvedTmdbResults)

@@ -6,16 +6,45 @@ DMG_DIR="$(dirname "$HELPER_APP")"
 HELPER_NAME="$(basename "$HELPER_APP")"
 SRC_APP=""
 
-while IFS= read -r -d '' candidate; do
-  candidate_name="$(basename "$candidate")"
-  if [ "$candidate_name" != "$HELPER_NAME" ]; then
-    SRC_APP="$candidate"
-    break
-  fi
-done < <(find "$DMG_DIR" -maxdepth 1 -mindepth 1 -type d -name "*.app" -print0 | sort -z)
+find_sibling_app() {
+  local search_dir="$1"
+
+  while IFS= read -r -d '' candidate; do
+    candidate_name="$(basename "$candidate")"
+    if [ "$candidate_name" != "$HELPER_NAME" ]; then
+      SRC_APP="$candidate"
+      return 0
+    fi
+  done < <(find "$search_dir" -maxdepth 1 -mindepth 1 -type d -name "*.app" -print0 | sort -z)
+
+  return 1
+}
+
+find_translocated_source_app() {
+  local volume
+  local expected_app_name
+  local installer_on_volume
+  local app_on_volume
+
+  expected_app_name="${HELPER_NAME% Installer.app}.app"
+
+  while IFS= read -r -d '' volume; do
+    installer_on_volume="$volume/$HELPER_NAME"
+    app_on_volume="$volume/$expected_app_name"
+
+    if [ -d "$installer_on_volume" ] && [ -d "$app_on_volume" ]; then
+      SRC_APP="$app_on_volume"
+      return 0
+    fi
+  done < <(find /Volumes -maxdepth 1 -mindepth 1 -type d -print0 2>/dev/null | sort -z)
+
+  return 1
+}
+
+find_sibling_app "$DMG_DIR" || find_translocated_source_app
 
 if [ -z "$SRC_APP" ]; then
-  osascript -e 'display dialog "No NOVA STREAM.app bundle was found next to the installer helper." buttons {"OK"} default button "OK" with icon stop'
+  osascript -e 'display dialog "No NOVA STREAM.app bundle was found. Please run NOVA STREAM Installer.app directly from the mounted NOVA STREAM DMG." buttons {"OK"} default button "OK" with icon stop'
   exit 1
 fi
 

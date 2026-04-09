@@ -99,9 +99,6 @@ const useAppStore = create((set, get) => ({
   sidebarExpanded: false,
   setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
 
-  isMainScrolling: false,
-  setMainScrolling: (isMainScrolling) => set({ isMainScrolling: Boolean(isMainScrolling) }),
-
   // Update state: 'checking' | 'downloading' | 'ready' | 'up-to-date' | 'error' | 'idle'
   updateState: 'idle',
   updateVersion: null,

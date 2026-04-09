@@ -2,12 +2,12 @@ import React, { lazy, Suspense, useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
 import Home from './pages/Home'
-import Auth from './pages/Auth'
-import SearchOverlay from './components/Search/SearchOverlay'
-import GalaxyIntro from './components/Intro/GalaxyIntro'
 import useAppStore from './store/useAppStore'
 import useAuthStore from './store/useAuthStore'
 
+const Auth = lazy(() => import('./pages/Auth'))
+const SearchOverlay = lazy(() => import('./components/Search/SearchOverlay'))
+const GalaxyIntro = lazy(() => import('./components/Intro/GalaxyIntro'))
 const Movies = lazy(() => import('./pages/Movies'))
 const Series = lazy(() => import('./pages/Series'))
 const Anime = lazy(() => import('./pages/Anime'))
@@ -96,9 +96,20 @@ function RouteLoader() {
   )
 }
 
+function OverlayLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div
+        className="w-10 h-10 rounded-full border-2 border-t-transparent animate-spin"
+        style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
+      />
+    </div>
+  )
+}
+
 export default function App() {
   const searchOpen = useAppStore(s => s.searchOpen)
-  const { init, user, authLoading, authModalOpen, setAuthModalOpen } = useAuthStore()
+  const { init, cleanupAuthListener, user, authLoading, authModalOpen, setAuthModalOpen } = useAuthStore()
   const isSpecialWindow = typeof window !== 'undefined'
     && (
       window.location.pathname.startsWith('/player-window')
@@ -109,12 +120,14 @@ export default function App() {
   )
   const [showOnboarding, setShowOnboarding] = useState(false)
 
-  // Bootstrap Supabase auth session on mount
   useEffect(() => {
-    if (!isSpecialWindow) init()
-  }, [isSpecialWindow, init])
+    if (isSpecialWindow) return undefined
+    void init()
+    return () => {
+      cleanupAuthListener()
+    }
+  }, [cleanupAuthListener, init, isSpecialWindow])
 
-  // If user signs in while onboarding overlay is open, close it
   useEffect(() => {
     if (user && showOnboarding) setShowOnboarding(false)
   }, [user, showOnboarding])
@@ -122,7 +135,6 @@ export default function App() {
   const handleIntroComplete = () => {
     sessionStorage.setItem('nova-intro-shown', 'true')
     setShowIntro(false)
-    // Show onboarding only the first time (no account, never skipped)
     if (!localStorage.getItem('nova-onboarding-shown') && !authLoading && !user) {
       setShowOnboarding(true)
     }
@@ -134,12 +146,19 @@ export default function App() {
   }
 
   if (showIntro) {
-    return <GalaxyIntro onComplete={handleIntroComplete} />
+    return (
+      <Suspense fallback={<OverlayLoader />}>
+        <GalaxyIntro onComplete={handleIntroComplete} />
+      </Suspense>
+    )
   }
 
-  // First-time onboarding (full-screen, no close button — only skip link)
   if (showOnboarding) {
-    return <Auth onComplete={handleOnboardingComplete} closeable={false} />
+    return (
+      <Suspense fallback={<OverlayLoader />}>
+        <Auth onComplete={handleOnboardingComplete} closeable={false} />
+      </Suspense>
+    )
   }
 
   return (
@@ -148,13 +167,14 @@ export default function App() {
         <AppRoutes isSpecialWindow={isSpecialWindow} searchOpen={searchOpen} />
       </BrowserRouter>
 
-      {/* Sign-in overlay — triggered from sidebar Sign In button after onboarding was skipped */}
       {authModalOpen && (
-        <Auth
-          onComplete={() => setAuthModalOpen(false)}
-          closeable
-          onClose={() => setAuthModalOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <Auth
+            onComplete={() => setAuthModalOpen(false)}
+            closeable
+            onClose={() => setAuthModalOpen(false)}
+          />
+        </Suspense>
       )}
     </>
   )
@@ -186,7 +206,11 @@ function AppRoutes({ isSpecialWindow, searchOpen }) {
           </Routes>
         </Suspense>
       </RouteErrorBoundary>
-      {!isSpecialWindow && searchOpen && <SearchOverlay />}
+      {!isSpecialWindow && searchOpen && (
+        <Suspense fallback={null}>
+          <SearchOverlay />
+        </Suspense>
+      )}
     </>
   )
 }

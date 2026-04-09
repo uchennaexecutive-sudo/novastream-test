@@ -1,14 +1,11 @@
 import { memo } from 'react'
-import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { imgW500 } from '../../lib/tmdb'
 import { getProgressPercent } from '../../lib/progress'
-import useAppStore from '../../store/useAppStore'
 import { buildDetailNavigationForTmdbItem } from '../../lib/animeClassification'
 
 function ContinueCard({ item }) {
   const navigate = useNavigate()
-  const isMainScrolling = useAppStore(s => s.isMainScrolling)
   const contentType = item.content_type || item.media_type || 'movie'
   const contentId = item.content_id || item.tmdb_id || item.id
   const title = item.title || item.name || 'Untitled'
@@ -17,7 +14,6 @@ function ContinueCard({ item }) {
   const isEpisode = Number(item.season) > 0 && Number(item.episode) > 0
   const detailType = contentType === 'movie' ? 'movie' : 'tv'
   const resumeAt = Math.max(0, Math.floor(Number(item.progress_seconds) || 0))
-  const hoverEnabled = !isMainScrolling
 
   const handleOpen = async () => {
     if (contentType !== 'anime') {
@@ -62,74 +58,74 @@ function ContinueCard({ item }) {
   }
 
   return (
-    <motion.div
-      className="w-72 h-40 rounded-2xl overflow-hidden relative cursor-pointer flex-shrink-0 group"
-      style={{
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--border)',
-        boxShadow: 'var(--card-shadow)',
-        contain: 'layout paint style',
-        contentVisibility: 'auto',
-        containIntrinsicSize: '160px',
-      }}
-      whileHover={hoverEnabled ? {
-        y: -4,
-        boxShadow: '0 0 24px var(--accent-glow), 0 16px 48px rgba(0,0,0,0.3)',
-        borderColor: 'var(--border-hover)',
-      } : undefined}
+    <div
+      className="continue-card-shell relative w-72 h-40 cursor-pointer flex-shrink-0 group"
       onClick={handleOpen}
     >
-      {backdrop && (
-        <img
-          src={backdrop}
-          alt={title}
-          className={`w-full h-full object-cover transition-transform duration-500 ${hoverEnabled ? 'group-hover:scale-105' : ''}`}
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-        />
-      )}
       <div
-        className="absolute inset-0 flex flex-col justify-end p-3"
-        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.38) 52%, transparent 76%)' }}
+        className="continue-card rounded-2xl overflow-hidden relative w-full h-full"
+        style={{
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--card-shadow)',
+          contain: 'layout paint style',
+          contentVisibility: 'auto',
+          containIntrinsicSize: '160px',
+        }}
       >
-        <p className="font-display font-semibold text-sm text-white truncate">{title}</p>
-        {isEpisode && (
-          <div
-            className="mt-2 inline-flex items-center rounded-full px-2 py-1 text-[10px] font-mono text-white"
-            style={{ background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.18)' }}
-          >
-            S{item.season} E{item.episode}
-          </div>
-        )}
-        <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-white/75">
-          <span>Resume</span>
-          <span>{progress}%</span>
-        </div>
-        <div className="w-full h-1.5 rounded-full mt-1 overflow-hidden" style={{ background: 'rgba(255,255,255,0.15)' }}>
-          <motion.div
-            className="h-full rounded-full"
-            style={{ background: 'var(--accent)', boxShadow: '0 0 8px var(--accent-glow)' }}
-            initial={{ width: 0 }}
-            animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.8, ease: 'easeOut' }}
+        {backdrop && (
+          <img
+            src={backdrop}
+            alt={title}
+            className="continue-card__image w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+            draggable={false}
           />
-        </div>
-      </div>
-
-      <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${hoverEnabled ? 'opacity-0 group-hover:opacity-100' : 'opacity-0'}`}>
+        )}
         <div
-          className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
-          style={{
-            background: 'rgba(15,15,20,0.88)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: '0 0 24px rgba(0,0,0,0.35)',
-          }}
+          className="continue-card__content absolute inset-0 flex flex-col justify-end p-3"
+          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.38) 52%, transparent 76%)' }}
         >
-          Resume
+          <p className="font-display font-semibold text-sm text-white truncate">{title}</p>
+          {isEpisode && (
+            <div
+              className="mt-2 inline-flex items-center rounded-full px-2 py-1 text-[10px] font-mono text-white"
+              style={{ background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.18)' }}
+            >
+              S{item.season} E{item.episode}
+            </div>
+          )}
+          <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-white/75">
+            <span>Resume</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="w-full h-1.5 rounded-full mt-1 overflow-hidden" style={{ background: 'rgba(255,255,255,0.15)' }}>
+            <div
+              className="continue-card__progress h-full rounded-full"
+              style={{
+                width: `${progress}%`,
+                background: 'var(--accent)',
+                boxShadow: '0 0 8px var(--accent-glow)',
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="continue-card__cta absolute inset-0 flex items-center justify-center">
+          <div
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
+            style={{
+              background: 'rgba(15,15,20,0.88)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              boxShadow: '0 0 24px rgba(0,0,0,0.35)',
+            }}
+          >
+            Resume
+          </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }
 

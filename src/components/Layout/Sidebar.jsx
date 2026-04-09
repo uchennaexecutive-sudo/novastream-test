@@ -5,6 +5,7 @@ import { Home, Film, Tv2, Swords, Palette, Bookmark, Download, History, Settings
 import useAuthStore from '../../store/useAuthStore'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import { dicebearUrl } from '../../lib/supabaseClient'
+import useMainScrollActivity from '../../hooks/useMainScrollActivity'
 
 const TOPBAR_HEIGHT = 56 // must match TopBar.jsx height
 
@@ -29,6 +30,8 @@ export default function Sidebar() {
   const navigate = useNavigate()
   const { user, profile, setAuthModalOpen } = useAuthStore()
   const reducedEffectsMode = useAppStore(getReducedEffectsMode)
+  const isMainScrolling = useMainScrollActivity()
+  const scrollOptimizedEffects = reducedEffectsMode || isMainScrolling
 
   const avatarStyle = profile?.avatar_style || 'bottts'
   const avatarSeed = profile?.avatar_seed || (user?.id || 'nova')
@@ -39,16 +42,18 @@ export default function Sidebar() {
       className="fixed left-0 bottom-0 flex flex-col"
       style={{
         top: 0,
-        background: reducedEffectsMode
+        background: scrollOptimizedEffects
           ? 'linear-gradient(180deg, rgba(8,8,14,0.88) 0%, rgba(8,8,14,0.76) 60%, rgba(8,8,14,0.68) 100%)'
           : 'linear-gradient(180deg, rgba(8,8,14,0.20) 0%, rgba(8,8,14,0.10) 60%, rgba(8,8,14,0.04) 100%)',
-        backdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
-        WebkitBackdropFilter: reducedEffectsMode ? 'blur(14px)' : 'blur(48px) saturate(200%)',
-        boxShadow: reducedEffectsMode
+        backdropFilter: scrollOptimizedEffects ? 'blur(10px)' : 'blur(24px) saturate(150%)',
+        WebkitBackdropFilter: scrollOptimizedEffects ? 'blur(10px)' : 'blur(24px) saturate(150%)',
+        boxShadow: scrollOptimizedEffects
           ? '0 0 0 1px var(--border)'
           : 'var(--inner-glow)',
         zIndex: 50,
         overflow: 'hidden',
+        contain: 'paint',
+        transform: 'translateZ(0)',
       }}
       animate={{ width: hovered ? 240 : 72 }}
       transition={{ duration: reducedEffectsMode ? 0.2 : 0.35, ease: [0.4, 0, 0.2, 1] }}
