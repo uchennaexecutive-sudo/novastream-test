@@ -1,28 +1,13 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.6.7",
-  "notes": "v1.6.7 - Auto-release",
-  "pub_date": "2026-04-09T00:27:19Z",
+  "version": "1.6.8",
+  "notes": "v1.6.8 - Auto-release",
+  "pub_date": "2026-04-09T13:35:30Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.7/NOVA-STREAM-1.6.7-portable.exe"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.8/NOVA-STREAM-1.6.8-portable.exe"
     },
     "darwin-universal": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.7/NOVA-STREAM-1.6.7-macos.dmg"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.8/NOVA-STREAM-1.6.8-macos.dmg"
     }
   }
 }
-=======
-    "version":  "1.6.8",
-    "notes":  "v1.6.8 - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements",
-    "pub_date":  "2026-04-09T13:25:14Z",
-    "platforms":  {
-                      "windows-x86_64":  {
-                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.8/NOVA-STREAM-1.6.8-portable.exe"
-                                         },
-                      "darwin-universal":  {
-                                               "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.6.8/NOVA-STREAM-1.6.8-macos.dmg"
-                                           }
-                  }
-}
->>>>>>> Stashed changes
