@@ -20,7 +20,7 @@ import useDownloadStore from './store/useDownloadStore'
 const UpdateToast = lazy(() => import('./components/UI/UpdateToast'))
 
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-const APP_VERSION = '1.7.0'
+const APP_VERSION = '1.7.1'
 const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream-test/main/updates/latest.json'
 const UPDATE_CHECK_TIMEOUT_MS = 15000
 const UPDATE_INITIAL_DELAY_MS = 5000

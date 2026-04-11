@@ -6,7 +6,7 @@
 
 *Built with Tauri 2 · React 18 · Rust*
 
-[![Version](https://img.shields.io/badge/version-1.7.0-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.7.1-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -187,7 +187,7 @@ Watch Party notes:
 
 ## Current Version
 
-**v1.7.0** - Watch Party end-to-end release with packaged Vercel token flow, guest receiving + fullscreen viewer, subtitle relay, offline/downloaded broadcast support, transport recovery, and optional RNNoise voice cleanup
+**v1.7.1** - Patch release to sync the vendored Nuvio sidecar lockfile so CI and tagged release builds succeed cleanly
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 
