@@ -28,6 +28,10 @@ import {
   getSeriesSubtitles,
 } from '../../lib/movieSubtitles'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
+import useCastStore from '../../store/useCastStore'
+import CastButton from '../Cast/CastButton'
+import CastDeviceSheet from '../Cast/CastDeviceSheet'
+import WatchPartyPlayerOverlay from './WatchPartyPlayerOverlay'
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2]
 const FALLBACK_RESOLUTIONS = [
@@ -458,6 +462,8 @@ export default function MoviePlayer({
   onClose,
 }) {
   const reducedEffectsMode = useAppStore(getReducedEffectsMode)
+  const prepareCastMedia = useCastStore((s) => s.prepareCastMedia)
+  const clearPreparedCastMedia = useCastStore((s) => s.clearPreparedCastMedia)
   const videoRef = useRef(null)
   const playerContainerRef = useRef(null)
   const progressRef = useRef(null)
@@ -494,6 +500,7 @@ export default function MoviePlayer({
   const [showControls, setShowControls] = useState(true)
   const [seekPreviewTime, setSeekPreviewTime] = useState(null)
   const [seekTooltipX, setSeekTooltipX] = useState(0)
+  const [castSheetOpen, setCastSheetOpen] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [availableResolutions, setAvailableResolutions] = useState(FALLBACK_RESOLUTIONS)
   const [selectedResolution, setSelectedResolution] = useState('auto')
@@ -576,6 +583,9 @@ export default function MoviePlayer({
   const playerMeta = isSeriesContent(contentType)
     ? `${seasonEpisodeLabel} | ${stream?.provider || 'Provider'} | ${stream?.quality || streamType.toUpperCase()}`
     : `${stream?.provider || 'Provider'} | ${stream?.quality || streamType.toUpperCase()}`
+  const watchPartySourceLabel = seasonEpisodeLabel
+    ? `${title} | ${seasonEpisodeLabel}`
+    : title
   const subtitleText = useMemo(() => {
     if (!subtitleEnabled || subtitleCues.length === 0) return ''
     const cue = subtitleCues.find(item => currentTime >= item.start && currentTime <= item.end)
@@ -1127,6 +1137,39 @@ export default function MoviePlayer({
   }, [stream, streamIndex, streamType, streams.length])
 
   useEffect(() => {
+    if (!stream?.url) {
+      void clearPreparedCastMedia()
+      return undefined
+    }
+
+    const trimmedStreamUrl = String(stream.url || '').trim()
+    const payload = offlineMode
+      ? {
+        filePath: offlinePlayback?.filePath || trimmedStreamUrl,
+        streamType: 'mp4',
+        contentType: 'video/mp4',
+        title,
+        imageUrl: poster || backdrop || '',
+      }
+      : {
+        streamUrl: trimmedStreamUrl,
+        streamType,
+        headers: stream.headers || {},
+        sessionId: null,
+        contentType: streamType === 'hls' ? 'application/vnd.apple.mpegurl' : 'video/mp4',
+        title,
+        imageUrl: poster || backdrop || '',
+      }
+
+    void prepareCastMedia(payload)
+    return undefined
+  }, [clearPreparedCastMedia, offlineMode, offlinePlayback?.filePath, prepareCastMedia, stream, streamType])
+
+  useEffect(() => () => {
+    void clearPreparedCastMedia()
+  }, [clearPreparedCastMedia])
+
+  useEffect(() => {
     const video = videoRef.current
     if (!video || !stream?.url) {
       setMediaLoading(false)
@@ -1550,6 +1593,15 @@ export default function MoviePlayer({
             />
           )}
 
+          {/* Watch Party host broadcast HUD — visible only when host + room live */}
+          <WatchPartyPlayerOverlay
+            videoRef={videoRef}
+            enabled={Boolean(stream || offlineMode)}
+            label={watchPartySourceLabel}
+            subtitleText={subtitleText}
+            subtitleEnabled={subtitleEnabled}
+          />
+
           <AnimatePresence>
             {controlsVisible && (
               <motion.div
@@ -1822,6 +1874,7 @@ export default function MoviePlayer({
                           </option>
                         ))}
                       </select>
+                      <CastButton onClick={() => setCastSheetOpen(true)} />
                       <button onClick={toggleFullscreen} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}>
                         {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
                       </button>
@@ -1836,6 +1889,7 @@ export default function MoviePlayer({
               )}
             </AnimatePresence>
           )}
+          <CastDeviceSheet open={castSheetOpen} onClose={() => setCastSheetOpen(false)} />
         </motion.div>
       </motion.div>
     </AnimatePresence>,

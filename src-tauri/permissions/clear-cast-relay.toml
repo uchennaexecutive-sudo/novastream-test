@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-clear-cast-relay"
+description = "Allow clearing prepared cast relay entries"
+commands.allow = ["clear_cast_relay"]

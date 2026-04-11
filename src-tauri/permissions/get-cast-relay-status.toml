@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-cast-relay-status"
+description = "Allow querying the LAN cast relay status"
+commands.allow = ["get_cast_relay_status"]

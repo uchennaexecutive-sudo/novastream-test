@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.6.8
+Premium streaming desktop application (Tauri 2) - v1.7.0
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -41,6 +41,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Home scroll polish - reduced hover jitter, row drift, and image decode cost for smoother browsing
 - [x] Auth & profiles - optional Supabase accounts, sign up / sign in / forgot password, frictionless onboarding (splash → auth → avatar picker → home), DiceBear avatars, profile page with stats and account management
 - [x] Cross-device sync - Supabase-backed watchlist, history, progress, theme, and preferences; write-through sync; cloud wins on conflicts; guests stay localStorage-only
+- [x] Watch Party - Supabase-backed room lifecycle, LiveKit-powered host broadcast + voice chat, in-player host HUD, guest receiving viewport with fullscreen support, participant identity sync, and Vercel token-service flow for packaged builds
 - [x] Anime news feed - ANN RSS carousel on Anime page, paginated 2-up cards, OG image extraction via Rust (base64 data URLs), localStorage image cache for instant return visits
 
 ## Layout Notes
@@ -226,7 +227,48 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Supabase auto-trigger `handle_new_user` creates `profiles` row with username + avatar_seed on sign-up
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
+## Watch Party
+- Watch Party is frontend-visible and runtime-functional. Current flow supports room create/join, lobby/live states, host broadcast, guest receiving, voice chat, participant speaking state, and identity propagation across users.
+- Core frontend/store files:
+  - `src/pages/WatchParty.jsx`
+  - `src/store/useWatchPartyStore.js`
+  - `src/lib/watchParty.js`
+  - `src/lib/watchPartyLiveKit.js`
+- Player integration lives in:
+  - `src/components/Player/WatchPartyPlayerOverlay.jsx`
+  - `src/components/Player/WatchPartyPlayerRuntime.jsx`
+  - `src/components/Player/useWatchPartyPlaybackBridge.js`
+  - `src/components/Player/WatchPartyHostHUD.jsx`
+- Player-side Watch Party UI is now gated behind active-room state and lazy-loaded. Normal first-time playback should not eagerly load the full Watch Party runtime when Watch Party is inactive.
+- Host broadcast source comes from the active player media element. If the host is in a live room and opens a supported player, the playback bridge should register that player as the Watch Party source and publish through LiveKit.
+- Guest receiving UI now supports a larger viewport and fullscreen mode in `src/pages/WatchParty.jsx`. Fullscreen guest overlay uses participant avatar/speaking state from the existing store.
+- Watch Party auth/identity rules:
+  - signed-in users only
+  - room/participant state stored in Supabase
+  - participant rows persist `display_name`, `avatar_style`, and `avatar_seed` so other users see the correct identity instead of local-only fallbacks
+- Required Supabase objects already expected by the app:
+  - `watch_party_rooms`
+  - `watch_party_participants`
+  - participant identity columns: `display_name`, `avatar_style`, `avatar_seed`
+- Packaged-build token flow is no longer desktop-secret-only. Current production path is:
+  1. app authenticates user with Supabase
+  2. app requests a Watch Party token from the Vercel token service
+  3. Vercel validates the Supabase bearer token and room membership
+  4. Vercel mints the LiveKit token and returns it to the app
+- Vercel token service lives in `vercel/watch-party-token-service`
+- Watch Party docs worth checking before changes:
+  - `WATCHPARTY_CHECKLIST.md`
+  - `docs/watchparty-phase-b-architecture.md`
+  - `docs/watchparty-phase-e-livekit.md`
+  - `docs/watchparty-vercel-token-service.md`
+  - `docs/watchparty-phase-h-validation.md`
+  - `docs/watchparty-phase-i-identity.sql`
+- Current known follow-up area is performance polish rather than missing core functionality:
+  - `hls.js` and `livekit-client` still produce large chunks
+  - Watch Party player/runtime path is already lazy-loaded, but deeper chunk optimization can still be done later
+
 ## Version History
+- v1.7.0 - Ship Watch Party end-to-end with packaged token-service flow, guest receiving + fullscreen viewer, host/guest identity sync, subtitle relay, offline/downloaded broadcast support, transport smoothing, and optional RNNoise voice cleanup
 - v1.6.8 - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements
 - v1.6.7 - Expand macOS support with bundled tools, helper-app DMG install/update flow, Intel Mac reduced visual effects, and smoother Home scrolling
 - v1.6.6 - Harden Windows auto-update and embedded Nuvio runtime refresh so movie, series, and animation playback recover reliably after update

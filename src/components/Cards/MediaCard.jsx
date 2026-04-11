@@ -1,27 +1,50 @@
-import { memo } from 'react'
+import { memo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { imgW500 } from '../../lib/tmdb'
+import { imgW342 } from '../../lib/tmdb'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import { buildDetailNavigationForTmdbItem } from '../../lib/animeClassification'
 
-function MediaCard({ item, type, aspectRatio = 'portrait' }) {
+// Stable no-op selector — used when reducedEffectsMode is supplied as a prop
+// so MediaCard skips its own store subscription in high-card-count contexts.
+const NOOP_SELECTOR = () => false
+
+function MediaCard({ item, type, aspectRatio = 'portrait', reducedEffectsMode: reducedEffectsModeProp }) {
   const navigate = useNavigate()
-  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
+  const hasProp = reducedEffectsModeProp !== undefined
+  const storeValue = useAppStore(hasProp ? NOOP_SELECTOR : getReducedEffectsMode)
+  const reducedEffectsMode = hasProp ? reducedEffectsModeProp : storeValue
   const title = item.title || item.name || item.original_title || ''
-  const poster = imgW500(item.poster_path || item.backdrop_path)
+  const poster = imgW342(item.poster_path || item.backdrop_path)
   const rating = item.vote_average
 
   const isSquare = aspectRatio === 'square'
 
-  const handleOpen = async () => {
-    const target = await buildDetailNavigationForTmdbItem(item, type)
-    navigate(target.path, target.state ? { state: target.state } : undefined)
-  }
+  // Prefetch the navigation target on hover so clicks feel instant.
+  const cachedNavRef = useRef(null)
+
+  const handleMouseEnter = useCallback(() => {
+    if (cachedNavRef.current) return
+    buildDetailNavigationForTmdbItem(item, type)
+      .then((result) => { cachedNavRef.current = result })
+      .catch(() => {})
+  }, [item, type])
+
+  const handleOpen = useCallback(() => {
+    if (cachedNavRef.current) {
+      const { path, state } = cachedNavRef.current
+      navigate(path, state ? { state } : undefined)
+      return
+    }
+    buildDetailNavigationForTmdbItem(item, type).then((target) => {
+      navigate(target.path, target.state ? { state: target.state } : undefined)
+    })
+  }, [item, type, navigate])
 
   return (
     <div
       className={`media-card-shell relative cursor-pointer group ${isSquare ? 'w-full' : 'w-44 flex-shrink-0'}`}
       onClick={handleOpen}
+      onMouseEnter={handleMouseEnter}
     >
       <div
         className="media-card rounded-2xl overflow-hidden relative"

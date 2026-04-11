@@ -5,6 +5,7 @@ const BASE = 'https://api.themoviedb.org/3'
 const IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
 const IMG_W1280 = 'https://image.tmdb.org/t/p/w1280'
 const IMG_W500 = 'https://image.tmdb.org/t/p/w500'
+const IMG_W342 = 'https://image.tmdb.org/t/p/w342'
 
 const tmdb = axios.create({
   baseURL: BASE,
@@ -15,6 +16,7 @@ const tmdb = axios.create({
 export const imgOriginal = (path) => path ? `${IMG_ORIGINAL}${path}` : null
 export const imgW1280 = (path) => path ? `${IMG_W1280}${path}` : null
 export const imgW500 = (path) => path ? `${IMG_W500}${path}` : null
+export const imgW342 = (path) => path ? `${IMG_W342}${path}` : null
 
 export const getTrending = (type = 'all', window = 'week') =>
   tmdb.get(`/trending/${type}/${window}`).then(r => r.data.results)

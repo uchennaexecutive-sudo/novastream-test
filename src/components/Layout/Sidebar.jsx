@@ -1,7 +1,7 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useState } from 'react'
-import { Home, Film, Tv2, Swords, Palette, Bookmark, Download, History, Settings, LogIn } from 'lucide-react'
+import { Home, Film, Tv2, Swords, Palette, Bookmark, Download, History, Settings, LogIn, Users } from 'lucide-react'
 import useAuthStore from '../../store/useAuthStore'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import { dicebearUrl } from '../../lib/supabaseClient'
@@ -15,6 +15,7 @@ const navItems = [
   { path: '/series', label: 'Series', Icon: Tv2 },
   { path: '/anime', label: 'Anime', Icon: Swords },
   { path: '/animation', label: 'Animation', Icon: Palette },
+  { path: '/watch-party', label: 'Watch Party', Icon: Users },
 ]
 
 const bottomItems = [

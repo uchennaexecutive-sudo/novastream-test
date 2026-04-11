@@ -20,6 +20,7 @@ const Watchlist = lazy(() => import('./pages/Watchlist'))
 const History = lazy(() => import('./pages/History'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Profile = lazy(() => import('./pages/Profile'))
+const WatchParty = lazy(() => import('./pages/WatchParty'))
 
 class RouteErrorBoundary extends React.Component {
   constructor(props) {
@@ -202,6 +203,7 @@ function AppRoutes({ isSpecialWindow, searchOpen }) {
               <Route path="/history" element={<History />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/profile" element={<Profile />} />
+              <Route path="/watch-party" element={<WatchParty />} />
             </Route>
           </Routes>
         </Suspense>

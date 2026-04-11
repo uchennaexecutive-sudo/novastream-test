@@ -6,7 +6,7 @@
 
 *Built with Tauri 2 · React 18 · Rust*
 
-[![Version](https://img.shields.io/badge/version-1.6.8-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.7.0-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -69,6 +69,7 @@ No browser tabs. No extensions. No fuss.
 - **6 themes** — Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
 - **Collapsible sidebar** — collapses to 72px, expands to 240px on hover with smooth animation
 - **Ambient orbs** — cinematic background accents that shift with your theme
+- **Watch Party** — create rooms, invite friends with a 6-character code, stream what the host is playing, and talk together with live voice chat
 - **Auto-update** - streamed download with progress bar, no re-download on next launch
 - **Mac installer helper + updater flow** - universal DMG with a bundled installer app, while Windows keeps in-place auto-apply updates
 - **Intel Mac compatibility mode** - reduced visual effects mode for older Intel Macs, with manual override in Settings
@@ -147,6 +148,7 @@ Auto-update is built in. Nova Stream will notify you when a new version is avail
 | Anime data | [AniList GraphQL API](https://anilist.co/graphiql) |
 | Movie / Series data | [TMDB API](https://www.themoviedb.org/documentation/api) |
 | Auth + Sync | [Supabase](https://supabase.com) |
+| Watch Party transport | [LiveKit Cloud](https://livekit.io) + Vercel token service |
 | Subtitles | [Wyzie](https://sub.wyzie.io) |
 | Avatars | [DiceBear](https://www.dicebear.com) |
 
@@ -176,11 +178,16 @@ macOS notes:
 - For a local universal macOS app build, run `npm run tauri:build -- --target universal-apple-darwin`.
 - Tagged releases are still done with `release.ps1`, and GitHub Actions builds the universal macOS DMG with `NOVA STREAM Installer.app`.
 
+Watch Party notes:
+- Watch Party uses Supabase for room membership/identity and LiveKit for media + voice transport.
+- Packaged/test builds use the Vercel token-service flow rather than relying on desktop-local LiveKit secrets.
+- If you change the Watch Party token backend, keep the frontend token endpoint and LiveKit URL in sync with the deployed service.
+
 ---
 
 ## Current Version
 
-**v1.6.8** - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements
+**v1.7.0** - Watch Party end-to-end release with packaged Vercel token flow, guest receiving + fullscreen viewer, subtitle relay, offline/downloaded broadcast support, transport recovery, and optional RNNoise voice cleanup
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 

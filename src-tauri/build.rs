@@ -66,7 +66,8 @@ fn resolve_embedded_node_binaries() -> Result<Vec<(PathBuf, String)>, Box<dyn Er
             binaries.push((path, "node-macos-x64".to_string()));
         }
 
-        if let Some(path) = resolve_explicit_binary_from_env("NOVA_STREAM_NODE_BINARY_MACOS_ARM64") {
+        if let Some(path) = resolve_explicit_binary_from_env("NOVA_STREAM_NODE_BINARY_MACOS_ARM64")
+        {
             binaries.push((path, "node-macos-arm64".to_string()));
         }
 
@@ -121,8 +122,12 @@ fn zip_file(
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)
         .map_err(|error| format!("failed to read {}: {error}", source_path.display()))?;
-    zip.write_all(&buffer)
-        .map_err(|error| format!("failed to write {} into runtime archive: {error}", archive_path))?;
+    zip.write_all(&buffer).map_err(|error| {
+        format!(
+            "failed to write {} into runtime archive: {error}",
+            archive_path
+        )
+    })?;
     Ok(())
 }
 
@@ -136,7 +141,8 @@ fn zip_directory(
         .unix_permissions(0o755);
 
     for entry in WalkDir::new(source_dir) {
-        let entry = entry.map_err(|error| format!("failed to walk {}: {error}", source_dir.display()))?;
+        let entry =
+            entry.map_err(|error| format!("failed to walk {}: {error}", source_dir.display()))?;
         let path = entry.path();
         let relative = path.strip_prefix(source_dir)?;
         if relative.as_os_str().is_empty() {
@@ -144,7 +150,10 @@ fn zip_directory(
         }
 
         if entry.file_type().is_symlink() {
-            println!("cargo:warning=skipping symlink in embedded runtime archive: {}", path.display());
+            println!(
+                "cargo:warning=skipping symlink in embedded runtime archive: {}",
+                path.display()
+            );
             continue;
         }
 
@@ -156,12 +165,22 @@ fn zip_directory(
 
         if entry.file_type().is_dir() {
             zip.add_directory(format!("{archive_path}/"), options)
-                .map_err(|error| format!("failed to add directory {} to runtime archive: {error}", path.display()))?;
+                .map_err(|error| {
+                    format!(
+                        "failed to add directory {} to runtime archive: {error}",
+                        path.display()
+                    )
+                })?;
             continue;
         }
 
         zip.start_file(archive_path.clone(), options)
-            .map_err(|error| format!("failed to add file {} to runtime archive: {error}", path.display()))?;
+            .map_err(|error| {
+                format!(
+                    "failed to add file {} to runtime archive: {error}",
+                    path.display()
+                )
+            })?;
         let mut file = match File::open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
@@ -188,19 +207,31 @@ fn zip_directory(
             }
             return Err(format!("failed to read {}: {error}", path.display()).into());
         }
-        zip.write_all(&buffer)
-            .map_err(|error| format!("failed to write {} into runtime archive: {error}", path.display()))?;
+        zip.write_all(&buffer).map_err(|error| {
+            format!(
+                "failed to write {} into runtime archive: {error}",
+                path.display()
+            )
+        })?;
     }
 
     Ok(())
 }
 
 fn hash_file_contents(hasher: &mut impl Hasher, file_path: &Path) -> Result<(), Box<dyn Error>> {
-    let mut file = File::open(file_path)
-        .map_err(|error| format!("failed to open {} for hashing: {error}", file_path.display()))?;
+    let mut file = File::open(file_path).map_err(|error| {
+        format!(
+            "failed to open {} for hashing: {error}",
+            file_path.display()
+        )
+    })?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .map_err(|error| format!("failed to read {} for hashing: {error}", file_path.display()))?;
+    file.read_to_end(&mut buffer).map_err(|error| {
+        format!(
+            "failed to read {} for hashing: {error}",
+            file_path.display()
+        )
+    })?;
     file_path.to_string_lossy().hash(hasher);
     buffer.hash(hasher);
     Ok(())
@@ -210,7 +241,12 @@ fn fingerprint_directory(source_dir: &Path) -> Result<u64, Box<dyn Error>> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
 
     for entry in WalkDir::new(source_dir).sort_by_file_name() {
-        let entry = entry.map_err(|error| format!("failed to walk {} for hashing: {error}", source_dir.display()))?;
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to walk {} for hashing: {error}",
+                source_dir.display()
+            )
+        })?;
         let path = entry.path();
         let relative = path.strip_prefix(source_dir)?;
         relative.to_string_lossy().hash(&mut hasher);
@@ -263,24 +299,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let archive_file = File::create(&archive_path)?;
     let mut zip = ZipWriter::new(archive_file);
 
-    zip_directory(
-        &mut zip,
-        &sidecar_dir,
-        "vendor/nuvio-streams-addon",
-    )?;
+    zip_directory(&mut zip, &sidecar_dir, "vendor/nuvio-streams-addon")?;
     if tools_dir.exists() {
-        zip_directory(
-            &mut zip,
-            &tools_dir,
-            "vendor/tools",
-        )?;
+        zip_directory(&mut zip, &tools_dir, "vendor/tools")?;
     }
     for (node_path, archive_name) in &node_binaries {
-        zip_file(
-            &mut zip,
-            node_path,
-            &format!("node/{archive_name}"),
-        )?;
+        zip_file(&mut zip, node_path, &format!("node/{archive_name}"))?;
     }
     zip.finish()?;
 

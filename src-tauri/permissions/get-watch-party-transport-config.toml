@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-watch-party-transport-config"
+description = "Allow reading Watch Party transport configuration from the desktop runtime"
+commands.allow = ["get_watch_party_transport_config"]

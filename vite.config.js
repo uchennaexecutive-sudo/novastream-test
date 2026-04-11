@@ -11,6 +11,7 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return
 
+          if (id.includes('livekit-client') || id.includes('@livekit/')) return 'livekit'
           if (id.includes('react-player')) return 'player-vendors'
           if (id.includes('hls.js')) return 'hls'
           if (id.includes('framer-motion')) return 'motion'

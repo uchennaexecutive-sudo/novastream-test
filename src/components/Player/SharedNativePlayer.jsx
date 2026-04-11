@@ -15,6 +15,10 @@ import {
   VolumeX,
   X,
 } from 'lucide-react'
+import CastButton from '../Cast/CastButton'
+import CastDeviceSheet from '../Cast/CastDeviceSheet'
+import useCastStore from '../../store/useCastStore'
+import WatchPartyPlayerOverlay from './WatchPartyPlayerOverlay'
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2]
 const FALLBACK_RESOLUTIONS = [
@@ -250,12 +254,15 @@ export default function SharedNativePlayer({
   const [duration, setDuration] = useState(0)
   const [bufferedEnd, setBufferedEnd] = useState(0)
   const [showControls, setShowControls] = useState(true)
+  const [castSheetOpen, setCastSheetOpen] = useState(false)
   const [seekPreviewTime, setSeekPreviewTime] = useState(null)
   const [seekTooltipX, setSeekTooltipX] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [availableResolutions, setAvailableResolutions] = useState(FALLBACK_RESOLUTIONS)
   const [selectedResolution, setSelectedResolution] = useState('auto')
   const [mediaLoading, setMediaLoading] = useState(false)
+  const prepareCastMedia = useCastStore((s) => s.prepareCastMedia)
+  const clearPreparedCastMedia = useCastStore((s) => s.clearPreparedCastMedia)
 
   const subtitleText = useMemo(() => {
     if (!subtitleEnabled || subtitleCues.length === 0) return ''
@@ -267,6 +274,7 @@ export default function SharedNativePlayer({
   const controlsVisible = showControls || !isPlaying || effectiveLoading || Boolean(error)
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
   const bufferedPercent = duration > 0 ? (bufferedEnd / duration) * 100 : 0
+  const watchPartySourceLabel = [title, streamMeta].filter(Boolean).join(' | ')
 
   const clearHideTimer = () => {
     window.clearTimeout(hideTimerRef.current)
@@ -406,6 +414,40 @@ export default function SharedNativePlayer({
     persistProgress().catch(() => { })
     onClose?.()
   }
+
+  useEffect(() => {
+    const trimmedStreamUrl = String(streamUrl || '').trim()
+    if (!trimmedStreamUrl) {
+      void clearPreparedCastMedia()
+      return undefined
+    }
+
+    const isRemoteStream = /^https?:\/\//i.test(trimmedStreamUrl)
+    const payload = isRemoteStream
+      ? {
+        streamUrl: trimmedStreamUrl,
+        streamType,
+        headers: streamHeaders || {},
+        sessionId: streamSessionId || null,
+        contentType: streamType === 'hls' ? 'application/vnd.apple.mpegurl' : 'video/mp4',
+        title,
+        imageUrl: backdrop || '',
+      }
+      : {
+        filePath: trimmedStreamUrl,
+        streamType: 'mp4',
+        contentType: 'video/mp4',
+        title,
+        imageUrl: backdrop || '',
+      }
+
+    void prepareCastMedia(payload)
+    return undefined
+  }, [clearPreparedCastMedia, prepareCastMedia, streamHeaders, streamSessionId, streamType, streamUrl])
+
+  useEffect(() => () => {
+    void clearPreparedCastMedia()
+  }, [clearPreparedCastMedia])
 
   useEffect(() => {
     resumeAppliedRef.current = false
@@ -897,6 +939,16 @@ export default function SharedNativePlayer({
           onClickCapture={revealControls}
         >
           {backdrop && <img src={backdrop} alt={title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(24px)', opacity: 0.16, transform: 'scale(1.05)' }} />}
+
+          {/* Watch Party host broadcast HUD — visible only when host + room live */}
+          <WatchPartyPlayerOverlay
+            videoRef={videoRef}
+            enabled={Boolean(streamUrl)}
+            label={watchPartySourceLabel}
+            subtitleText={subtitleText}
+            subtitleEnabled={subtitleEnabled}
+          />
+
           <AnimatePresence>
             {controlsVisible && (
               <motion.div
@@ -1012,6 +1064,7 @@ export default function SharedNativePlayer({
                       <select value={String(playbackRate)} onChange={(event) => setPlaybackRate(Number(event.target.value))} className="h-10 rounded-xl px-3 text-xs font-semibold text-white outline-none" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.08)' }}>
                         {PLAYBACK_SPEEDS.map(option => <option key={option} value={option} style={{ color: '#000' }}>{option}x</option>)}
                       </select>
+                      <CastButton onClick={() => setCastSheetOpen(true)} />
                       <button onClick={toggleFullscreen} className="w-10 h-10 rounded-full flex items-center justify-center text-white" style={{ background: 'rgba(255,255,255,0.08)' }}>{isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}</button>
                     </div>
                   </div>
@@ -1023,6 +1076,7 @@ export default function SharedNativePlayer({
               )}
             </AnimatePresence>
           )}
+          <CastDeviceSheet open={castSheetOpen} onClose={() => setCastSheetOpen(false)} />
         </motion.div>
       </motion.div>
     </AnimatePresence>,

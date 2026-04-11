@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import useMainScrollActivity from '../../hooks/useMainScrollActivity'
@@ -33,16 +34,6 @@ const orbs = [
     top: '45%',
     opacity: 0.4,
   },
-  {
-    color: 'var(--orb-4)',
-    size: 1000,
-    x: [60, -40, 60],
-    y: [-25, 40, -25],
-    dur: 80,
-    left: '65%',
-    top: '55%',
-    opacity: 0.35,
-  },
 ]
 
 export default function BackgroundOrbs() {
@@ -52,6 +43,16 @@ export default function BackgroundOrbs() {
   const isMainScrolling = useMainScrollActivity()
   const throttleAmbientEffects = isMainScrolling && !reducedEffectsMode
   const reducedMotion = sysReducedMotion || appReducedMotion || reducedEffectsMode || throttleAmbientEffects
+
+  // Pause animations when the window/tab is hidden — saves GPU work during multitasking.
+  const [windowVisible, setWindowVisible] = useState(!document.hidden)
+  useEffect(() => {
+    const handleVisibility = () => setWindowVisible(!document.hidden)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
+
+  const shouldAnimate = !reducedMotion && windowVisible
 
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 0 }}>
@@ -63,18 +64,18 @@ export default function BackgroundOrbs() {
             width: reducedEffectsMode ? orb.size * 0.62 : throttleAmbientEffects ? orb.size * 0.7 : orb.size * 0.82,
             height: reducedEffectsMode ? orb.size * 0.62 : throttleAmbientEffects ? orb.size * 0.7 : orb.size * 0.82,
             background: `radial-gradient(circle at 40% 40%, ${orb.color}, transparent 65%)`,
-            filter: reducedEffectsMode ? 'blur(36px)' : throttleAmbientEffects ? 'blur(44px)' : 'blur(72px)',
+            filter: reducedEffectsMode ? 'blur(30px)' : throttleAmbientEffects ? 'blur(38px)' : 'blur(52px)',
             opacity: reducedEffectsMode ? orb.opacity * 0.42 : throttleAmbientEffects ? orb.opacity * 0.32 : orb.opacity * 0.8,
             left: orb.left,
             top: orb.top,
-            willChange: reducedMotion ? 'auto' : 'transform',
+            willChange: shouldAnimate ? 'transform' : 'auto',
             transform: 'translateZ(0)',
           }}
-          animate={reducedMotion ? {} : {
+          animate={shouldAnimate ? {
             x: orb.x,
             y: orb.y,
             scale: [1, 1.1, 0.95, 1],
-          }}
+          } : {}}
           transition={{
             duration: orb.dur,
             repeat: Infinity,

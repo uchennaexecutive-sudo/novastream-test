@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-discover-cast-devices"
+description = "Allow discovering Chromecast devices on the local network"
+commands.allow = ["discover_cast_devices"]

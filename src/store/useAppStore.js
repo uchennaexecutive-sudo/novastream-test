@@ -15,6 +15,7 @@ export const DEFAULT_PREFERENCES = {
   rememberPosition: true,
   reduceAnimations: false,
   intelMacCompatibilityMode: 'auto',
+  watchPartyNoiseSuppression: false,
 }
 
 export const getIsIntelMacRuntime = (state) => (

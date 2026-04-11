@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{Cursor, Read, Write};
+use std::net::{IpAddr, UdpSocket};
 use std::path::{Path as StdPath, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
@@ -12,19 +13,6 @@ use std::sync::{
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine;
-use flate2::read::GzDecoder;
-use futures_util::StreamExt;
-use regex::Regex;
-use reqwest::Url;
-use tauri::ipc::Response;
-use tauri::webview::NewWindowResponse;
-use tauri::{Emitter, Manager, WebviewUrl};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::oneshot;
-use serde_json::Value;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use axum::{
     body::Body,
     extract::{Json, Path, State},
@@ -32,14 +20,30 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+use flate2::read::GzDecoder;
+use futures_util::StreamExt;
 use futures_util::TryStreamExt;
+use livekit_api::access_token::{AccessToken, VideoGrants};
+use regex::Regex;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::Url;
+use rupnp::ssdp::{SearchTarget as UpnpSearchTarget, URN as UpnpUrn};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tauri::ipc::Response;
+use tauri::webview::NewWindowResponse;
+use tauri::{Emitter, Manager, WebviewUrl};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 use zip::ZipArchive;
 
-static PLAYER_FULLSCREEN: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static PLAYER_FULLSCREEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 const STREAM_CAPTURE_SCHEME: &str = "novastream-capture";
 const ANIME_DEBUG_LOG_FILE: &str = "nova-stream-anime-debug.log";
@@ -76,6 +80,9 @@ const SUBDL_DOWNLOAD_BASE_URL: &str = "https://dl.subdl.com";
 const SUBF2M_BASE_URL: &str = "https://subf2m.co";
 const OPENSUBTITLES_API_BASE_URL: &str = "https://api.opensubtitles.com/api/v1";
 const OPENSUBTITLES_CLIENT_USER_AGENT: &str = "NOVA STREAM v1.5.5";
+const DEFAULT_SUPABASE_URL: &str = "https://owymezptcmwmrlkeuxcg.supabase.co";
+const DEFAULT_SUPABASE_ANON_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93eW1lenB0Y213bXJsa2V1eGNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMTM2NjEsImV4cCI6MjA4ODU4OTY2MX0.4OZvH_afMKK-CCEgSrW4ga7oC2y0Hqh3uz5ZeRVtvPQ";
+const WATCH_PARTY_TOKEN_TTL_SECS: u64 = 60 * 60;
 const DEFAULT_WYZIE_MOVIE_SOURCES: &str = "subdl,podnapisi,opensubtitles,yify";
 const DEFAULT_WYZIE_SERIES_SOURCES: &str = "gestdown,subdl,podnapisi,opensubtitles";
 const DEFAULT_WYZIE_ANIMATION_SOURCES: &str =
@@ -89,6 +96,7 @@ const DOWNLOADS_ROOT_DIR_NAME: &str = "downloads";
 const DOWNLOAD_SETTINGS_FILE_NAME: &str = "download-settings.json";
 const VIDEO_DOWNLOAD_DEFAULT_MAX_CONCURRENT: usize = 2;
 const VIDEO_DOWNLOAD_MAX_CONCURRENT_ANIME: usize = 2;
+const CAST_RELAY_TTL_SECS: u64 = 30 * 60;
 const EMBEDDED_NUVIO_RUNTIME_ARCHIVE: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/nuvio-runtime.zip"));
 const STREAM_CAPTURE_SCRIPT: &str = r#"
@@ -583,17 +591,38 @@ fn start_fullscreen_focus_monitor(hwnd: *mut std::ffi::c_void) {
 fn win32_set_topmost(hwnd: *mut std::ffi::c_void, topmost: bool) {
     use std::ffi::c_void;
     type HWND = *mut c_void;
-    const SWP_NOMOVE: u32       = 0x0002;
-    const SWP_NOSIZE: u32       = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOSIZE: u32 = 0x0001;
     const SWP_FRAMECHANGED: u32 = 0x0020;
-    let hwnd_topmost:   HWND = (-1isize) as usize as HWND;
+    let hwnd_topmost: HWND = (-1isize) as usize as HWND;
     let hwnd_notopmost: HWND = (-2isize) as usize as HWND;
     extern "system" {
-        fn SetWindowPos(hwnd: HWND, hwnd_insert_after: HWND,
-                        x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+        fn SetWindowPos(
+            hwnd: HWND,
+            hwnd_insert_after: HWND,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
     }
-    let insert_after = if topmost { hwnd_topmost } else { hwnd_notopmost };
-    unsafe { SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED); }
+    let insert_after = if topmost {
+        hwnd_topmost
+    } else {
+        hwnd_notopmost
+    };
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            insert_after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+        );
+    }
 }
 
 #[tauri::command]
@@ -613,32 +642,44 @@ fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), 
     #[cfg(target_os = "windows")]
     {
         use std::ffi::c_void;
-        type HWND     = *mut c_void;
+        type HWND = *mut c_void;
         type HMONITOR = *mut c_void;
 
         #[repr(C)]
-        struct RECT { left: i32, top: i32, right: i32, bottom: i32 }
+        struct RECT {
+            left: i32,
+            top: i32,
+            right: i32,
+            bottom: i32,
+        }
 
         #[repr(C)]
         struct MONITORINFO {
             cb_size: u32,
             rc_monitor: RECT,
-            rc_work:    RECT,
-            dw_flags:   u32,
+            rc_work: RECT,
+            dw_flags: u32,
         }
 
         const MONITOR_DEFAULTTONEAREST: u32 = 2;
-        const SWP_NOSIZE: u32       = 0x0001;
-        const SWP_NOMOVE: u32       = 0x0002;
+        const SWP_NOSIZE: u32 = 0x0001;
+        const SWP_NOMOVE: u32 = 0x0002;
         const SWP_FRAMECHANGED: u32 = 0x0020;
-        let hwnd_topmost:   HWND = (-1isize) as usize as HWND;
+        let hwnd_topmost: HWND = (-1isize) as usize as HWND;
         let hwnd_notopmost: HWND = (-2isize) as usize as HWND;
 
         extern "system" {
             fn MonitorFromWindow(hwnd: HWND, dw_flags: u32) -> HMONITOR;
             fn GetMonitorInfoW(h_monitor: HMONITOR, lpmi: *mut MONITORINFO) -> i32;
-            fn SetWindowPos(hwnd: HWND, hwnd_insert_after: HWND,
-                            x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+            fn SetWindowPos(
+                hwnd: HWND,
+                hwnd_insert_after: HWND,
+                x: i32,
+                y: i32,
+                cx: i32,
+                cy: i32,
+                flags: u32,
+            ) -> i32;
         }
 
         let hwnd: HWND = window.hwnd().map_err(|e| e.to_string())?.0;
@@ -646,17 +687,31 @@ fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), 
         if fullscreen {
             let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
             let mut info = MONITORINFO {
-                cb_size:    std::mem::size_of::<MONITORINFO>() as u32,
-                rc_monitor: RECT { left: 0, top: 0, right: 0, bottom: 0 },
-                rc_work:    RECT { left: 0, top: 0, right: 0, bottom: 0 },
-                dw_flags:   0,
+                cb_size: std::mem::size_of::<MONITORINFO>() as u32,
+                rc_monitor: RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                },
+                rc_work: RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                },
+                dw_flags: 0,
             };
             unsafe { GetMonitorInfoW(monitor, &mut info) };
             let r = &info.rc_monitor;
             unsafe {
                 SetWindowPos(
-                    hwnd, hwnd_topmost,
-                    r.left, r.top, r.right - r.left, r.bottom - r.top,
+                    hwnd,
+                    hwnd_topmost,
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
                     SWP_FRAMECHANGED,
                 );
             }
@@ -665,8 +720,12 @@ fn set_player_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), 
         } else {
             unsafe {
                 SetWindowPos(
-                    hwnd, hwnd_notopmost,
-                    0, 0, 0, 0,
+                    hwnd,
+                    hwnd_notopmost,
+                    0,
+                    0,
+                    0,
+                    0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
                 );
             }
@@ -878,12 +937,14 @@ struct ResolverPlaybackSession {
     cookie_header: Option<String>,
 }
 
-static RESOLVER_SESSIONS: OnceLock<Mutex<HashMap<String, ResolverPlaybackSession>>> = OnceLock::new();
+static RESOLVER_SESSIONS: OnceLock<Mutex<HashMap<String, ResolverPlaybackSession>>> =
+    OnceLock::new();
 static NUVIO_SIDECAR_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static MOVIE_STREAM_CACHE: OnceLock<Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieStream>>>>> =
     OnceLock::new();
-static MOVIE_SUBTITLE_CACHE: OnceLock<Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>>> =
-    OnceLock::new();
+static MOVIE_SUBTITLE_CACHE: OnceLock<
+    Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>>,
+> = OnceLock::new();
 static OPENSUBTITLES_SESSION_CACHE: OnceLock<Mutex<Option<CachedValue<OpenSubtitlesSession>>>> =
     OnceLock::new();
 static VIDEO_DOWNLOAD_MANAGER: OnceLock<Arc<Mutex<VideoDownloadManager>>> = OnceLock::new();
@@ -905,7 +966,8 @@ fn movie_stream_cache() -> &'static Mutex<HashMap<String, CachedValue<Vec<Resolv
     MOVIE_STREAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn movie_subtitle_cache() -> &'static Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>> {
+fn movie_subtitle_cache() -> &'static Mutex<HashMap<String, CachedValue<Vec<ResolvedMovieSubtitle>>>>
+{
     MOVIE_SUBTITLE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -1127,7 +1189,9 @@ fn pop_next_schedulable_download_id(
             continue;
         }
 
-        if is_anime_video_download(&entry.request) && active_anime_count >= VIDEO_DOWNLOAD_MAX_CONCURRENT_ANIME {
+        if is_anime_video_download(&entry.request)
+            && active_anime_count >= VIDEO_DOWNLOAD_MAX_CONCURRENT_ANIME
+        {
             index += 1;
             continue;
         }
@@ -1405,7 +1469,10 @@ fn embedded_nuvio_runtime_dir_name(version: &str) -> String {
     let sanitized = version
         .chars()
         .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' || character == '.'
+            if character.is_ascii_alphanumeric()
+                || character == '-'
+                || character == '_'
+                || character == '.'
             {
                 character
             } else {
@@ -1483,10 +1550,18 @@ fn embedded_nuvio_runtime_is_complete(runtime_root: &std::path::Path) -> bool {
             .join("nuvio-streams-addon")
             .join("package.json")
             .exists()
-        && runtime_root.join("vendor").join("nuvio-streams-addon").join("addon.js").exists()
+        && runtime_root
+            .join("vendor")
+            .join("nuvio-streams-addon")
+            .join("addon.js")
+            .exists()
         && runtime_root.join("node").join(node_name).exists()
         && (!cfg!(target_os = "windows")
-            || runtime_root.join("vendor").join("tools").join(&ffmpeg_name).exists())
+            || runtime_root
+                .join("vendor")
+                .join("tools")
+                .join(&ffmpeg_name)
+                .exists())
 }
 
 fn read_embedded_nuvio_runtime_marker() -> Option<PathBuf> {
@@ -1507,7 +1582,9 @@ fn read_embedded_nuvio_runtime_marker() -> Option<PathBuf> {
     }
 }
 
-fn write_embedded_nuvio_runtime_marker(active_runtime_root: &std::path::Path) -> Result<(), String> {
+fn write_embedded_nuvio_runtime_marker(
+    active_runtime_root: &std::path::Path,
+) -> Result<(), String> {
     let runtime_root = embedded_nuvio_runtime_root()?;
     let marker_path = embedded_nuvio_runtime_marker_path()?;
     let dir_name = active_runtime_root
@@ -1627,8 +1704,9 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
                 }
 
                 if let Some(parent) = output_path.parent() {
-                    fs::create_dir_all(parent)
-                        .map_err(|e| format!("failed to create embedded Nuvio parent directory: {e}"))?;
+                    fs::create_dir_all(parent).map_err(|e| {
+                        format!("failed to create embedded Nuvio parent directory: {e}")
+                    })?;
                 }
 
                 let mut file = fs::File::create(&output_path)
@@ -1658,7 +1736,8 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
                     if let Some(mode) = entry.unix_mode() {
                         let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(mode));
                     } else if is_embedded_node {
-                        let _ = fs::set_permissions(&output_path, fs::Permissions::from_mode(0o755));
+                        let _ =
+                            fs::set_permissions(&output_path, fs::Permissions::from_mode(0o755));
                     }
                 }
             }
@@ -1668,7 +1747,10 @@ fn extract_embedded_nuvio_runtime() -> Result<PathBuf, String> {
                 .map_err(|e| format!("failed to write embedded Nuvio runtime version: {e}"))?;
 
             if !embedded_nuvio_runtime_is_complete(&staging_root) {
-                return Err("embedded Nuvio runtime extraction completed but required files were missing".to_string());
+                return Err(
+                    "embedded Nuvio runtime extraction completed but required files were missing"
+                        .to_string(),
+                );
             }
 
             let canonical_root = versions_root.join(embedded_nuvio_runtime_dir_name(&version));
@@ -1811,11 +1893,7 @@ fn resolve_node_binary() -> PathBuf {
     PathBuf::from(host_name)
 }
 
-fn install_nuvio_sidecar_dependencies(sidecar_dir: PathBuf) -> Result<(), String> {
-    if sidecar_dir.join("node_modules").exists() {
-        return Ok(());
-    }
-
+fn run_nuvio_sidecar_npm_install(sidecar_dir: &StdPath) -> Result<(), String> {
     log_resolver_debug(&format!(
         "[nuvio_sidecar] installing dependencies in {}",
         sidecar_dir.display()
@@ -1846,6 +1924,29 @@ fn install_nuvio_sidecar_dependencies(sidecar_dir: PathBuf) -> Result<(), String
     Ok(())
 }
 
+fn install_nuvio_sidecar_dependencies(sidecar_dir: PathBuf) -> Result<(), String> {
+    if sidecar_dir.join("node_modules").exists() {
+        return Ok(());
+    }
+
+    run_nuvio_sidecar_npm_install(&sidecar_dir)
+}
+
+fn ensure_nuvio_sidecar_packages(
+    sidecar_dir: &StdPath,
+    package_names: &[&str],
+) -> Result<(), String> {
+    let missing_any = package_names
+        .iter()
+        .any(|package_name| !sidecar_dir.join("node_modules").join(package_name).exists());
+
+    if missing_any {
+        run_nuvio_sidecar_npm_install(sidecar_dir)?;
+    }
+
+    Ok(())
+}
+
 fn spawn_nuvio_sidecar(sidecar_dir: PathBuf) -> Result<Child, String> {
     log_resolver_debug(&format!(
         "[nuvio_sidecar] starting local addon from {} on port {}",
@@ -1870,6 +1971,76 @@ fn spawn_nuvio_sidecar(sidecar_dir: PathBuf) -> Result<Child, String> {
     command
         .spawn()
         .map_err(|e| format!("failed to start Nuvio sidecar: {e}"))
+}
+
+fn run_cast_bridge_command<T, R>(command_name: &str, payload: &T) -> Result<R, String>
+where
+    T: serde::Serialize,
+    R: DeserializeOwned,
+{
+    let sidecar_dir = resolve_nuvio_sidecar_dir()?;
+    ensure_nuvio_sidecar_packages(&sidecar_dir, &["castv2-client", "multicast-dns"])?;
+
+    let bridge_script = sidecar_dir.join("cast-bridge.js");
+    if !bridge_script.exists() {
+        return Err(format!(
+            "Chromecast bridge script is missing: {}",
+            bridge_script.display()
+        ));
+    }
+
+    let request_body = serde_json::to_vec(payload)
+        .map_err(|e| format!("Failed to encode cast bridge payload: {e}"))?;
+
+    let mut command = Command::new(resolve_node_binary());
+    command
+        .arg(&bridge_script)
+        .arg(command_name)
+        .current_dir(&sidecar_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("Failed to start cast bridge command '{command_name}': {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(&request_body)
+            .map_err(|e| format!("Failed to write cast bridge payload: {e}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Failed waiting for cast bridge command '{command_name}': {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            format!("exit status {}", output.status)
+        };
+
+        return Err(format!(
+            "Cast bridge command '{command_name}' failed: {detail}"
+        ));
+    }
+
+    serde_json::from_slice::<R>(&output.stdout)
+        .map_err(|e| format!("Failed to decode cast bridge response for '{command_name}': {e}"))
 }
 
 async fn nuvio_sidecar_is_healthy(client: &reqwest::Client) -> bool {
@@ -1979,7 +2150,9 @@ async fn ensure_nuvio_sidecar(client: &reqwest::Client) -> Result<(), String> {
             if let Some(child) = guard.as_mut() {
                 if let Ok(Some(status)) = child.try_wait() {
                     *guard = None;
-                    return Err(format!("Nuvio sidecar exited during startup with status {status}"));
+                    return Err(format!(
+                        "Nuvio sidecar exited during startup with status {status}"
+                    ));
                 }
             }
         }
@@ -2072,6 +2245,150 @@ struct MediaProxyEntry {
     content_type: Option<String>,
 }
 
+#[derive(Clone)]
+struct CastRelayEntry {
+    kind: String,
+    url: Option<String>,
+    headers: HashMap<String, String>,
+    session_id: Option<String>,
+    file_path: Option<String>,
+    content_type: Option<String>,
+    expires_at_ms: u128,
+}
+
+#[derive(Clone)]
+struct CastRelayAssetEntry {
+    url: String,
+    headers: HashMap<String, String>,
+    session_id: Option<String>,
+    parent_relay_id: Option<String>,
+    expires_at_ms: u128,
+}
+
+#[derive(Clone)]
+struct CastRelayServerInfo {
+    local_base_url: String,
+    lan_base_url: Option<String>,
+    lan_ip: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CastRelayStatus {
+    relay_ready: bool,
+    local_base_url: Option<String>,
+    lan_base_url: Option<String>,
+    lan_ip: Option<String>,
+    active_relay_count: usize,
+    active_asset_count: usize,
+    ttl_seconds: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreparedCastMedia {
+    relay_id: String,
+    relay_url: String,
+    relay_kind: String,
+    stream_type: String,
+    content_type: Option<String>,
+    session_id: Option<String>,
+    title: Option<String>,
+    image_url: Option<String>,
+    expires_at_ms: u128,
+    relay_status: CastRelayStatus,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrepareCastMediaRequest {
+    stream_url: Option<String>,
+    stream_type: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    session_id: Option<String>,
+    file_path: Option<String>,
+    content_type: Option<String>,
+    title: Option<String>,
+    image_url: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CastDeviceInfo {
+    id: String,
+    name: String,
+    #[serde(rename = "type")]
+    device_type: String,
+    host: String,
+    port: u16,
+    model_name: Option<String>,
+    location_url: Option<String>,
+    service_type: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CastSessionStatus {
+    connected: bool,
+    device: Option<CastDeviceInfo>,
+    relay_id: Option<String>,
+    relay_url: Option<String>,
+    player_state: Option<String>,
+    current_time: Option<f64>,
+    media_session_id: Option<String>,
+    error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CastConnectRequest {
+    device: CastDeviceInfo,
+    relay_id: Option<String>,
+    relay_url: String,
+    relay_kind: Option<String>,
+    content_type: Option<String>,
+    title: Option<String>,
+    image_url: Option<String>,
+    current_time: Option<f64>,
+    autoplay: Option<bool>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CastDiscoveryResponse {
+    devices: Vec<CastDeviceInfo>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CastBridgeMediaStatus {
+    player_state: Option<String>,
+    current_time: Option<f64>,
+    media_session_id: Option<String>,
+    content_id: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CastBridgeStatusResponse {
+    connected: bool,
+    status: Option<CastBridgeMediaStatus>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CastBridgeConnectResponse {
+    status: Option<CastBridgeMediaStatus>,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveCastSession {
+    device: CastDeviceInfo,
+    relay_id: Option<String>,
+    relay_url: String,
+    player_state: Option<String>,
+}
+
 fn media_proxy_entries() -> &'static Mutex<HashMap<String, MediaProxyEntry>> {
     static ENTRIES: OnceLock<Mutex<HashMap<String, MediaProxyEntry>>> = OnceLock::new();
     ENTRIES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -2080,6 +2397,639 @@ fn media_proxy_entries() -> &'static Mutex<HashMap<String, MediaProxyEntry>> {
 fn media_proxy_base_url() -> &'static OnceLock<String> {
     static BASE_URL: OnceLock<String> = OnceLock::new();
     &BASE_URL
+}
+
+fn cast_relay_entries() -> &'static Mutex<HashMap<String, CastRelayEntry>> {
+    static ENTRIES: OnceLock<Mutex<HashMap<String, CastRelayEntry>>> = OnceLock::new();
+    ENTRIES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cast_relay_asset_entries() -> &'static Mutex<HashMap<String, CastRelayAssetEntry>> {
+    static ENTRIES: OnceLock<Mutex<HashMap<String, CastRelayAssetEntry>>> = OnceLock::new();
+    ENTRIES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cast_relay_server_info() -> &'static OnceLock<CastRelayServerInfo> {
+    static INFO: OnceLock<CastRelayServerInfo> = OnceLock::new();
+    &INFO
+}
+
+fn active_cast_session() -> &'static Mutex<Option<ActiveCastSession>> {
+    static SESSION: OnceLock<Mutex<Option<ActiveCastSession>>> = OnceLock::new();
+    SESSION.get_or_init(|| Mutex::new(None))
+}
+
+fn cast_relay_expiration_ms() -> u128 {
+    now_ms().saturating_add(u128::from(CAST_RELAY_TTL_SECS) * 1000)
+}
+
+fn prune_expired_cast_relay_state() {
+    let now = now_ms();
+
+    if let Ok(mut guard) = cast_relay_entries().lock() {
+        guard.retain(|_, entry| entry.expires_at_ms > now);
+    }
+
+    if let Ok(mut guard) = cast_relay_asset_entries().lock() {
+        guard.retain(|_, entry| entry.expires_at_ms > now);
+    }
+}
+
+fn is_cast_relay_path_expired(expires_at_ms: u128) -> bool {
+    expires_at_ms <= now_ms()
+}
+
+fn resolve_cast_relay_ipv4() -> Option<String> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+
+    match socket.local_addr().ok()?.ip() {
+        IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_unspecified() => Some(ip.to_string()),
+        _ => None,
+    }
+}
+
+fn build_cast_relay_status() -> CastRelayStatus {
+    prune_expired_cast_relay_state();
+
+    let info = cast_relay_server_info().get().cloned();
+    let active_relay_count = cast_relay_entries()
+        .lock()
+        .map(|guard| guard.len())
+        .unwrap_or(0);
+    let active_asset_count = cast_relay_asset_entries()
+        .lock()
+        .map(|guard| guard.len())
+        .unwrap_or(0);
+
+    CastRelayStatus {
+        relay_ready: info.is_some(),
+        local_base_url: info.as_ref().map(|value| value.local_base_url.clone()),
+        lan_base_url: info.as_ref().and_then(|value| value.lan_base_url.clone()),
+        lan_ip: info.and_then(|value| value.lan_ip),
+        active_relay_count,
+        active_asset_count,
+        ttl_seconds: CAST_RELAY_TTL_SECS,
+    }
+}
+
+fn clear_cast_relay_family(relay_id: Option<&str>) -> Result<(), String> {
+    let Some(relay_id) = relay_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+
+    cast_relay_entries()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(relay_id);
+
+    cast_relay_asset_entries()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .retain(|_, entry| entry.parent_relay_id.as_deref() != Some(relay_id));
+
+    Ok(())
+}
+
+fn build_cast_session_status() -> CastSessionStatus {
+    let active_session = active_cast_session()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
+
+    if let Some(session) = active_session {
+        CastSessionStatus {
+            connected: true,
+            device: Some(session.device),
+            relay_id: session.relay_id,
+            relay_url: Some(session.relay_url),
+            player_state: session.player_state,
+            current_time: None,
+            media_session_id: None,
+            error_message: None,
+        }
+    } else {
+        CastSessionStatus {
+            connected: false,
+            device: None,
+            relay_id: None,
+            relay_url: None,
+            player_state: None,
+            current_time: None,
+            media_session_id: None,
+            error_message: None,
+        }
+    }
+}
+
+fn disconnected_cast_session_status(
+    device: Option<CastDeviceInfo>,
+    relay_id: Option<String>,
+    relay_url: Option<String>,
+    error_message: Option<String>,
+) -> CastSessionStatus {
+    CastSessionStatus {
+        connected: false,
+        device,
+        relay_id,
+        relay_url,
+        player_state: None,
+        current_time: None,
+        media_session_id: None,
+        error_message,
+    }
+}
+
+fn clear_active_cast_session() -> Result<Option<ActiveCastSession>, String> {
+    let previous = active_cast_session()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take();
+    Ok(previous)
+}
+
+const DLNA_AV_TRANSPORT_V1: UpnpUrn = UpnpUrn::service("schemas-upnp-org", "AVTransport", 1);
+const DLNA_AV_TRANSPORT_V2: UpnpUrn = UpnpUrn::service("schemas-upnp-org", "AVTransport", 2);
+const DLNA_AV_TRANSPORT_V3: UpnpUrn = UpnpUrn::service("schemas-upnp-org", "AVTransport", 3);
+
+fn xml_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn dlna_supported_content_type(
+    content_type: Option<&str>,
+    relay_kind: Option<&str>,
+) -> Option<String> {
+    let normalized_content_type = content_type
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+
+    if relay_kind
+        .map(|value| value.eq_ignore_ascii_case("hls"))
+        .unwrap_or(false)
+    {
+        return None;
+    }
+
+    match normalized_content_type.as_deref() {
+        Some(value) if value.starts_with("video/") => Some(value.to_string()),
+        Some("application/octet-stream") => Some("video/mp4".to_string()),
+        None => Some("video/mp4".to_string()),
+        _ => None,
+    }
+}
+
+fn build_dlna_didl_metadata(
+    title: Option<&str>,
+    relay_url: &str,
+    content_type: &str,
+    image_url: Option<&str>,
+) -> String {
+    let escaped_title = xml_escape(title.unwrap_or("NOVA STREAM"));
+    let escaped_relay_url = xml_escape(relay_url);
+    let escaped_content_type = xml_escape(content_type);
+    let art_element = image_url
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("<upnp:albumArtURI>{}</upnp:albumArtURI>", xml_escape(value)))
+        .unwrap_or_default();
+
+    format!(
+        concat!(
+            r#"<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/""#,
+            r#" xmlns:dc="http://purl.org/dc/elements/1.1/""#,
+            r#" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">"#,
+            r#"<item id="0" parentID="-1" restricted="1">"#,
+            r#"<dc:title>{}</dc:title>"#,
+            r#"<upnp:class>object.item.videoItem</upnp:class>"#,
+            r#"{}"#,
+            r#"<res protocolInfo="http-get:*:{}:*">{}</res>"#,
+            r#"</item></DIDL-Lite>"#
+        ),
+        escaped_title, art_element, escaped_content_type, escaped_relay_url
+    )
+}
+
+fn dlna_av_transport_urns() -> &'static [UpnpUrn] {
+    const URNS: &[UpnpUrn] = &[
+        DLNA_AV_TRANSPORT_V1,
+        DLNA_AV_TRANSPORT_V2,
+        DLNA_AV_TRANSPORT_V3,
+    ];
+    URNS
+}
+
+fn find_dlna_av_transport_service(
+    device: &rupnp::Device,
+    preferred_service_type: Option<&str>,
+) -> Option<(rupnp::Service, String)> {
+    if let Some(service_type) = preferred_service_type
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        if let Ok(urn) = service_type.parse::<UpnpUrn>() {
+            if let Some(service) = device.find_service(&urn) {
+                return Some((service.clone(), service.service_type().to_string()));
+            }
+        }
+    }
+
+    for service_type in dlna_av_transport_urns() {
+        if let Some(service) = device.find_service(service_type) {
+            return Some((service.clone(), service.service_type().to_string()));
+        }
+    }
+
+    None
+}
+
+async fn discover_dlna_devices() -> Result<Vec<CastDeviceInfo>, String> {
+    let stream = rupnp::discover_with_properties(
+        &UpnpSearchTarget::RootDevice,
+        Duration::from_secs(3),
+        None,
+        &["modelName", "UDN"],
+    )
+    .await
+    .map_err(|e| format!("DLNA discovery failed: {e}"))?;
+    let mut stream = std::pin::pin!(stream);
+    let mut devices = HashMap::<String, CastDeviceInfo>::new();
+
+    while let Some(device) = stream
+        .try_next()
+        .await
+        .map_err(|e| format!("DLNA discovery stream failed: {e}"))?
+    {
+        let Some((_service, service_type)) = find_dlna_av_transport_service(&device, None) else {
+            continue;
+        };
+
+        let host = device
+            .url()
+            .host()
+            .map(|host| host.to_string())
+            .unwrap_or_default();
+        if host.is_empty() {
+            continue;
+        }
+
+        let id = device
+            .get_extra_property("UDN")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| device.url().to_string());
+        let port = device.url().port_u16().unwrap_or_else(|| {
+            if device.url().scheme_str() == Some("https") {
+                443
+            } else {
+                80
+            }
+        });
+
+        devices.insert(
+            id.clone(),
+            CastDeviceInfo {
+                id,
+                name: device.friendly_name().to_string(),
+                device_type: "dlna".to_string(),
+                host,
+                port,
+                model_name: device
+                    .get_extra_property("modelName")
+                    .map(|value| value.to_string()),
+                location_url: Some(device.url().to_string()),
+                service_type: Some(service_type),
+            },
+        );
+    }
+
+    let mut values = devices.into_values().collect::<Vec<_>>();
+    values.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(values)
+}
+
+async fn connect_dlna_device(payload: &CastConnectRequest) -> Result<CastSessionStatus, String> {
+    let relay_url = payload.relay_url.trim();
+    if relay_url.is_empty() {
+        return Err("A prepared cast relay URL is required".to_string());
+    }
+
+    let supported_content_type = dlna_supported_content_type(
+        payload.content_type.as_deref(),
+        payload.relay_kind.as_deref(),
+    )
+    .ok_or_else(|| {
+        "Unsupported stream format for DLNA casting. This content cannot cast to this device yet."
+            .to_string()
+    })?;
+
+    let location_url = payload
+        .device
+        .location_url
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "DLNA device is missing its description URL".to_string())?;
+    let location_uri = location_url
+        .parse()
+        .map_err(|e| format!("Invalid DLNA description URL: {e}"))?;
+    let device = rupnp::Device::from_url(location_uri)
+        .await
+        .map_err(|e| format!("Could not connect to DLNA device description: {e}"))?;
+    let (service, resolved_service_type) =
+        find_dlna_av_transport_service(&device, payload.device.service_type.as_deref())
+            .ok_or_else(|| "DLNA renderer does not expose AVTransport".to_string())?;
+
+    let metadata = build_dlna_didl_metadata(
+        payload.title.as_deref(),
+        relay_url,
+        &supported_content_type,
+        payload.image_url.as_deref(),
+    );
+    let set_uri_args = format!(
+        "<InstanceID>0</InstanceID><CurrentURI>{}</CurrentURI><CurrentURIMetaData>{}</CurrentURIMetaData>",
+        xml_escape(relay_url),
+        xml_escape(&metadata)
+    );
+    service
+        .action(device.url(), "SetAVTransportURI", &set_uri_args)
+        .await
+        .map_err(|e| format!("DLNA renderer rejected the media handoff: {e}"))?;
+
+    service
+        .action(
+            device.url(),
+            "Play",
+            "<InstanceID>0</InstanceID><Speed>1</Speed>",
+        )
+        .await
+        .map_err(|e| format!("DLNA renderer could not start playback: {e}"))?;
+
+    let device_info = CastDeviceInfo {
+        service_type: Some(resolved_service_type),
+        ..payload.device.clone()
+    };
+
+    Ok(CastSessionStatus {
+        connected: true,
+        device: Some(device_info.clone()),
+        relay_id: payload.relay_id.clone(),
+        relay_url: Some(payload.relay_url.clone()),
+        player_state: Some("PLAYING".to_string()),
+        current_time: None,
+        media_session_id: None,
+        error_message: None,
+    })
+}
+
+async fn disconnect_dlna_device(device: &CastDeviceInfo) -> Result<(), String> {
+    let location_url = device
+        .location_url
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "DLNA session is missing its description URL".to_string())?;
+    let location_uri = location_url
+        .parse()
+        .map_err(|e| format!("Invalid DLNA description URL: {e}"))?;
+    let dlna_device = rupnp::Device::from_url(location_uri)
+        .await
+        .map_err(|e| format!("Could not reload DLNA device description: {e}"))?;
+    let (service, _) = find_dlna_av_transport_service(&dlna_device, device.service_type.as_deref())
+        .ok_or_else(|| "DLNA renderer no longer exposes AVTransport".to_string())?;
+
+    service
+        .action(dlna_device.url(), "Stop", "<InstanceID>0</InstanceID>")
+        .await
+        .map_err(|e| format!("DLNA renderer could not stop playback: {e}"))?;
+
+    Ok(())
+}
+
+async fn query_dlna_cast_status(session: &ActiveCastSession) -> Result<CastSessionStatus, String> {
+    let location_url = session
+        .device
+        .location_url
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            "Casting was interrupted because the DLNA device description is unavailable."
+                .to_string()
+        })?;
+    let location_uri = location_url.parse().map_err(|e| {
+        format!("Casting was interrupted because the DLNA description URL is invalid: {e}")
+    })?;
+    let device = rupnp::Device::from_url(location_uri).await.map_err(|e| {
+        format!("Casting was interrupted because the DLNA device is no longer reachable: {e}")
+    })?;
+    let (service, resolved_service_type) =
+        find_dlna_av_transport_service(&device, session.device.service_type.as_deref())
+            .ok_or_else(|| {
+                "Casting was interrupted because the DLNA renderer no longer exposes AVTransport."
+                    .to_string()
+            })?;
+
+    let transport_info = service
+        .action(
+            device.url(),
+            "GetTransportInfo",
+            "<InstanceID>0</InstanceID>",
+        )
+        .await
+        .map_err(|e| {
+            format!("Casting was interrupted because the DLNA device did not respond: {e}")
+        })?;
+    let player_state = transport_info
+        .get("CurrentTransportState")
+        .or_else(|| transport_info.get("TransportState"))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let normalized_state = player_state
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_uppercase();
+
+    if let Ok(media_info) = service
+        .action(device.url(), "GetMediaInfo", "<InstanceID>0</InstanceID>")
+        .await
+    {
+        if let Some(current_uri) = media_info
+            .get("CurrentURI")
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            let expected_uri = session.relay_url.trim();
+            if !expected_uri.is_empty() && current_uri != expected_uri {
+                return Err(
+                    "Casting was interrupted because the DLNA device switched to different media."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    if matches!(
+        normalized_state.as_str(),
+        "STOPPED" | "NO_MEDIA_PRESENT" | "ERROR_OCCURRED"
+    ) {
+        return Err(
+            "Casting was interrupted because playback stopped on the DLNA device.".to_string(),
+        );
+    }
+
+    let device_info = CastDeviceInfo {
+        service_type: Some(resolved_service_type),
+        ..session.device.clone()
+    };
+
+    Ok(CastSessionStatus {
+        connected: true,
+        device: Some(device_info),
+        relay_id: session.relay_id.clone(),
+        relay_url: Some(session.relay_url.clone()),
+        player_state,
+        current_time: None,
+        media_session_id: None,
+        error_message: None,
+    })
+}
+
+async fn query_chromecast_cast_status(
+    session: &ActiveCastSession,
+) -> Result<CastSessionStatus, String> {
+    let device = session.device.clone();
+    let bridge_response: CastBridgeStatusResponse = tokio::task::spawn_blocking(move || {
+        run_cast_bridge_command(
+            "status",
+            &serde_json::json!({
+                "host": device.host,
+                "port": device.port,
+            }),
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to join Chromecast status task: {e}"))??;
+
+    if !bridge_response.connected {
+        return Err("Casting was interrupted because the Chromecast session ended.".to_string());
+    }
+
+    let status = bridge_response.status.ok_or_else(|| {
+        "Casting was interrupted because the Chromecast no longer has active media.".to_string()
+    })?;
+
+    if let Some(content_id) = status
+        .content_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let expected_content_id = session.relay_url.trim();
+        if !expected_content_id.is_empty() && content_id != expected_content_id {
+            return Err(
+                "Casting was interrupted because the Chromecast switched to different media."
+                    .to_string(),
+            );
+        }
+    }
+
+    let normalized_state = status
+        .player_state
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_uppercase();
+    if matches!(normalized_state.as_str(), "IDLE" | "UNKNOWN") {
+        return Err(
+            "Casting was interrupted because playback stopped on the Chromecast.".to_string(),
+        );
+    }
+
+    Ok(CastSessionStatus {
+        connected: true,
+        device: Some(session.device.clone()),
+        relay_id: session.relay_id.clone(),
+        relay_url: Some(session.relay_url.clone()),
+        player_state: status.player_state,
+        current_time: status.current_time,
+        media_session_id: status.media_session_id,
+        error_message: None,
+    })
+}
+
+async fn load_active_cast_session_status() -> Result<CastSessionStatus, String> {
+    let active_session = active_cast_session()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+
+    let Some(active_session) = active_session else {
+        return Ok(build_cast_session_status());
+    };
+
+    if let Some(relay_id) = active_session.relay_id.as_deref() {
+        if let Err((_, _)) = cast_relay_entry_for_id(relay_id) {
+            let message =
+                "The cast relay is no longer available. Keep playback open and reconnect."
+                    .to_string();
+            let _ = clear_active_cast_session();
+            return Ok(disconnected_cast_session_status(
+                Some(active_session.device),
+                active_session.relay_id,
+                Some(active_session.relay_url),
+                Some(message),
+            ));
+        }
+    }
+
+    let status = if active_session
+        .device
+        .device_type
+        .eq_ignore_ascii_case("chromecast")
+    {
+        query_chromecast_cast_status(&active_session).await
+    } else if active_session
+        .device
+        .device_type
+        .eq_ignore_ascii_case("dlna")
+    {
+        query_dlna_cast_status(&active_session).await
+    } else {
+        Err(format!(
+            "Casting was interrupted because the device type is unsupported: {}",
+            active_session.device.device_type
+        ))
+    };
+
+    match status {
+        Ok(next_status) => {
+            if let Ok(mut guard) = active_cast_session().lock() {
+                if let Some(active) = guard.as_mut() {
+                    if active.device.id == active_session.device.id
+                        && active.relay_url == active_session.relay_url
+                    {
+                        active.player_state = next_status.player_state.clone();
+                    }
+                }
+            }
+
+            Ok(next_status)
+        }
+        Err(error) => {
+            let _ = clear_active_cast_session();
+            Ok(disconnected_cast_session_status(
+                Some(active_session.device),
+                active_session.relay_id,
+                Some(active_session.relay_url),
+                Some(error),
+            ))
+        }
+    }
 }
 
 fn guess_local_media_content_type(file_path: &str) -> &'static str {
@@ -2115,16 +3065,25 @@ fn parse_single_http_range(
         .trim();
 
     if !range_str.starts_with("bytes=") {
-        return Err((StatusCode::BAD_REQUEST, "Unsupported Range unit".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Unsupported Range unit".to_string(),
+        ));
     }
 
     let spec = &range_str[6..];
     if spec.contains(',') {
-        return Err((StatusCode::BAD_REQUEST, "Multiple ranges are not supported".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Multiple ranges are not supported".to_string(),
+        ));
     }
 
     let Some((start_raw, end_raw)) = spec.split_once('-') else {
-        return Err((StatusCode::BAD_REQUEST, "Malformed Range header".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Malformed Range header".to_string(),
+        ));
     };
 
     if total_size == 0 {
@@ -2179,12 +3138,18 @@ async fn media_proxy_local_file_response(
     request_headers: AxumHeaderMap,
 ) -> Result<http::Response<Body>, (StatusCode, String)> {
     let path = PathBuf::from(&file_path);
-    let metadata = tokio::fs::metadata(&path)
-        .await
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("Local media file not found: {e}")))?;
+    let metadata = tokio::fs::metadata(&path).await.map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Local media file not found: {e}"),
+        )
+    })?;
 
     if !metadata.is_file() {
-        return Err((StatusCode::BAD_REQUEST, "Local media path is not a file".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Local media path is not a file".to_string(),
+        ));
     }
 
     let total_size = metadata.len();
@@ -2198,14 +3163,22 @@ async fn media_proxy_local_file_response(
     };
 
     let content_length = if total_size == 0 { 0 } else { end - start + 1 };
-    let mut file = tokio::fs::File::open(&path)
-        .await
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("Failed to open local media file: {e}")))?;
+    let mut file = tokio::fs::File::open(&path).await.map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Failed to open local media file: {e}"),
+        )
+    })?;
 
     if content_length > 0 {
         file.seek(std::io::SeekFrom::Start(start))
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to seek local media file: {e}")))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to seek local media file: {e}"),
+                )
+            })?;
     }
 
     let body = if content_length > 0 {
@@ -2527,7 +3500,11 @@ async fn get_hianime_episodes(anime_id: String) -> Result<serde_json::Value, Str
         .cloned()
         .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
 
-    if episodes.as_array().map(|items| !items.is_empty()).unwrap_or(false) {
+    if episodes
+        .as_array()
+        .map(|items| !items.is_empty())
+        .unwrap_or(false)
+    {
         return Ok(episodes);
     }
 
@@ -2580,17 +3557,23 @@ async fn get_hianime_stream(
             .append_pair("category", &category);
 
         if fresh {
-            query.append_pair("_ts", &SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-                .to_string());
+            query.append_pair(
+                "_ts",
+                &SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .to_string(),
+            );
         }
     }
 
     match fetch_aniwatch_json(url).await {
         Ok(payload) => {
-            let data = payload.get("data").cloned().unwrap_or(serde_json::Value::Null);
+            let data = payload
+                .get("data")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             let has_sources = data
                 .get("sources")
                 .and_then(|value| value.as_array())
@@ -2635,63 +3618,57 @@ async fn fetch_anime_text(
 
     let http_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
 
-    let should_use_animekai_session =
-    url.contains("anikai.to/browser")
+    let should_use_animekai_session = url.contains("anikai.to/browser")
         || url.contains("anikai.to/watch/")
         || url.contains("anikai.to/ajax/episodes/list")
         || url.contains("anikai.to/ajax/links/list");
 
-if should_use_animekai_session {
-    let fallback_page_url = headers
-        .get("Referer")
-        .cloned()
-        .or_else(|| Some("https://anikai.to/".to_string()));
+    if should_use_animekai_session {
+        let fallback_page_url = headers
+            .get("Referer")
+            .cloned()
+            .or_else(|| Some("https://anikai.to/".to_string()));
 
-    let session_client = build_resolver_client()?;
-    let session_id = store_resolver_session(
-        session_client,
-        fallback_page_url.clone(),
-        None,
-        None,
-    )
-    .ok_or_else(|| "Failed to create AnimeKai resolver session".to_string())?;
+        let session_client = build_resolver_client()?;
+        let session_id =
+            store_resolver_session(session_client, fallback_page_url.clone(), None, None)
+                .ok_or_else(|| "Failed to create AnimeKai resolver session".to_string())?;
 
-    let bridge_response = browser_fetch_via_bridge(
-        app,
-        url.clone(),
-        http_method.clone(),
-        headers.clone(),
-        body.clone(),
-        "text",
-        Some(session_id.as_str()),
-        fallback_page_url,
-    )
-    .await?;
+        let bridge_response = browser_fetch_via_bridge(
+            app,
+            url.clone(),
+            http_method.clone(),
+            headers.clone(),
+            body.clone(),
+            "text",
+            Some(session_id.as_str()),
+            fallback_page_url,
+        )
+        .await?;
 
-    let text = bridge_response.text.unwrap_or_default();
-    let preview: String = text.chars().take(300).collect();
+        let text = bridge_response.text.unwrap_or_default();
+        let preview: String = text.chars().take(300).collect();
 
-    log_anime_debug(&format!(
-        "[fetch_anime_text] AnimeKai session fetch status: {:?}",
-        bridge_response.status
-    ));
-    log_anime_debug(&format!(
-        "[fetch_anime_text] AnimeKai session body preview: {}",
-        preview
-    ));
-
-    let bridge_status = bridge_response.status.unwrap_or(0);
-
-    if bridge_status < 200 || bridge_status >= 300 {
-        return Err(format!(
-            "Anime text fetch failed: HTTP {} {}",
-            bridge_status,
+        log_anime_debug(&format!(
+            "[fetch_anime_text] AnimeKai session fetch status: {:?}",
+            bridge_response.status
+        ));
+        log_anime_debug(&format!(
+            "[fetch_anime_text] AnimeKai session body preview: {}",
             preview
         ));
-    }
 
-    return Ok(text);
-}
+        let bridge_status = bridge_response.status.unwrap_or(0);
+
+        if bridge_status < 200 || bridge_status >= 300 {
+            return Err(format!(
+                "Anime text fetch failed: HTTP {} {}",
+                bridge_status, preview
+            ));
+        }
+
+        return Ok(text);
+    }
 
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
@@ -2734,7 +3711,10 @@ if should_use_animekai_session {
     log_anime_debug(&format!("[fetch_anime_text] Body preview: {}", preview));
 
     if !status.is_success() {
-        return Err(format!("Anime text fetch failed: HTTP {} {}", status, preview));
+        return Err(format!(
+            "Anime text fetch failed: HTTP {} {}",
+            status, preview
+        ));
     }
 
     Ok(body)
@@ -2756,13 +3736,12 @@ async fn fetch_anime_text_with_session(
         || url.contains("pahe.win")
         || url.contains("kwik.");
 
-    let should_use_resolver_session =
-        url.contains("gogoanime.me.uk")
-            || url.contains("megaplay.buzz")
-            || url.contains("megacloud.bloggy.click")
-            || url.contains("mewcdn.online")
-            || url.contains("dotstream.buzz")
-            || should_use_animepahe_browser_session;
+    let should_use_resolver_session = url.contains("gogoanime.me.uk")
+        || url.contains("megaplay.buzz")
+        || url.contains("megacloud.bloggy.click")
+        || url.contains("mewcdn.online")
+        || url.contains("dotstream.buzz")
+        || should_use_animepahe_browser_session;
 
     let mut effective_session_id = session_id;
 
@@ -2773,12 +3752,8 @@ async fn fetch_anime_text_with_session(
             .or_else(|| Some(url.clone()));
 
         let session_client = build_resolver_client()?;
-        effective_session_id = store_resolver_session(
-            session_client,
-            fallback_page_url,
-            None,
-            None,
-        );
+        effective_session_id =
+            store_resolver_session(session_client, fallback_page_url, None, None);
     }
 
     if should_use_animepahe_browser_session {
@@ -2809,8 +3784,7 @@ async fn fetch_anime_text_with_session(
 
         log_anime_debug(&format!(
             "[fetch_anime_text_with_session] AnimePahe browser session status: {:?} error={:?}",
-            bridge_response.status,
-            bridge_response.error
+            bridge_response.status, bridge_response.error
         ));
         log_anime_debug(&format!(
             "[fetch_anime_text_with_session] AnimePahe browser session body preview: {}",
@@ -2845,8 +3819,7 @@ async fn fetch_anime_text_with_session(
 
             log_anime_debug(&format!(
                 "[fetch_anime_text_with_session] AnimePahe page extract status: {:?} error={:?}",
-                page_response.status,
-                page_response.error
+                page_response.status, page_response.error
             ));
             log_anime_debug(&format!(
                 "[fetch_anime_text_with_session] AnimePahe page extract preview: {}",
@@ -2856,8 +3829,7 @@ async fn fetch_anime_text_with_session(
             if page_text.trim().is_empty() {
                 return Err(format!(
                     "Anime text fetch with session failed: HTTP {} {}",
-                    bridge_status,
-                    preview
+                    bridge_status, preview
                 ));
             }
 
@@ -2922,7 +3894,8 @@ async fn fetch_anime_text_with_session(
 }
 
 fn iframe_player_route(payload: &IframePlayerWindowPayload) -> Result<String, String> {
-    let mut url = Url::parse("https://novastream.local/player-window").map_err(|e| e.to_string())?;
+    let mut url =
+        Url::parse("https://novastream.local/player-window").map_err(|e| e.to_string())?;
     {
         let mut query = url.query_pairs_mut();
         query.append_pair("tmdbId", &payload.tmdb_id);
@@ -2988,30 +3961,30 @@ fn ensure_browser_fetch_bridge_window(
     let data_directory = iframe_player_data_directory(app)?;
     let route = browser_fetch_bridge_route();
     let window = tauri::WebviewWindowBuilder::new(
-    app,
-    BROWSER_FETCH_BRIDGE_WINDOW_LABEL,
-    WebviewUrl::App(route.into()),
-)
-.title("browser-fetch-bridge")
-.inner_size(320.0, 240.0)
-.visible(false)
-.focused(false)
-.decorations(false)
-.skip_taskbar(true)
-.resizable(false)
-.additional_browser_args(IFRAME_PLAYER_BROWSER_ARGS)
-.data_directory(data_directory)
-.on_page_load(move |_window, payload| {
-    if payload.event() == tauri::webview::PageLoadEvent::Finished {
-        BROWSER_FETCH_BRIDGE_READY.store(true, Ordering::SeqCst);
-        log_resolver_debug(&format!(
-            "[browser_fetch_bridge] page loaded url={}",
-            payload.url()
-        ));
-    }
-})
-.build()
-.map_err(|e| e.to_string())?;
+        app,
+        BROWSER_FETCH_BRIDGE_WINDOW_LABEL,
+        WebviewUrl::App(route.into()),
+    )
+    .title("browser-fetch-bridge")
+    .inner_size(320.0, 240.0)
+    .visible(false)
+    .focused(false)
+    .decorations(false)
+    .skip_taskbar(true)
+    .resizable(false)
+    .additional_browser_args(IFRAME_PLAYER_BROWSER_ARGS)
+    .data_directory(data_directory)
+    .on_page_load(move |_window, payload| {
+        if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            BROWSER_FETCH_BRIDGE_READY.store(true, Ordering::SeqCst);
+            log_resolver_debug(&format!(
+                "[browser_fetch_bridge] page loaded url={}",
+                payload.url()
+            ));
+        }
+    })
+    .build()
+    .map_err(|e| e.to_string())?;
     Ok((window, true))
 }
 
@@ -3046,7 +4019,8 @@ fn resolver_session_page_url(
         return Ok(page_url.to_string());
     }
 
-    if let Some(page_url) = resolver_session(Some(session_id)).and_then(|session| session.page_url) {
+    if let Some(page_url) = resolver_session(Some(session_id)).and_then(|session| session.page_url)
+    {
         return Ok(page_url);
     }
 
@@ -3059,7 +4033,8 @@ async fn ensure_resolver_session_window(
     fallback_page_url: Option<String>,
 ) -> Result<tauri::WebviewWindow, String> {
     let page_url = resolver_session_page_url(session_id, fallback_page_url)?;
-    let existing_label = resolver_session(Some(session_id)).and_then(|session| session.window_label);
+    let existing_label =
+        resolver_session(Some(session_id)).and_then(|session| session.window_label);
 
     if let Some(label) = existing_label {
         if let Some(existing) = app.get_webview_window(&label) {
@@ -3094,33 +4069,33 @@ async fn ensure_resolver_session_window(
         .additional_browser_args(IFRAME_PLAYER_BROWSER_ARGS)
         .data_directory(data_directory)
         .on_page_load(move |_window, payload| {
-    log_resolver_debug(&format!(
-        "[resolver_session_window] page load event={:?} session_id={} label={} url={}",
-        payload.event(),
-        session_id_owned,
-        label_for_load,
-        payload.url()
-    ));
+            log_resolver_debug(&format!(
+                "[resolver_session_window] page load event={:?} session_id={} label={} url={}",
+                payload.event(),
+                session_id_owned,
+                label_for_load,
+                payload.url()
+            ));
 
-    update_resolver_session_page_url(&session_id_owned, Some(payload.url().to_string()));
+            update_resolver_session_page_url(&session_id_owned, Some(payload.url().to_string()));
 
-    match payload.event() {
-        tauri::webview::PageLoadEvent::Started => {
-            update_resolver_session_window(
-                &session_id_owned,
-                Some(label_for_load.clone()),
-                Some(false),
-            );
-        }
-        tauri::webview::PageLoadEvent::Finished => {
-            update_resolver_session_window(
-                &session_id_owned,
-                Some(label_for_load.clone()),
-                Some(true),
-            );
-        }
-    }
-})
+            match payload.event() {
+                tauri::webview::PageLoadEvent::Started => {
+                    update_resolver_session_window(
+                        &session_id_owned,
+                        Some(label_for_load.clone()),
+                        Some(false),
+                    );
+                }
+                tauri::webview::PageLoadEvent::Finished => {
+                    update_resolver_session_window(
+                        &session_id_owned,
+                        Some(label_for_load.clone()),
+                        Some(true),
+                    );
+                }
+            }
+        })
         .build()
         .map_err(|e| {
             update_resolver_session_window(session_id, None, Some(false));
@@ -3138,12 +4113,8 @@ async fn sync_resolver_session_window_to_page_url(
     session_id: &str,
     page_url: &str,
 ) -> Result<tauri::WebviewWindow, String> {
-    let window = ensure_resolver_session_window(
-        app,
-        session_id,
-        Some(page_url.to_string()),
-    )
-    .await?;
+    let window =
+        ensure_resolver_session_window(app, session_id, Some(page_url.to_string())).await?;
 
     let current_page_url = resolver_session(Some(session_id))
         .and_then(|session| session.page_url)
@@ -3152,9 +4123,7 @@ async fn sync_resolver_session_window_to_page_url(
     if current_page_url != page_url {
         log_resolver_debug(&format!(
             "[browser_fetch_via_session_window] navigating session_id={} from={} to={}",
-            session_id,
-            current_page_url,
-            page_url
+            session_id, current_page_url, page_url
         ));
 
         update_resolver_session_window(session_id, None, Some(false));
@@ -3166,8 +4135,7 @@ async fn sync_resolver_session_window_to_page_url(
     } else {
         log_resolver_debug(&format!(
             "[browser_fetch_via_session_window] session_id={} already on page_url={}",
-            session_id,
-            page_url
+            session_id, page_url
         ));
     }
 
@@ -3183,12 +4151,8 @@ async fn warm_up_dotstream_session_window(
     let target = Url::parse(target_url).map_err(|e| e.to_string())?;
     let return_page = Url::parse(return_page_url).map_err(|e| e.to_string())?;
 
-    let window = ensure_resolver_session_window(
-        app,
-        session_id,
-        Some(return_page_url.to_string()),
-    )
-    .await?;
+    let window =
+        ensure_resolver_session_window(app, session_id, Some(return_page_url.to_string())).await?;
 
     log_resolver_debug(&format!(
         "[browser_fetch_via_session_window] dotstream warmup start session_id={} target_url={} return_page_url={}",
@@ -3247,7 +4211,7 @@ fn browser_fetch_eval_script(
     let page_url_json = serde_json::to_string(page_url).map_err(|e| e.to_string())?;
     let callback_url_json = serde_json::to_string(callback_url).map_err(|e| e.to_string())?;
 
-        Ok(format!(
+    Ok(format!(
         r#"
 (() => {{
   const requestId = {request_id_json};
@@ -3439,7 +4403,7 @@ async fn browser_fetch_via_session_window(
         active_page_url,
         url
     ));
-        async fn run_browser_fetch_eval(
+    async fn run_browser_fetch_eval(
         window: &tauri::WebviewWindow,
         request_id: String,
         session_id: &str,
@@ -3531,8 +4495,8 @@ async fn browser_fetch_via_session_window(
 
     let first_status = first_result.status.unwrap_or(0);
     let first_body = first_result.text.clone().unwrap_or_default();
-    let looks_like_cloudflare = first_status == 403
-        && first_body.contains("Attention Required! | Cloudflare");
+    let looks_like_cloudflare =
+        first_status == 403 && first_body.contains("Attention Required! | Cloudflare");
 
     if looks_like_cloudflare && url.contains("cdn.dotstream.buzz") {
         log_resolver_debug(&format!(
@@ -3817,11 +4781,7 @@ async fn browser_fetch_via_bridge(
 fn complete_browser_fetch(payload: BrowserFetchCompletePayload) -> Result<(), String> {
     log_resolver_debug(&format!(
         "[complete_browser_fetch] request_id={} ok={} response_type={} status={:?} error={:?}",
-        payload.request_id,
-        payload.ok,
-        payload.response_type,
-        payload.status,
-        payload.error
+        payload.request_id, payload.ok, payload.response_type, payload.status, payload.error
     ));
 
     let sender = pending_browser_fetches()
@@ -3846,11 +4806,7 @@ fn complete_browser_fetch(payload: BrowserFetchCompletePayload) -> Result<(), St
             let encoded = payload
                 .data_base64
                 .ok_or_else(|| "Browser fetch response missing binary payload".to_string())?;
-            Some(
-                BASE64_STANDARD
-                    .decode(encoded)
-                    .map_err(|e| e.to_string())?,
-            )
+            Some(BASE64_STANDARD.decode(encoded).map_err(|e| e.to_string())?)
         }
         _ => None,
     };
@@ -3948,10 +4904,11 @@ async fn open_iframe_player_window(
     Ok(())
 }
 
-fn prepare_playback_request(
+fn prepare_request_with_accept(
     url: &str,
     headers: &HashMap<String, String>,
     session_id: Option<&str>,
+    accept: &str,
 ) -> Result<reqwest::RequestBuilder, String> {
     let session = resolver_session(session_id);
     let client = session
@@ -3964,10 +4921,7 @@ fn prepare_playback_request(
     );
 
     request = request
-        .header(
-            "Accept",
-            "application/vnd.apple.mpegurl, application/x-mpegURL, application/x-mpegurl, */*",
-        )
+        .header("Accept", accept)
         .header("Accept-Language", "en-US,en;q=0.9")
         .header("Connection", "keep-alive")
         .header("Sec-Fetch-Dest", "empty")
@@ -4007,67 +4961,84 @@ fn prepare_playback_request(
     Ok(request)
 }
 
+fn prepare_playback_request(
+    url: &str,
+    headers: &HashMap<String, String>,
+    session_id: Option<&str>,
+) -> Result<reqwest::RequestBuilder, String> {
+    prepare_request_with_accept(
+        url,
+        headers,
+        session_id,
+        "application/vnd.apple.mpegurl, application/x-mpegURL, application/x-mpegurl, */*",
+    )
+}
+
+fn prepare_proxy_request(
+    url: &str,
+    headers: &HashMap<String, String>,
+    session_id: Option<&str>,
+) -> Result<reqwest::RequestBuilder, String> {
+    prepare_request_with_accept(url, headers, session_id, "*/*")
+}
+
 fn should_use_browser_bridge(session_id: Option<&str>) -> bool {
     resolver_session(session_id)
         .and_then(|session| session.window_label)
         .is_some()
 }
 
-#[tauri::command]
-async fn fetch_hls_segment(
+async fn fetch_hls_segment_bytes(
     app: tauri::AppHandle,
     url: String,
     headers: HashMap<String, String>,
     session_id: Option<String>,
-) -> Result<Response, String> {
+) -> Result<Vec<u8>, String> {
     log_anime_debug(&format!("[fetch_hls_segment] URL: {}", url));
     log_anime_debug(&format!("[fetch_hls_segment] Headers sent: {:?}", headers));
     log_anime_debug(&format!("[fetch_hls_segment] Session ID: {:?}", session_id));
     let use_dotstream_bridge = session_id.is_some() && url.contains("cdn.dotstream.buzz");
-log_anime_debug(&format!(
-    "[fetch_hls_segment] DotStream bridge eligible: {}",
-    use_dotstream_bridge
-));
-
-if use_dotstream_bridge {
-    log_anime_debug("[fetch_hls_segment][bridge] Starting browser bridge fetch");
-    let bridge_response = tokio::time::timeout(
-    std::time::Duration::from_secs(20),
-    browser_fetch_via_bridge(
-        app,
-        url.clone(),
-        "GET".to_string(),
-        headers.clone(),
-        None,
-        "arrayBuffer",
-        session_id.as_deref(),
-        headers.get("Referer").cloned(),
-    ),
-)
-.await
-.map_err(|_| "Segment browser fetch bridge timed out".to_string())??;
-
-    let status = bridge_response.status.unwrap_or(200);
-    let bytes = bridge_response.bytes.unwrap_or_default();
-
     log_anime_debug(&format!(
-        "[fetch_hls_segment][bridge] Status: {}",
-        status
-    ));
-    log_anime_debug(&format!(
-        "[fetch_hls_segment][bridge] Bytes: {}",
-        bytes.len()
+        "[fetch_hls_segment] DotStream bridge eligible: {}",
+        use_dotstream_bridge
     ));
 
-    if status != 200 && status != 206 {
-        return Err(format!("HLS browser fetch failed: HTTP {}", status));
+    if use_dotstream_bridge {
+        log_anime_debug("[fetch_hls_segment][bridge] Starting browser bridge fetch");
+        let bridge_response = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            browser_fetch_via_bridge(
+                app,
+                url.clone(),
+                "GET".to_string(),
+                headers.clone(),
+                None,
+                "arrayBuffer",
+                session_id.as_deref(),
+                headers.get("Referer").cloned(),
+            ),
+        )
+        .await
+        .map_err(|_| "Segment browser fetch bridge timed out".to_string())??;
+
+        let status = bridge_response.status.unwrap_or(200);
+        let bytes = bridge_response.bytes.unwrap_or_default();
+
+        log_anime_debug(&format!("[fetch_hls_segment][bridge] Status: {}", status));
+        log_anime_debug(&format!(
+            "[fetch_hls_segment][bridge] Bytes: {}",
+            bytes.len()
+        ));
+
+        if status != 200 && status != 206 {
+            return Err(format!("HLS browser fetch failed: HTTP {}", status));
+        }
+
+        return Ok(bytes);
     }
 
-    return Ok(Response::new(bytes));
-}
-
     let mut request = prepare_playback_request(&url, &headers, session_id.as_deref())?;
-request = request.header("Accept", "*/*");
+    request = request.header("Accept", "*/*");
 
     let response = request.send().await.map_err(|e| {
         log_anime_debug(&format!("[fetch_hls_segment] Request error: {e}"));
@@ -4079,8 +5050,14 @@ request = request.header("Accept", "*/*");
     let content_type = response.headers().get("content-type").cloned();
 
     log_anime_debug(&format!("[fetch_hls_segment] Status: {}", status));
-    log_anime_debug(&format!("[fetch_hls_segment] Content-Type: {:?}", content_type));
-    log_anime_debug(&format!("[fetch_hls_segment] Content-Length: {}", content_length));
+    log_anime_debug(&format!(
+        "[fetch_hls_segment] Content-Type: {:?}",
+        content_type
+    ));
+    log_anime_debug(&format!(
+        "[fetch_hls_segment] Content-Length: {}",
+        content_length
+    ));
 
     if status.as_u16() != 200 && status.as_u16() != 206 {
         let error = format!("HLS fetch failed: HTTP {}", status);
@@ -4094,9 +5071,24 @@ request = request.header("Accept", "*/*");
     })?;
 
     log_anime_debug(&format!("[fetch_hls_segment] Bytes: {}", bytes.len()));
-    log_anime_debug(&format!("[fetch_hls_segment] Empty body: {}", bytes.is_empty()));
+    log_anime_debug(&format!(
+        "[fetch_hls_segment] Empty body: {}",
+        bytes.is_empty()
+    ));
 
-    Ok(Response::new(bytes.to_vec()))
+    Ok(bytes.to_vec())
+}
+
+#[tauri::command]
+async fn fetch_hls_segment(
+    app: tauri::AppHandle,
+    url: String,
+    headers: HashMap<String, String>,
+    session_id: Option<String>,
+) -> Result<Response, String> {
+    Ok(Response::new(
+        fetch_hls_segment_bytes(app, url, headers, session_id).await?,
+    ))
 }
 
 fn absolutize_reference(reference: &str, base_url: &Url) -> String {
@@ -4145,6 +5137,236 @@ fn rewrite_manifest_line(line: &str, base_url: &Url) -> String {
     absolutize_reference(trimmed, base_url)
 }
 
+fn is_hls_manifest_reference(reference: &str, content_type: Option<&str>) -> bool {
+    if let Some(value) = content_type {
+        let normalized = value.to_ascii_lowercase();
+        if normalized.contains("mpegurl") || normalized.contains("m3u") {
+            return true;
+        }
+    }
+
+    let normalized = reference.trim().to_ascii_lowercase();
+    normalized.contains(".m3u8")
+        || normalized.contains("format=m3u8")
+        || normalized.ends_with("/playlist")
+        || normalized.ends_with("/master")
+}
+
+fn resolve_cast_relay_base_url(request_headers: &AxumHeaderMap) -> Option<String> {
+    if let Some(host) = request_headers
+        .get("host")
+        .and_then(|value| value.to_str().ok())
+    {
+        let trimmed = host.trim();
+        if !trimmed.is_empty() {
+            return Some(format!("http://{trimmed}"));
+        }
+    }
+
+    let info = cast_relay_server_info().get()?;
+    info.lan_base_url
+        .clone()
+        .or_else(|| Some(info.local_base_url.clone()))
+}
+
+fn register_cast_relay_asset(
+    url: String,
+    headers: HashMap<String, String>,
+    session_id: Option<String>,
+    parent_relay_id: Option<&str>,
+) -> Result<String, String> {
+    prune_expired_cast_relay_state();
+
+    let asset_id = Uuid::new_v4().to_string();
+    cast_relay_asset_entries()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(
+            asset_id.clone(),
+            CastRelayAssetEntry {
+                url,
+                headers,
+                session_id,
+                parent_relay_id: parent_relay_id.map(|value| value.to_string()),
+                expires_at_ms: cast_relay_expiration_ms(),
+            },
+        );
+
+    Ok(asset_id)
+}
+
+fn rewrite_cast_manifest_uri_attributes(
+    line: &str,
+    base_url: &Url,
+    relay_base_url: &str,
+    headers: &HashMap<String, String>,
+    session_id: Option<&str>,
+    parent_relay_id: Option<&str>,
+) -> Result<String, String> {
+    let mut output = String::new();
+    let mut remaining = line;
+
+    while let Some(start) = remaining.find("URI=\"") {
+        output.push_str(&remaining[..start]);
+        output.push_str("URI=\"");
+
+        let after_prefix = &remaining[start + 5..];
+        if let Some(end) = after_prefix.find('"') {
+            let raw_uri = &after_prefix[..end];
+            let absolute = absolutize_reference(raw_uri, base_url);
+            let asset_id = register_cast_relay_asset(
+                absolute,
+                headers.clone(),
+                session_id.map(|value| value.to_string()),
+                parent_relay_id,
+            )?;
+            output.push_str(&format!("{relay_base_url}/cast/asset/{asset_id}"));
+            output.push('"');
+            remaining = &after_prefix[end + 1..];
+        } else {
+            output.push_str(after_prefix);
+            remaining = "";
+            break;
+        }
+    }
+
+    output.push_str(remaining);
+    Ok(output)
+}
+
+fn rewrite_cast_manifest_text(
+    manifest_text: &str,
+    base_url: &Url,
+    relay_base_url: &str,
+    headers: &HashMap<String, String>,
+    session_id: Option<&str>,
+    parent_relay_id: Option<&str>,
+) -> Result<String, String> {
+    manifest_text
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return Ok(line.to_string());
+            }
+
+            if trimmed.starts_with('#') {
+                return rewrite_cast_manifest_uri_attributes(
+                    line,
+                    base_url,
+                    relay_base_url,
+                    headers,
+                    session_id,
+                    parent_relay_id,
+                );
+            }
+
+            let absolute = absolutize_reference(trimmed, base_url);
+            let asset_id = register_cast_relay_asset(
+                absolute,
+                headers.clone(),
+                session_id.map(|value| value.to_string()),
+                parent_relay_id,
+            )?;
+            Ok(format!("{relay_base_url}/cast/asset/{asset_id}"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(|lines| lines.join("\n"))
+}
+
+fn append_range_header_from_request(
+    mut request: reqwest::RequestBuilder,
+    request_headers: &AxumHeaderMap,
+) -> reqwest::RequestBuilder {
+    if let Some(range_value) = request_headers.get("range") {
+        if let Ok(range_str) = range_value.to_str() {
+            request = request.header("Range", range_str);
+        }
+    }
+
+    request
+}
+
+fn apply_upstream_headers_to_response(
+    mut response: http::response::Builder,
+    upstream_headers: &reqwest::header::HeaderMap,
+) -> http::response::Builder {
+    for (key, value) in upstream_headers.iter() {
+        if key.as_str().eq_ignore_ascii_case("content-length") {
+            continue;
+        }
+
+        if let Ok(value_str) = value.to_str() {
+            response = response.header(key.as_str(), value_str);
+        }
+    }
+
+    response
+}
+
+async fn build_streaming_proxy_response(
+    upstream_response: reqwest::Response,
+) -> Result<http::Response<Body>, (StatusCode, String)> {
+    let status = upstream_response.status();
+    let upstream_headers = upstream_response.headers().clone();
+    let stream = upstream_response
+        .bytes_stream()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+
+    let response = apply_upstream_headers_to_response(
+        http::Response::builder().status(status),
+        &upstream_headers,
+    );
+
+    response
+        .body(Body::from_stream(stream))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+fn cast_relay_entry_for_id(id: &str) -> Result<CastRelayEntry, (StatusCode, String)> {
+    prune_expired_cast_relay_state();
+
+    let entry = cast_relay_entries()
+        .lock()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .get(id)
+        .cloned()
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "Cast relay entry not found".to_string(),
+            )
+        })?;
+
+    if is_cast_relay_path_expired(entry.expires_at_ms) {
+        return Err((StatusCode::GONE, "Cast relay entry expired".to_string()));
+    }
+
+    Ok(entry)
+}
+
+fn cast_relay_asset_entry_for_id(id: &str) -> Result<CastRelayAssetEntry, (StatusCode, String)> {
+    prune_expired_cast_relay_state();
+
+    let entry = cast_relay_asset_entries()
+        .lock()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .get(id)
+        .cloned()
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "Cast relay asset not found".to_string(),
+            )
+        })?;
+
+    if is_cast_relay_path_expired(entry.expires_at_ms) {
+        return Err((StatusCode::GONE, "Cast relay asset expired".to_string()));
+    }
+
+    Ok(entry)
+}
+
 #[tauri::command]
 async fn fetch_hls_manifest(
     app: tauri::AppHandle,
@@ -4153,63 +5375,63 @@ async fn fetch_hls_manifest(
     session_id: Option<String>,
 ) -> Result<String, String> {
     log_anime_debug(&format!("[fetch_hls_manifest] URL: {}", url));
-    log_anime_debug(&format!("[fetch_hls_manifest] Session ID: {:?}", session_id));
+    log_anime_debug(&format!(
+        "[fetch_hls_manifest] Session ID: {:?}",
+        session_id
+    ));
     let use_dotstream_bridge = session_id.is_some() && url.contains("cdn.dotstream.buzz");
-log_anime_debug(&format!(
-    "[fetch_hls_manifest] DotStream bridge eligible: {}",
-    use_dotstream_bridge
-));
-
-if use_dotstream_bridge {
-    log_anime_debug("[fetch_hls_manifest][bridge] Starting browser bridge fetch");
-    let bridge_response = tokio::time::timeout(
-    std::time::Duration::from_secs(20),
-    browser_fetch_via_bridge(
-        app,
-        url.clone(),
-        "GET".to_string(),
-        headers.clone(),
-        None,
-        "text",
-        session_id.as_deref(),
-        headers.get("Referer").cloned(),
-    ),
-)
-.await
-.map_err(|_| "Manifest browser fetch bridge timed out".to_string())??;
-
-    let status = bridge_response.status.unwrap_or(200);
-    let manifest_text = bridge_response.text.unwrap_or_default();
-    let manifest_preview: String = manifest_text.chars().take(500).collect();
-
     log_anime_debug(&format!(
-        "[fetch_hls_manifest][bridge] Status: {}",
-        status
-    ));
-    log_anime_debug(&format!(
-        "[fetch_hls_manifest][bridge] Body preview: {}",
-        manifest_preview
+        "[fetch_hls_manifest] DotStream bridge eligible: {}",
+        use_dotstream_bridge
     ));
 
-    if !(200..300).contains(&status) {
-        return Err(format!("Manifest browser fetch failed: HTTP {}", status));
+    if use_dotstream_bridge {
+        log_anime_debug("[fetch_hls_manifest][bridge] Starting browser bridge fetch");
+        let bridge_response = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            browser_fetch_via_bridge(
+                app,
+                url.clone(),
+                "GET".to_string(),
+                headers.clone(),
+                None,
+                "text",
+                session_id.as_deref(),
+                headers.get("Referer").cloned(),
+            ),
+        )
+        .await
+        .map_err(|_| "Manifest browser fetch bridge timed out".to_string())??;
+
+        let status = bridge_response.status.unwrap_or(200);
+        let manifest_text = bridge_response.text.unwrap_or_default();
+        let manifest_preview: String = manifest_text.chars().take(500).collect();
+
+        log_anime_debug(&format!("[fetch_hls_manifest][bridge] Status: {}", status));
+        log_anime_debug(&format!(
+            "[fetch_hls_manifest][bridge] Body preview: {}",
+            manifest_preview
+        ));
+
+        if !(200..300).contains(&status) {
+            return Err(format!("Manifest browser fetch failed: HTTP {}", status));
+        }
+
+        let base_url = Url::parse(&url).map_err(|e| e.to_string())?;
+        let rewritten = manifest_text
+            .lines()
+            .map(|line| rewrite_manifest_line(line, &base_url))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        return Ok(rewritten);
     }
-
-    let base_url = Url::parse(&url).map_err(|e| e.to_string())?;
-    let rewritten = manifest_text
-        .lines()
-        .map(|line| rewrite_manifest_line(line, &base_url))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    return Ok(rewritten);
-}
 
     let mut request = prepare_playback_request(&url, &headers, session_id.as_deref())?;
     request = request.header(
-    "Accept",
-    "application/vnd.apple.mpegurl, application/x-mpegURL, application/x-mpegurl, */*",
-);
+        "Accept",
+        "application/vnd.apple.mpegurl, application/x-mpegURL, application/x-mpegurl, */*",
+    );
 
     let response = request.send().await.map_err(|e| {
         log_anime_debug(&format!("[fetch_hls_manifest] Request error: {e}"));
@@ -4221,7 +5443,10 @@ if use_dotstream_bridge {
 
     log_anime_debug(&format!("[fetch_hls_manifest] Headers sent: {:?}", headers));
     log_anime_debug(&format!("[fetch_hls_manifest] Status: {}", status));
-    log_anime_debug(&format!("[fetch_hls_manifest] Content-Type: {:?}", content_type));
+    log_anime_debug(&format!(
+        "[fetch_hls_manifest] Content-Type: {:?}",
+        content_type
+    ));
 
     if !status.is_success() {
         let error = format!("Manifest fetch failed: HTTP {}", status);
@@ -4235,7 +5460,10 @@ if use_dotstream_bridge {
     })?;
     let manifest_preview: String = manifest_text.chars().take(500).collect();
 
-    log_anime_debug(&format!("[fetch_hls_manifest] Body preview: {}", manifest_preview));
+    log_anime_debug(&format!(
+        "[fetch_hls_manifest] Body preview: {}",
+        manifest_preview
+    ));
     let base_url = Url::parse(&url).map_err(|e| e.to_string())?;
     let rewritten = manifest_text
         .lines()
@@ -4256,28 +5484,39 @@ async fn media_proxy_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .get(&id)
         .cloned()
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Media proxy entry not found".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "Media proxy entry not found".to_string(),
+            )
+        })?;
 
     if let Some(file_path) = entry.file_path.clone() {
-        return media_proxy_local_file_response(file_path, entry.content_type.clone(), request_headers).await;
+        return media_proxy_local_file_response(
+            file_path,
+            entry.content_type.clone(),
+            request_headers,
+        )
+        .await;
     }
 
     let client = if let Some(session_id) = entry.session_id.clone() {
         resolver_session(Some(&session_id))
             .map(|session| session.client)
-            .unwrap_or(build_resolver_client().map_err(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-            })?)
+            .unwrap_or(
+                build_resolver_client()
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+            )
     } else {
-        build_resolver_client().map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-        })?
+        build_resolver_client().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     };
 
-    let entry_url = entry
-        .url
-        .clone()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Media proxy URL missing".to_string()))?;
+    let entry_url = entry.url.clone().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Media proxy URL missing".to_string(),
+        )
+    })?;
 
     let mut upstream_request = client.get(&entry_url);
 
@@ -4305,7 +5544,7 @@ async fn media_proxy_handler(
         .bytes_stream()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
 
-   let mut response = http::Response::builder().status(status);
+    let mut response = http::Response::builder().status(status);
 
     for (key, value) in upstream_headers.iter() {
         if let Ok(value_str) = value.to_str() {
@@ -4316,6 +5555,241 @@ async fn media_proxy_handler(
     response
         .body(Body::from_stream(stream))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn cast_relay_media_handler(
+    State(_app): State<tauri::AppHandle>,
+    Path(id): Path<String>,
+    request_headers: AxumHeaderMap,
+) -> Result<http::Response<Body>, (StatusCode, String)> {
+    let entry = cast_relay_entry_for_id(&id)?;
+
+    if entry.kind == "hls" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "HLS cast relay entries must be loaded through the manifest route".to_string(),
+        ));
+    }
+
+    if let Some(file_path) = entry.file_path.clone() {
+        return media_proxy_local_file_response(
+            file_path,
+            entry.content_type.clone(),
+            request_headers,
+        )
+        .await;
+    }
+
+    let entry_url = entry.url.clone().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Cast relay URL missing".to_string(),
+        )
+    })?;
+
+    let request = prepare_proxy_request(&entry_url, &entry.headers, entry.session_id.as_deref())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let request = append_range_header_from_request(request, &request_headers);
+
+    let upstream_response = request.send().await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Cast relay upstream request failed: {e}"),
+        )
+    })?;
+
+    build_streaming_proxy_response(upstream_response).await
+}
+
+async fn cast_relay_manifest_handler(
+    State(app): State<tauri::AppHandle>,
+    Path(id): Path<String>,
+    request_headers: AxumHeaderMap,
+) -> Result<http::Response<Body>, (StatusCode, String)> {
+    let entry = cast_relay_entry_for_id(&id)?;
+    if entry.kind != "hls" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Cast relay entry is not HLS".to_string(),
+        ));
+    }
+
+    let entry_url = entry.url.clone().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Cast relay manifest URL missing".to_string(),
+        )
+    })?;
+    let relay_base_url = resolve_cast_relay_base_url(&request_headers).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Cast relay base URL is unavailable".to_string(),
+        )
+    })?;
+
+    let manifest_text = fetch_hls_manifest(
+        app,
+        entry_url.clone(),
+        entry.headers.clone(),
+        entry.session_id.clone(),
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Cast relay manifest failed: {e}"),
+        )
+    })?;
+    let final_url = Url::parse(&entry_url).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Cast relay manifest URL was invalid: {e}"),
+        )
+    })?;
+    let rewritten = rewrite_cast_manifest_text(
+        &manifest_text,
+        &final_url,
+        &relay_base_url,
+        &entry.headers,
+        entry.session_id.as_deref(),
+        Some(&id),
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    http::Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/vnd.apple.mpegurl")
+        .header("Cache-Control", "no-store")
+        .body(Body::from(rewritten))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn cast_relay_asset_handler(
+    State(app): State<tauri::AppHandle>,
+    Path(id): Path<String>,
+    request_headers: AxumHeaderMap,
+) -> Result<http::Response<Body>, (StatusCode, String)> {
+    let entry = cast_relay_asset_entry_for_id(&id)?;
+    let relay_base_url = resolve_cast_relay_base_url(&request_headers).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Cast relay base URL is unavailable".to_string(),
+        )
+    })?;
+
+    if is_hls_manifest_reference(&entry.url, None) {
+        let manifest_text = fetch_hls_manifest(
+            app,
+            entry.url.clone(),
+            entry.headers.clone(),
+            entry.session_id.clone(),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Cast relay asset manifest failed: {e}"),
+            )
+        })?;
+        let final_url = Url::parse(&entry.url).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cast relay asset manifest URL was invalid: {e}"),
+            )
+        })?;
+        let rewritten = rewrite_cast_manifest_text(
+            &manifest_text,
+            &final_url,
+            &relay_base_url,
+            &entry.headers,
+            entry.session_id.as_deref(),
+            entry.parent_relay_id.as_deref(),
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+        return http::Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/vnd.apple.mpegurl")
+            .header("Cache-Control", "no-store")
+            .body(Body::from(rewritten))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+
+    let use_session_bridge = entry.session_id.is_some() && entry.url.contains("cdn.dotstream.buzz");
+    if use_session_bridge {
+        let payload = fetch_hls_segment_bytes(
+            app,
+            entry.url.clone(),
+            entry.headers.clone(),
+            entry.session_id.clone(),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Cast relay asset fetch failed: {e}"),
+            )
+        })?;
+
+        return http::Response::builder()
+            .status(StatusCode::OK)
+            .header("Cache-Control", "no-store")
+            .body(Body::from(payload))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+
+    let request = prepare_proxy_request(&entry.url, &entry.headers, entry.session_id.as_deref())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let request = append_range_header_from_request(request, &request_headers);
+
+    let upstream_response = request.send().await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Cast relay asset request failed: {e}"),
+        )
+    })?;
+    let status = upstream_response.status();
+
+    if !status.is_success() && status.as_u16() != 206 {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Cast relay asset failed: HTTP {status}"),
+        ));
+    }
+
+    let content_type = upstream_response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let final_url = upstream_response.url().clone();
+
+    if is_hls_manifest_reference(final_url.as_str(), content_type.as_deref()) {
+        let manifest_text = upstream_response.text().await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Failed to read cast relay asset manifest: {e}"),
+            )
+        })?;
+        let rewritten = rewrite_cast_manifest_text(
+            &manifest_text,
+            &final_url,
+            &relay_base_url,
+            &entry.headers,
+            entry.session_id.as_deref(),
+            entry.parent_relay_id.as_deref(),
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+        return http::Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/vnd.apple.mpegurl")
+            .header("Cache-Control", "no-store")
+            .body(Body::from(rewritten))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+
+    build_streaming_proxy_response(upstream_response).await
 }
 
 async fn browser_fetch_complete_http(
@@ -4361,9 +5835,9 @@ async fn ensure_media_proxy_server(app: tauri::AppHandle) -> Result<String, Stri
     let base_url = format!("http://127.0.0.1:{}", addr.port());
 
     let router = Router::new()
-    .route("/media/:id", get(media_proxy_handler))
-    .route("/browser-fetch-complete", post(browser_fetch_complete_http))
-    .with_state(app.clone());
+        .route("/media/:id", get(media_proxy_handler))
+        .route("/browser-fetch-complete", post(browser_fetch_complete_http))
+        .with_state(app.clone());
 
     let _ = media_proxy_base_url().set(base_url.clone());
 
@@ -4376,6 +5850,399 @@ async fn ensure_media_proxy_server(app: tauri::AppHandle) -> Result<String, Stri
     log_anime_debug(&format!("[media_proxy] started at {}", base_url));
 
     Ok(base_url)
+}
+
+async fn ensure_cast_relay_server(app: tauri::AppHandle) -> Result<CastRelayServerInfo, String> {
+    if let Some(info) = cast_relay_server_info().get() {
+        return Ok(info.clone());
+    }
+
+    let listener = TcpListener::bind("0.0.0.0:0")
+        .await
+        .map_err(|e| format!("Failed to bind cast relay server: {e}"))?;
+
+    let addr = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to read cast relay address: {e}"))?;
+    let lan_ip = resolve_cast_relay_ipv4()
+        .ok_or_else(|| "No LAN IPv4 address is available for casting on this device".to_string())?;
+
+    let info = CastRelayServerInfo {
+        local_base_url: format!("http://127.0.0.1:{}", addr.port()),
+        lan_base_url: Some(format!("http://{}:{}", lan_ip, addr.port())),
+        lan_ip: Some(lan_ip),
+    };
+
+    let router = Router::new()
+        .route("/cast/:id", get(cast_relay_media_handler))
+        .route(
+            "/cast/hls/:id/master.m3u8",
+            get(cast_relay_manifest_handler),
+        )
+        .route("/cast/asset/:id", get(cast_relay_asset_handler))
+        .with_state(app.clone());
+
+    let _ = cast_relay_server_info().set(info.clone());
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = axum::serve(listener, router).await {
+            log_resolver_debug(&format!("[cast_relay] server error: {error}"));
+        }
+    });
+
+    log_resolver_debug(&format!(
+        "[cast_relay] started local={} lan={:?}",
+        info.local_base_url, info.lan_base_url
+    ));
+
+    Ok(info)
+}
+
+#[tauri::command]
+async fn get_cast_relay_status(app: tauri::AppHandle) -> Result<CastRelayStatus, String> {
+    if cast_relay_server_info().get().is_none() {
+        let _ = ensure_cast_relay_server(app).await?;
+    }
+
+    Ok(build_cast_relay_status())
+}
+
+#[tauri::command]
+async fn prepare_cast_media(
+    app: tauri::AppHandle,
+    payload: PrepareCastMediaRequest,
+) -> Result<PreparedCastMedia, String> {
+    let server_info = ensure_cast_relay_server(app).await?;
+    prune_expired_cast_relay_state();
+
+    let headers = payload.headers.unwrap_or_default();
+    let stream_url = payload
+        .stream_url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let file_path = payload
+        .file_path
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let stream_type = payload.stream_type.unwrap_or_default();
+    let normalized_session_id = payload
+        .session_id
+        .clone()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(session_id) = normalized_session_id.as_deref() {
+        if resolver_session(Some(session_id)).is_none() {
+            return Err(
+                "This protected stream session is no longer available. Keep playback open and try casting again."
+                    .to_string(),
+            );
+        }
+    }
+
+    let resolved_kind = if let Some(path) = file_path.clone() {
+        let normalized = PathBuf::from(&path);
+        if !normalized.exists() {
+            return Err(format!("Local cast file does not exist: {path}"));
+        }
+        "file".to_string()
+    } else {
+        let url = stream_url
+            .clone()
+            .ok_or_else(|| "Casting requires a stream URL or local file path".to_string())?;
+
+        if stream_type.eq_ignore_ascii_case("hls") || url.to_ascii_lowercase().contains(".m3u8") {
+            "hls".to_string()
+        } else {
+            "direct".to_string()
+        }
+    };
+
+    let relay_id = Uuid::new_v4().to_string();
+    let expires_at_ms = cast_relay_expiration_ms();
+    let normalized_stream_type = if resolved_kind == "hls" {
+        "hls".to_string()
+    } else {
+        "mp4".to_string()
+    };
+
+    cast_relay_entries()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(
+            relay_id.clone(),
+            CastRelayEntry {
+                kind: resolved_kind.clone(),
+                url: stream_url.clone(),
+                headers,
+                session_id: normalized_session_id.clone(),
+                file_path: file_path.clone(),
+                content_type: payload.content_type.clone(),
+                expires_at_ms,
+            },
+        );
+
+    let relay_base_url = server_info
+        .lan_base_url
+        .clone()
+        .ok_or_else(|| "Cast relay LAN base URL is unavailable".to_string())?;
+    let relay_url = if resolved_kind == "hls" {
+        format!("{relay_base_url}/cast/hls/{relay_id}/master.m3u8")
+    } else {
+        format!("{relay_base_url}/cast/{relay_id}")
+    };
+
+    Ok(PreparedCastMedia {
+        relay_id,
+        relay_url,
+        relay_kind: resolved_kind,
+        stream_type: normalized_stream_type,
+        content_type: payload.content_type.clone(),
+        session_id: normalized_session_id,
+        title: payload.title.clone(),
+        image_url: payload.image_url.clone(),
+        expires_at_ms,
+        relay_status: build_cast_relay_status(),
+    })
+}
+
+#[tauri::command]
+fn clear_cast_relay(relay_id: Option<String>) -> Result<CastRelayStatus, String> {
+    let normalized_relay_id = relay_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(active_relay_id) = active_cast_session()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .and_then(|session| session.relay_id.clone())
+    {
+        if normalized_relay_id
+            .as_deref()
+            .map(|value| value == active_relay_id)
+            .unwrap_or(false)
+        {
+            return Ok(build_cast_relay_status());
+        }
+    }
+
+    if let Some(id) = normalized_relay_id {
+        clear_cast_relay_family(Some(&id))?;
+    } else {
+        cast_relay_entries()
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clear();
+        cast_relay_asset_entries()
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clear();
+    }
+
+    Ok(build_cast_relay_status())
+}
+
+#[tauri::command]
+async fn discover_cast_devices() -> Result<Vec<CastDeviceInfo>, String> {
+    let chromecast_task = tokio::task::spawn_blocking(move || {
+        let response: CastDiscoveryResponse =
+            run_cast_bridge_command("discover", &serde_json::json!({ "timeoutMs": 3200 }))?;
+        Ok::<Vec<CastDeviceInfo>, String>(response.devices)
+    });
+    let dlna_task = discover_dlna_devices();
+
+    let (chromecast_result, dlna_result) = tokio::join!(chromecast_task, dlna_task);
+    let mut devices = Vec::new();
+    let mut errors = Vec::new();
+
+    match chromecast_result {
+        Ok(Ok(found)) => devices.extend(found),
+        Ok(Err(error)) => {
+            log_resolver_debug(&format!("[cast] chromecast discovery failed: {error}"));
+            errors.push(error);
+        }
+        Err(error) => {
+            let message = format!("Failed to join Chromecast discovery task: {error}");
+            log_resolver_debug(&format!("[cast] {message}"));
+            errors.push(message);
+        }
+    }
+
+    match dlna_result {
+        Ok(found) => devices.extend(found),
+        Err(error) => {
+            log_resolver_debug(&format!("[cast] dlna discovery failed: {error}"));
+            errors.push(error);
+        }
+    }
+
+    devices.sort_by(|left, right| {
+        left.device_type
+            .cmp(&right.device_type)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    devices.dedup_by(|left, right| left.id == right.id);
+
+    if devices.is_empty() && !errors.is_empty() {
+        return Err(errors.join(" | "));
+    }
+
+    Ok(devices)
+}
+
+#[tauri::command]
+async fn get_cast_session_status() -> Result<CastSessionStatus, String> {
+    load_active_cast_session_status().await
+}
+
+#[tauri::command]
+async fn connect_cast_device(payload: CastConnectRequest) -> Result<CastSessionStatus, String> {
+    let relay_url = payload.relay_url.trim().to_string();
+    if relay_url.is_empty() {
+        return Err("A prepared cast relay URL is required".to_string());
+    }
+
+    let relay_id = payload
+        .relay_id
+        .clone()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(relay_id_value) = relay_id.as_deref() {
+        cast_relay_entry_for_id(relay_id_value).map_err(|(_, message)| message)?;
+    }
+
+    let next_status = if payload
+        .device
+        .device_type
+        .eq_ignore_ascii_case("chromecast")
+    {
+        let device = payload.device.clone();
+        let title = payload
+            .title
+            .clone()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let image_url = payload
+            .image_url
+            .clone()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let relay_kind = payload
+            .relay_kind
+            .clone()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let content_type = payload
+            .content_type
+            .clone()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let current_time = payload.current_time.unwrap_or(0.0).max(0.0);
+        let autoplay = payload.autoplay.unwrap_or(true);
+
+        let bridge_response: CastBridgeConnectResponse = tokio::task::spawn_blocking(move || {
+            run_cast_bridge_command(
+                "connect",
+                &serde_json::json!({
+                    "host": device.host,
+                    "port": device.port,
+                    "relayUrl": relay_url,
+                    "relayKind": relay_kind,
+                    "contentType": content_type,
+                    "title": title,
+                    "imageUrl": image_url,
+                    "currentTime": current_time,
+                    "autoplay": autoplay,
+                }),
+            )
+        })
+        .await
+        .map_err(|e| format!("Failed to join Chromecast connect task: {e}"))??;
+        let media_status = bridge_response.status;
+
+        CastSessionStatus {
+            connected: true,
+            device: Some(payload.device.clone()),
+            relay_id: relay_id.clone(),
+            relay_url: Some(payload.relay_url.clone()),
+            player_state: media_status
+                .as_ref()
+                .and_then(|status| status.player_state.clone()),
+            current_time: media_status.as_ref().and_then(|status| status.current_time),
+            media_session_id: media_status.and_then(|status| status.media_session_id),
+            error_message: None,
+        }
+    } else if payload.device.device_type.eq_ignore_ascii_case("dlna") {
+        connect_dlna_device(&payload).await?
+    } else {
+        return Err(format!(
+            "Unsupported cast device type: {}",
+            payload.device.device_type
+        ));
+    };
+
+    let previous_relay_id = {
+        let mut guard = active_cast_session().lock().map_err(|e| e.to_string())?;
+        let previous_relay_id = guard.as_ref().and_then(|session| session.relay_id.clone());
+        guard.replace(ActiveCastSession {
+            device: next_status.device.clone().unwrap_or(payload.device),
+            relay_id: relay_id.clone(),
+            relay_url: payload.relay_url,
+            player_state: next_status.player_state.clone(),
+        });
+        previous_relay_id
+    };
+
+    if previous_relay_id != relay_id {
+        clear_cast_relay_family(previous_relay_id.as_deref())?;
+    }
+
+    Ok(next_status)
+}
+
+#[tauri::command]
+async fn disconnect_cast_device() -> Result<CastSessionStatus, String> {
+    let active_session = clear_active_cast_session()?;
+
+    let Some(active_session) = active_session else {
+        return Ok(build_cast_session_status());
+    };
+
+    let device = active_session.device.clone();
+    if device.device_type.eq_ignore_ascii_case("chromecast") {
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            let _: Value = run_cast_bridge_command(
+                "disconnect",
+                &serde_json::json!({
+                    "host": device.host,
+                    "port": device.port,
+                }),
+            )?;
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|e| format!("Failed to join Chromecast disconnect task: {e}"))?
+        {
+            log_resolver_debug(&format!(
+                "[cast] chromecast disconnect cleanup continued after device error: {error}"
+            ));
+        }
+    } else if device.device_type.eq_ignore_ascii_case("dlna") {
+        if let Err(error) = disconnect_dlna_device(&device).await {
+            log_resolver_debug(&format!(
+                "[cast] dlna disconnect cleanup continued after device error: {error}"
+            ));
+        }
+    } else {
+        return Err(format!(
+            "Unsupported cast device type: {}",
+            device.device_type
+        ));
+    }
+
+    Ok(build_cast_session_status())
 }
 
 #[tauri::command]
@@ -4430,7 +6297,8 @@ async fn register_media_proxy_file(
                 session_id: None,
                 file_path: Some(file_path.clone()),
                 content_type: Some(
-                    content_type.unwrap_or_else(|| guess_local_media_content_type(&file_path).to_string()),
+                    content_type
+                        .unwrap_or_else(|| guess_local_media_content_type(&file_path).to_string()),
                 ),
             },
         );
@@ -4594,7 +6462,8 @@ fn parse_hls_audio_tracks(manifest_text: &str) -> Vec<HlsAudioTrackDescriptor> {
                 return None;
             }
 
-            let name = extract_hls_attribute(trimmed, "NAME").unwrap_or_else(|| "Unknown".to_string());
+            let name =
+                extract_hls_attribute(trimmed, "NAME").unwrap_or_else(|| "Unknown".to_string());
             let language = extract_hls_attribute(trimmed, "LANGUAGE");
             let normalized_language = normalize_hls_audio_language(language.as_deref(), &name);
             let default = extract_hls_attribute(trimmed, "DEFAULT")
@@ -4718,9 +6587,7 @@ fn hls_audio_track_score(track: &HlsAudioTrackDescriptor) -> i32 {
     score
 }
 
-async fn discover_preferred_hls_audio_selector(
-    stream: &ResolvedMovieStream,
-) -> Option<String> {
+async fn discover_preferred_hls_audio_selector(stream: &ResolvedMovieStream) -> Option<String> {
     if stream.stream_type != "hls" {
         return None;
     }
@@ -4749,7 +6616,11 @@ async fn discover_preferred_hls_audio_selector(
     let best = tracks.into_iter().max_by_key(hls_audio_track_score)?;
 
     let mut parts = Vec::new();
-    if let Some(language) = best.language.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(language) = best
+        .language
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         parts.push(format!("lang=\"^{}$\"", regex::escape(language.trim())));
     } else if !best.normalized_language.is_empty() && best.normalized_language != "unknown" {
         parts.push(format!(
@@ -4786,7 +6657,12 @@ fn pick_preferred_hls_video_variant(
         return None;
     }
 
-    match requested_quality.unwrap_or("high").trim().to_ascii_lowercase().as_str() {
+    match requested_quality
+        .unwrap_or("high")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "standard" => variants
             .iter()
             .filter(|variant| variant.height.unwrap_or(u32::MAX) <= 540)
@@ -4806,7 +6682,9 @@ fn pick_preferred_hls_video_variant(
                 variants
                     .iter()
                     .filter(|variant| variant.height.unwrap_or(0) <= 1080)
-                    .max_by_key(|variant| (variant.height.unwrap_or(0), variant.bandwidth.unwrap_or(0)))
+                    .max_by_key(|variant| {
+                        (variant.height.unwrap_or(0), variant.bandwidth.unwrap_or(0))
+                    })
                     .cloned()
             })
             .or_else(|| variants.last().cloned()),
@@ -4825,7 +6703,12 @@ fn build_hls_video_selector(
         return format!("bwMin={bandwidth}:bwMax={bandwidth}:for=best");
     }
 
-    match requested_quality.unwrap_or("high").trim().to_ascii_lowercase().as_str() {
+    match requested_quality
+        .unwrap_or("high")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "standard" => "worst".to_string(),
         "highest" => "best".to_string(),
         _ => "best".to_string(),
@@ -4857,7 +6740,12 @@ fn describe_hls_video_variant_quality(
         }
     }
 
-    match requested_quality.unwrap_or("high").trim().to_ascii_lowercase().as_str() {
+    match requested_quality
+        .unwrap_or("high")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "standard" => "SD".to_string(),
         "highest" => "Best".to_string(),
         _ => "HD".to_string(),
@@ -4920,7 +6808,8 @@ fn parse_hls_subtitle_tracks(
 
             let uri = extract_hls_attribute(trimmed, "URI")?;
             let subtitle_url = manifest_url.join(&uri).ok()?.to_string();
-            let label = extract_hls_attribute(trimmed, "NAME").unwrap_or_else(|| "Unknown".to_string());
+            let label =
+                extract_hls_attribute(trimmed, "NAME").unwrap_or_else(|| "Unknown".to_string());
             let language = normalize_hls_subtitle_language(
                 extract_hls_attribute(trimmed, "LANGUAGE").as_deref(),
                 &label,
@@ -5165,8 +7054,7 @@ async fn probe_movie_stream_inner(
     } else {
         Some(if normalized_stream_type == "hls" && status.is_success() {
             "Movie stream probe failed: manifest was not a playable HLS playlist".to_string()
-        } else if normalized_stream_type != "hls"
-            && (status.is_success() || status.as_u16() == 206)
+        } else if normalized_stream_type != "hls" && (status.is_success() || status.as_u16() == 206)
         {
             format!(
                 "Movie stream probe failed: non-media content type {:?}",
@@ -5343,14 +7231,7 @@ fn movie_audio_preference_score(stream: &ResolvedMovieStream) -> i32 {
     let url = stream.url.to_ascii_lowercase();
     let combined = format!("{title} {provider} {url}");
 
-    let english_markers = [
-        "english",
-        "eng",
-        "english dub",
-        "dubbed",
-        "amzn",
-        "itunes",
-    ];
+    let english_markers = ["english", "eng", "english dub", "dubbed", "amzn", "itunes"];
     let non_english_markers = [
         "hindi",
         "tam",
@@ -5382,7 +7263,10 @@ fn movie_audio_preference_score(stream: &ResolvedMovieStream) -> i32 {
 
     let mut score = 0;
 
-    if english_markers.iter().any(|marker| combined.contains(marker)) {
+    if english_markers
+        .iter()
+        .any(|marker| combined.contains(marker))
+    {
         score += 10;
     }
 
@@ -5477,10 +7361,7 @@ fn looks_like_non_media_payload_prefix(bytes: &[u8]) -> bool {
 }
 
 fn is_media_like_content_type(content_type: Option<&str>) -> bool {
-    let normalized = content_type
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
+    let normalized = content_type.unwrap_or_default().trim().to_ascii_lowercase();
 
     if normalized.is_empty() {
         return false;
@@ -5524,7 +7405,10 @@ fn looks_like_valid_hls_manifest(body: &str) -> bool {
     })
 }
 
-async fn fetch_json_value(client: &reqwest::Client, url: &str) -> Result<serde_json::Value, String> {
+async fn fetch_json_value(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<serde_json::Value, String> {
     let response = client
         .get(url)
         .header(
@@ -5540,7 +7424,10 @@ async fn fetch_json_value(client: &reqwest::Client, url: &str) -> Result<serde_j
         return Err(format!("HTTP {}", status));
     }
 
-    response.json::<serde_json::Value>().await.map_err(|e| e.to_string())
+    response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 async fn fetch_json_value_with_timeout(
@@ -5628,7 +7515,9 @@ fn normalize_nuvio_streams(value: &serde_json::Value, strategy: &str) -> Vec<Res
             let headers = stream
                 .get("behaviorHints")
                 .and_then(|hints| hints.get("headers"))
-                .and_then(|headers| serde_json::from_value::<HashMap<String, String>>(headers.clone()).ok())
+                .and_then(|headers| {
+                    serde_json::from_value::<HashMap<String, String>>(headers.clone()).ok()
+                })
                 .unwrap_or_default();
             let quality = parse_movie_quality(
                 stream
@@ -5673,16 +7562,27 @@ async fn resolve_tmdb_external_imdb_id(
     tmdb_id: &str,
     content_type: &str,
 ) -> Result<String, String> {
-    let endpoint = if content_type == "series" { "tv" } else { "movie" };
-    let url = format!(
-        "{TMDB_BASE_URL}/{endpoint}/{tmdb_id}/external_ids?api_key={TMDB_API_KEY}"
-    );
+    let endpoint = if content_type == "series" {
+        "tv"
+    } else {
+        "movie"
+    };
+    let url = format!("{TMDB_BASE_URL}/{endpoint}/{tmdb_id}/external_ids?api_key={TMDB_API_KEY}");
     let data = fetch_json_value(client, &url).await?;
     data.get("imdb_id")
         .and_then(|value| value.as_str())
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
-        .ok_or_else(|| format!("No IMDb ID found for this {}", if content_type == "series" { "episode" } else { "movie" }))
+        .ok_or_else(|| {
+            format!(
+                "No IMDb ID found for this {}",
+                if content_type == "series" {
+                    "episode"
+                } else {
+                    "movie"
+                }
+            )
+        })
 }
 
 fn normalize_wyzie_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubtitle> {
@@ -5903,7 +7803,11 @@ fn normalize_opensubtitles_subtitles(data: &serde_json::Value) -> Vec<ResolvedMo
             let release = attributes
                 .get("release")
                 .or_else(|| attributes.get("movie_name"))
-                .or_else(|| attributes.get("feature_details").and_then(|value| value.get("movie_name")))
+                .or_else(|| {
+                    attributes
+                        .get("feature_details")
+                        .and_then(|value| value.get("movie_name"))
+                })
                 .and_then(|value| value.as_str())
                 .map(str::to_string);
             let file_name = files
@@ -5976,7 +7880,8 @@ async fn fetch_opensubtitles_subtitles(
         episode: Option<u32>,
     ) -> Result<reqwest::Response, String> {
         let session = login_opensubtitles(client).await?;
-        let mut url = Url::parse(&format!("{}/subtitles", session.base_url)).map_err(|e| e.to_string())?;
+        let mut url =
+            Url::parse(&format!("{}/subtitles", session.base_url)).map_err(|e| e.to_string())?;
         {
             let mut query = url.query_pairs_mut();
             query
@@ -6003,7 +7908,8 @@ async fn fetch_opensubtitles_subtitles(
             .map_err(|e| format!("OpenSubtitles search request failed: {e}"))
     }
 
-    let mut response = request_once(client, &api_key, imdb_id, content_type, season, episode).await?;
+    let mut response =
+        request_once(client, &api_key, imdb_id, content_type, season, episode).await?;
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
         clear_opensubtitles_session_cache();
         response = request_once(client, &api_key, imdb_id, content_type, season, episode).await?;
@@ -6074,7 +7980,11 @@ async fn resolve_tmdb_subtitle_query(
     tmdb_id: &str,
     content_type: &str,
 ) -> Result<(String, Option<String>), String> {
-    let endpoint = if content_type == "series" { "tv" } else { "movie" };
+    let endpoint = if content_type == "series" {
+        "tv"
+    } else {
+        "movie"
+    };
     let url = format!("{TMDB_BASE_URL}/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}");
     let data = fetch_json_value(client, &url).await?;
     let title = data
@@ -6154,7 +8064,9 @@ async fn fetch_subf2m_subtitles(
         }
 
         if matched_path.is_none() {
-            let title_matches = page_html.to_ascii_lowercase().contains(&title.to_ascii_lowercase());
+            let title_matches = page_html
+                .to_ascii_lowercase()
+                .contains(&title.to_ascii_lowercase());
             let year_matches = expected_year
                 .map(|value| page_html.contains(value))
                 .unwrap_or(true);
@@ -6218,7 +8130,10 @@ async fn fetch_subf2m_subtitles(
     Ok(subtitles)
 }
 
-fn normalize_provider_subtitles(data: &serde_json::Value, fallback_source: &str) -> Vec<ResolvedMovieSubtitle> {
+fn normalize_provider_subtitles(
+    data: &serde_json::Value,
+    fallback_source: &str,
+) -> Vec<ResolvedMovieSubtitle> {
     let Some(streams) = data.as_array() else {
         return Vec::new();
     };
@@ -6355,7 +8270,11 @@ fn subtitle_preference_score(subtitle: &ResolvedMovieSubtitle) -> i32 {
         score += 3;
     }
 
-    if release_hint.contains("web") || release_hint.contains("webrip") || release_hint.contains("web-dl") || url.contains("web") {
+    if release_hint.contains("web")
+        || release_hint.contains("webrip")
+        || release_hint.contains("web-dl")
+        || url.contains("web")
+    {
         score += 25;
     }
 
@@ -6399,7 +8318,10 @@ async fn fetch_movie_subtitles(
     };
     let imdb_id = match payload.imdb_id.clone() {
         Some(imdb_id) if !imdb_id.trim().is_empty() => imdb_id,
-        _ => resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, imdb_lookup_content_type).await?,
+        _ => {
+            resolve_tmdb_external_imdb_id(&client, &payload.tmdb_id, imdb_lookup_content_type)
+                .await?
+        }
     };
     let wyzie_sources = wyzie_sources_for_content_type(&normalized_content_type);
 
@@ -6430,14 +8352,21 @@ async fn fetch_movie_subtitles(
 
     if is_subdl_fallback_enabled() {
         if let Some(subdl_api_key) = resolve_subdl_api_key() {
-            let mut subdl_url =
-                Url::parse(&format!("{SUBDL_API_BASE_URL}/subtitles")).map_err(|e| e.to_string())?;
+            let mut subdl_url = Url::parse(&format!("{SUBDL_API_BASE_URL}/subtitles"))
+                .map_err(|e| e.to_string())?;
             {
                 let mut query = subdl_url.query_pairs_mut();
                 query
                     .append_pair("api_key", &subdl_api_key)
                     .append_pair("imdb_id", &imdb_id)
-                    .append_pair("type", if normalized_content_type == "series" { "tv" } else { "movie" })
+                    .append_pair(
+                        "type",
+                        if normalized_content_type == "series" {
+                            "tv"
+                        } else {
+                            "movie"
+                        },
+                    )
                     .append_pair("languages", "EN")
                     .append_pair("subs_per_page", "30")
                     .append_pair("comment", "1")
@@ -6467,7 +8396,11 @@ async fn fetch_movie_subtitles(
                         let subtitles = normalize_subdl_subtitles(&value);
 
                         if !subtitles.is_empty() {
-                            set_cached_value(movie_subtitle_cache(), cache_key.clone(), subtitles.clone());
+                            set_cached_value(
+                                movie_subtitle_cache(),
+                                cache_key.clone(),
+                                subtitles.clone(),
+                            );
 
                             log_resolver_debug(&format!(
                                 "[fetch_movie_subtitles] subtitle_count={} source=subdl-direct tmdbId={} imdbId={}",
@@ -6513,7 +8446,8 @@ async fn fetch_movie_subtitles(
         return Ok(Vec::new());
     }
 
-    let mut url = Url::parse(&format!("{WYZIE_SUBTITLES_BASE_URL}/search")).map_err(|e| e.to_string())?;
+    let mut url =
+        Url::parse(&format!("{WYZIE_SUBTITLES_BASE_URL}/search")).map_err(|e| e.to_string())?;
     {
         let mut query = url.query_pairs_mut();
         query
@@ -6537,7 +8471,11 @@ async fn fetch_movie_subtitles(
         payload.tmdb_id, normalized_content_type, imdb_id, wyzie_sources, url
     ));
 
-    let response = client.get(url.clone()).send().await.map_err(|e| e.to_string())?;
+    let response = client
+        .get(url.clone())
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let status = response.status();
     let body = response.text().await.map_err(|e| e.to_string())?;
 
@@ -6560,7 +8498,10 @@ async fn fetch_movie_subtitles(
 
     log_resolver_debug(&format!(
         "[fetch_movie_subtitles] subtitle_count={} source=wyzie sources={} tmdbId={} imdbId={}",
-        subtitles.len(), wyzie_sources, payload.tmdb_id, imdb_id
+        subtitles.len(),
+        wyzie_sources,
+        payload.tmdb_id,
+        imdb_id
     ));
 
     Ok(subtitles)
@@ -6661,7 +8602,10 @@ fn stop_process_on_port(port: u16) {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let current_pid = std::process::id();
 
-        for pid in stdout.lines().filter_map(|line| line.trim().parse::<u32>().ok()) {
+        for pid in stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+        {
             if pid == current_pid {
                 continue;
             }
@@ -6709,7 +8653,8 @@ async fn fetch_movie_resolver_streams(
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
         .collect::<std::collections::HashSet<_>>();
-    let use_cache = !force_refresh && excluded_url_set.is_empty() && excluded_provider_set.is_empty();
+    let use_cache =
+        !force_refresh && excluded_url_set.is_empty() && excluded_provider_set.is_empty();
 
     let resolved_imdb_id = match payload.imdb_id.clone() {
         Some(imdb_id) if !imdb_id.trim().is_empty() => Ok(imdb_id),
@@ -6731,11 +8676,9 @@ async fn fetch_movie_resolver_streams(
 
     if use_cache {
         if let Some(cache_key) = cache_key.as_ref() {
-            if let Some(cached) = get_cached_value(
-                movie_stream_cache(),
-                cache_key,
-                MOVIE_STREAM_CACHE_TTL_SECS,
-            ) {
+            if let Some(cached) =
+                get_cached_value(movie_stream_cache(), cache_key, MOVIE_STREAM_CACHE_TTL_SECS)
+            {
                 log_resolver_debug(&format!(
                     "[fetch_movie_resolver_streams] cache_hit tmdbId={} imdbId={:?} stream_count={}",
                     payload.tmdb_id,
@@ -6772,7 +8715,8 @@ async fn fetch_movie_resolver_streams(
 
     let mut validated_streams = Vec::new();
     let mut last_nuvio_error = None;
-    let collect_all_stages = force_refresh || !excluded_url_set.is_empty() || !excluded_provider_set.is_empty();
+    let collect_all_stages =
+        force_refresh || !excluded_url_set.is_empty() || !excluded_provider_set.is_empty();
 
     match nuvio_urls.as_ref() {
         Some(urls) => {
@@ -6811,8 +8755,12 @@ async fn fetch_movie_resolver_streams(
                                         .cmp(&movie_audio_preference_score(a))
                                 })
                                 .then_with(|| {
-                                    movie_variant_preference_score(b, &normalized_content_type)
-                                        .cmp(&movie_variant_preference_score(a, &normalized_content_type))
+                                    movie_variant_preference_score(b, &normalized_content_type).cmp(
+                                        &movie_variant_preference_score(
+                                            a,
+                                            &normalized_content_type,
+                                        ),
+                                    )
                                 })
                                 .then_with(|| {
                                     movie_host_preference_score(
@@ -6820,18 +8768,29 @@ async fn fetch_movie_resolver_streams(
                                         &b.url,
                                         &normalized_content_type,
                                     )
-                                    .cmp(&movie_host_preference_score(
-                                        &a.provider,
-                                        &a.url,
+                                    .cmp(
+                                        &movie_host_preference_score(
+                                            &a.provider,
+                                            &a.url,
+                                            &normalized_content_type,
+                                        ),
+                                    )
+                                })
+                                .then_with(|| {
+                                    movie_provider_preference_score(
+                                        &b.provider,
                                         &normalized_content_type,
-                                    ))
+                                    )
+                                    .cmp(
+                                        &movie_provider_preference_score(
+                                            &a.provider,
+                                            &normalized_content_type,
+                                        ),
+                                    )
                                 })
                                 .then_with(|| {
-                                    movie_provider_preference_score(&b.provider, &normalized_content_type)
-                                        .cmp(&movie_provider_preference_score(&a.provider, &normalized_content_type))
-                                })
-                                .then_with(|| {
-                                    movie_quality_score(&b.quality).cmp(&movie_quality_score(&a.quality))
+                                    movie_quality_score(&b.quality)
+                                        .cmp(&movie_quality_score(&a.quality))
                                 })
                                 .then_with(|| a.provider.cmp(&b.provider))
                                 .then_with(|| a.url.cmp(&b.url))
@@ -6849,12 +8808,15 @@ async fn fetch_movie_resolver_streams(
 
                             if probe_result.ok {
                                 let validated_stream = ResolvedMovieStream {
-                                    url: probe_result.final_url.unwrap_or_else(|| stream.url.clone()),
+                                    url: probe_result
+                                        .final_url
+                                        .unwrap_or_else(|| stream.url.clone()),
                                     content_type: probe_result.content_type.clone(),
                                     ..stream
                                 };
                                 let discovered_subtitles =
-                                    discover_provider_hls_subtitles(&client, &validated_stream).await;
+                                    discover_provider_hls_subtitles(&client, &validated_stream)
+                                        .await;
                                 let validated_stream = if !discovered_subtitles.is_empty() {
                                     ResolvedMovieStream {
                                         subtitles: discovered_subtitles,
@@ -6947,8 +8909,9 @@ async fn fetch_movie_resolver_streams(
                 )
             })
             .then_with(|| {
-                movie_provider_preference_score(&b.provider, &normalized_content_type)
-                    .cmp(&movie_provider_preference_score(&a.provider, &normalized_content_type))
+                movie_provider_preference_score(&b.provider, &normalized_content_type).cmp(
+                    &movie_provider_preference_score(&a.provider, &normalized_content_type),
+                )
             })
             .then_with(|| movie_quality_score(&b.quality).cmp(&movie_quality_score(&a.quality)))
             .then_with(|| a.provider.cmp(&b.provider))
@@ -6965,14 +8928,22 @@ async fn fetch_movie_resolver_streams(
         }
         return Err(format!(
             "No validated playable streams available for this {}",
-            if normalized_content_type == "series" { "episode" } else { "movie" }
+            if normalized_content_type == "series" {
+                "episode"
+            } else {
+                "movie"
+            }
         ));
     }
 
     if validated_streams.is_empty() {
         return Err(format!(
             "No validated playable streams available for this {}",
-            if normalized_content_type == "series" { "episode" } else { "movie" }
+            if normalized_content_type == "series" {
+                "episode"
+            } else {
+                "movie"
+            }
         ));
     }
 
@@ -7095,7 +9066,10 @@ fn build_stream_headers(stream_url: &str, page_url: Option<&str>) -> HashMap<Str
     headers
 }
 
-fn to_resolved_embed_stream(captured: CapturedNavigation, session_id: Option<String>) -> ResolvedEmbedStream {
+fn to_resolved_embed_stream(
+    captured: CapturedNavigation,
+    session_id: Option<String>,
+) -> ResolvedEmbedStream {
     let page_url = captured.page_url.clone();
 
     ResolvedEmbedStream {
@@ -7261,11 +9235,7 @@ async fn fetch_resolver_page(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<(Url, reqwest::StatusCode, String), String> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
 
     let final_url = response.url().clone();
     let status = response.status();
@@ -7288,9 +9258,7 @@ async fn resolve_embed_stream_static(
         if let Some(cookie_header) = extract_cookie_header(&body) {
             log_resolver_debug(&format!(
                 "[resolve_embed_stream][static] provider={:?} depth={} cookies={}",
-                provider_id,
-                depth,
-                cookie_header
+                provider_id, depth, cookie_header
             ));
             session_cookie_header = Some(cookie_header);
         }
@@ -7309,12 +9277,18 @@ async fn resolve_embed_stream_static(
             return Err(format!("Resolver request failed: HTTP {}", status));
         }
 
-        if matches!(infer_stream_type(final_url.as_str()).as_str(), "hls" | "mp4") {
+        if matches!(
+            infer_stream_type(final_url.as_str()).as_str(),
+            "hls" | "mp4"
+        ) {
             return Ok(StaticCaptureResolution {
                 resolved_stream: Some(ResolvedEmbedStream {
                     stream_url: final_url.to_string(),
                     stream_type: infer_stream_type(final_url.as_str()),
-                    provider_host: resolve_provider_host(final_url.as_str(), Some(final_url.as_str())),
+                    provider_host: resolve_provider_host(
+                        final_url.as_str(),
+                        Some(final_url.as_str()),
+                    ),
                     page_url: Some(final_url.to_string()),
                     headers: build_stream_headers(final_url.as_str(), Some(final_url.as_str())),
                     subtitles: Vec::new(),
@@ -7347,9 +9321,7 @@ async fn resolve_embed_stream_static(
         if let Some(stream_url) = direct_media_url {
             log_resolver_debug(&format!(
                 "[resolve_embed_stream][static] provider={:?} depth={} direct_media={}",
-                provider_id,
-                depth,
-                stream_url
+                provider_id, depth, stream_url
             ));
 
             return Ok(StaticCaptureResolution {
@@ -7373,9 +9345,7 @@ async fn resolve_embed_stream_static(
             if frame_url != current_url {
                 log_resolver_debug(&format!(
                     "[resolve_embed_stream][static] provider={:?} depth={} iframe={}",
-                    provider_id,
-                    depth,
-                    frame_url
+                    provider_id, depth, frame_url
                 ));
                 current_url = frame_url;
                 continue;
@@ -7601,8 +9571,7 @@ fn create_resolve_capture_window(
         if !capture_for_timeout.swap(true, Ordering::SeqCst) {
             log_resolver_debug(&format!(
                 "[resolve_embed_stream] timeout provider={:?} label={}",
-                provider_for_timeout,
-                label_for_timeout
+                provider_for_timeout, label_for_timeout
             ));
             if let Ok(mut guard) = sender_for_timeout.lock() {
                 if let Some(sender) = guard.take() {
@@ -7641,8 +9610,7 @@ async fn resolve_embed_stream(
 
     log_resolver_debug(&format!(
         "[resolve_embed_stream] launching dynamic capture provider={:?} target_url={}",
-        payload.provider_id,
-        static_resolution.next_url
+        payload.provider_id, static_resolution.next_url
     ));
 
     create_resolve_capture_window(
@@ -7661,11 +9629,7 @@ async fn resolve_embed_stream(
 fn append_updater_log(message: &str) {
     let log_path = env::temp_dir().join("nova-stream-updater.log");
 
-    if let Ok(mut log_file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-    {
+    if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open(log_path) {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -7677,11 +9641,7 @@ fn append_updater_log(message: &str) {
 fn append_anime_debug_log(message: &str) {
     let log_path = env::temp_dir().join(ANIME_DEBUG_LOG_FILE);
 
-    if let Ok(mut log_file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-    {
+    if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open(log_path) {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -7698,11 +9658,7 @@ fn log_anime_debug(message: &str) {
 fn append_resolver_debug_log(message: &str) {
     let log_path = env::temp_dir().join(RESOLVER_DEBUG_LOG_FILE);
 
-    if let Ok(mut log_file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-    {
+    if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open(log_path) {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -7738,6 +9694,332 @@ struct UpdaterContext {
 struct RuntimeEnvironment {
     os: String,
     arch: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WatchPartyTransportConfig {
+    configured: bool,
+    url: String,
+    token_provider: String,
+    error: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateWatchPartyTokenPayload {
+    access_token: String,
+    room_id: String,
+    room_code: String,
+    identity: String,
+    display_name: String,
+    role: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WatchPartyTokenResponse {
+    token: String,
+    url: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct SupabaseAuthUser {
+    id: String,
+    email: Option<String>,
+    user_metadata: Option<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct WatchPartyRoomRecord {
+    id: String,
+    code: String,
+    host_user_id: String,
+    status: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct WatchPartyParticipantRecord {
+    user_id: String,
+}
+
+fn normalize_env_value(value: impl Into<String>) -> Option<String> {
+    let next = value.into().trim().to_string();
+    if next.is_empty() {
+        None
+    } else {
+        Some(next)
+    }
+}
+
+fn first_env_value(keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| env::var(key).ok().and_then(normalize_env_value))
+}
+
+fn watch_party_livekit_url() -> Option<String> {
+    first_env_value(&[
+        "WATCH_PARTY_LIVEKIT_URL",
+        "LIVEKIT_URL",
+        "VITE_WATCH_PARTY_LIVEKIT_URL",
+    ])
+}
+
+fn watch_party_livekit_api_key() -> Option<String> {
+    first_env_value(&["WATCH_PARTY_LIVEKIT_API_KEY", "LIVEKIT_API_KEY"])
+}
+
+fn watch_party_livekit_api_secret() -> Option<String> {
+    first_env_value(&["WATCH_PARTY_LIVEKIT_API_SECRET", "LIVEKIT_API_SECRET"])
+}
+
+fn watch_party_supabase_url() -> String {
+    first_env_value(&["SUPABASE_URL", "VITE_SUPABASE_URL"])
+        .unwrap_or_else(|| DEFAULT_SUPABASE_URL.to_string())
+}
+
+fn watch_party_supabase_anon_key() -> String {
+    first_env_value(&["SUPABASE_ANON_KEY", "VITE_SUPABASE_ANON_KEY"])
+        .unwrap_or_else(|| DEFAULT_SUPABASE_ANON_KEY.to_string())
+}
+
+fn watch_party_transport_missing_keys() -> Vec<&'static str> {
+    let mut missing = Vec::new();
+
+    if watch_party_livekit_url().is_none() {
+        missing.push("WATCH_PARTY_LIVEKIT_URL");
+    }
+    if watch_party_livekit_api_key().is_none() {
+        missing.push("WATCH_PARTY_LIVEKIT_API_KEY");
+    }
+    if watch_party_livekit_api_secret().is_none() {
+        missing.push("WATCH_PARTY_LIVEKIT_API_SECRET");
+    }
+
+    missing
+}
+
+fn watch_party_transport_configuration_error() -> String {
+    let missing = watch_party_transport_missing_keys();
+    if missing.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "Watch Party media transport is not configured yet. Set {} in the Tauri runtime environment or repo .env file.",
+        missing.join(", ")
+    )
+}
+
+fn current_unix_timestamp() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|error| format!("Failed to read system time: {error}"))
+}
+
+fn build_watch_party_room_name(room_id: &str) -> String {
+    format!("watch-party:{room_id}")
+}
+
+fn resolve_watch_party_display_name(requested_name: &str, user: &SupabaseAuthUser) -> String {
+    if let Some(name) = normalize_env_value(requested_name.to_string()) {
+        return name;
+    }
+
+    if let Some(metadata) = user.user_metadata.as_ref() {
+        if let Some(username) = metadata
+            .get("username")
+            .and_then(|value| value.as_str())
+            .and_then(|value| normalize_env_value(value.to_string()))
+        {
+            return username;
+        }
+    }
+
+    if let Some(email_username) = user
+        .email
+        .as_deref()
+        .and_then(|value| value.split('@').next())
+        .and_then(|value| normalize_env_value(value.to_string()))
+    {
+        return email_username;
+    }
+
+    let fallback =
+        normalize_env_value(user.id.clone()).unwrap_or_else(|| "NOVA STREAM".to_string());
+    format!("Member {}", fallback.chars().take(6).collect::<String>())
+}
+
+async fn fetch_supabase_auth_user(access_token: &str) -> Result<SupabaseAuthUser, String> {
+    let user_url = format!(
+        "{}/auth/v1/user",
+        watch_party_supabase_url().trim_end_matches('/')
+    );
+
+    let response = reqwest::Client::new()
+        .get(user_url)
+        .header("apikey", watch_party_supabase_anon_key())
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not validate the Watch Party session: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Your Watch Party session could not be verified ({status}). {}",
+            body.trim()
+        ));
+    }
+
+    response
+        .json::<SupabaseAuthUser>()
+        .await
+        .map_err(|error| format!("Could not read the authenticated Watch Party user: {error}"))
+}
+
+async fn fetch_watch_party_room_record(
+    access_token: &str,
+    room_id: &str,
+    room_code: &str,
+) -> Result<WatchPartyRoomRecord, String> {
+    let mut url = Url::parse(&format!(
+        "{}/rest/v1/watch_party_rooms",
+        watch_party_supabase_url().trim_end_matches('/')
+    ))
+    .map_err(|error| format!("Could not build the Watch Party room lookup URL: {error}"))?;
+
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("select", "id,code,host_user_id,status");
+        pairs.append_pair("id", &format!("eq.{room_id}"));
+        pairs.append_pair("code", &format!("eq.{room_code}"));
+        pairs.append_pair("limit", "1");
+    }
+
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("apikey", watch_party_supabase_anon_key())
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not look up the Watch Party room: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Could not verify the Watch Party room ({status}). {}",
+            body.trim()
+        ));
+    }
+
+    let rooms = response
+        .json::<Vec<WatchPartyRoomRecord>>()
+        .await
+        .map_err(|error| format!("Could not read the Watch Party room lookup response: {error}"))?;
+
+    rooms
+        .into_iter()
+        .next()
+        .ok_or_else(|| "This Watch Party room could not be found.".to_string())
+}
+
+async fn fetch_watch_party_participant_record(
+    access_token: &str,
+    room_id: &str,
+    user_id: &str,
+) -> Result<WatchPartyParticipantRecord, String> {
+    let mut url = Url::parse(&format!(
+        "{}/rest/v1/watch_party_participants",
+        watch_party_supabase_url().trim_end_matches('/')
+    ))
+    .map_err(|error| format!("Could not build the Watch Party participant lookup URL: {error}"))?;
+
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("select", "user_id");
+        pairs.append_pair("room_id", &format!("eq.{room_id}"));
+        pairs.append_pair("user_id", &format!("eq.{user_id}"));
+        pairs.append_pair("limit", "1");
+    }
+
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("apikey", watch_party_supabase_anon_key())
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not verify the Watch Party participant: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Could not verify Watch Party room membership ({status}). {}",
+            body.trim()
+        ));
+    }
+
+    let participants = response
+        .json::<Vec<WatchPartyParticipantRecord>>()
+        .await
+        .map_err(|error| {
+            format!("Could not read the Watch Party participant lookup response: {error}")
+        })?;
+
+    participants
+        .into_iter()
+        .next()
+        .ok_or_else(|| "You are not part of this Watch Party room yet.".to_string())
+}
+
+fn build_watch_party_token(
+    room: &WatchPartyRoomRecord,
+    user: &SupabaseAuthUser,
+    display_name: &str,
+    is_host: bool,
+) -> Result<String, String> {
+    let api_key =
+        watch_party_livekit_api_key().ok_or_else(watch_party_transport_configuration_error)?;
+    let api_secret =
+        watch_party_livekit_api_secret().ok_or_else(watch_party_transport_configuration_error)?;
+    let room_name = build_watch_party_room_name(&room.id);
+    let allowed_sources = if is_host {
+        vec![
+            "microphone".to_string(),
+            "screen_share".to_string(),
+            "screen_share_audio".to_string(),
+        ]
+    } else {
+        vec!["microphone".to_string()]
+    };
+
+    AccessToken::with_api_key(&api_key, &api_secret)
+        .with_ttl(Duration::from_secs(WATCH_PARTY_TOKEN_TTL_SECS))
+        .with_identity(&user.id)
+        .with_name(display_name)
+        .with_metadata(
+            &serde_json::json!({
+                "roomId": room.id,
+                "roomCode": room.code,
+                "role": if is_host { "host" } else { "guest" }
+            })
+            .to_string(),
+        )
+        .with_grants(VideoGrants {
+            room_join: true,
+            room: room_name,
+            can_publish: true,
+            can_subscribe: true,
+            can_publish_data: true,
+            can_publish_sources: allowed_sources,
+            ..Default::default()
+        })
+        .to_jwt()
+        .map_err(|error| format!("Could not mint the Watch Party LiveKit token: {error}"))
 }
 
 fn runtime_os_name() -> &'static str {
@@ -7804,6 +10086,71 @@ fn get_runtime_environment() -> RuntimeEnvironment {
         os: runtime_os_name().to_string(),
         arch: runtime_arch_name().to_string(),
     }
+}
+
+#[tauri::command]
+fn get_watch_party_transport_config() -> WatchPartyTransportConfig {
+    let error = watch_party_transport_configuration_error();
+    let url = watch_party_livekit_url().unwrap_or_default();
+
+    WatchPartyTransportConfig {
+        configured: error.is_empty() && !url.is_empty(),
+        url,
+        token_provider: if error.is_empty() {
+            "native".to_string()
+        } else {
+            String::new()
+        },
+        error,
+    }
+}
+
+#[tauri::command]
+async fn create_watch_party_token(
+    payload: CreateWatchPartyTokenPayload,
+) -> Result<WatchPartyTokenResponse, String> {
+    if !watch_party_transport_missing_keys().is_empty() {
+        return Err(watch_party_transport_configuration_error());
+    }
+
+    let access_token = normalize_env_value(payload.access_token).ok_or_else(|| {
+        "Your session expired. Sign in again to continue with Watch Party media.".to_string()
+    })?;
+    let room_id = normalize_env_value(payload.room_id)
+        .ok_or_else(|| "The Watch Party room id is missing.".to_string())?;
+    let room_code = normalize_env_value(payload.room_code)
+        .ok_or_else(|| "The Watch Party room code is missing.".to_string())?;
+    let requested_identity = normalize_env_value(payload.identity)
+        .ok_or_else(|| "The Watch Party identity is missing.".to_string())?;
+
+    let user = fetch_supabase_auth_user(&access_token).await?;
+    if user.id != requested_identity {
+        return Err(
+            "Your Watch Party session does not match the requested participant identity."
+                .to_string(),
+        );
+    }
+
+    let room = fetch_watch_party_room_record(&access_token, &room_id, &room_code).await?;
+    if room.status.eq_ignore_ascii_case("ended") {
+        return Err("This Watch Party room has already ended.".to_string());
+    }
+
+    let participant =
+        fetch_watch_party_participant_record(&access_token, &room.id, &user.id).await?;
+    if participant.user_id != user.id {
+        return Err("You are not part of this Watch Party room yet.".to_string());
+    }
+
+    let is_host = room.host_user_id == user.id;
+    let _requested_role = normalize_env_value(payload.role).unwrap_or_default();
+    let display_name = resolve_watch_party_display_name(&payload.display_name, &user);
+    let token = build_watch_party_token(&room, &user, &display_name, is_host)?;
+
+    Ok(WatchPartyTokenResponse {
+        token,
+        url: watch_party_livekit_url().unwrap_or_default(),
+    })
 }
 
 fn nuvio_sidecar_log_path() -> PathBuf {
@@ -7988,7 +10335,10 @@ fn sanitize_filename_segment(value: &str) -> String {
     let mut sanitized = value
         .chars()
         .map(|character| {
-            if matches!(character, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+            if matches!(
+                character,
+                '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+            ) {
                 '_'
             } else if character.is_control() {
                 '_'
@@ -8014,7 +10364,8 @@ fn downloads_root_dir() -> Result<PathBuf, String> {
 }
 
 fn nova_stream_local_data_dir() -> Result<PathBuf, String> {
-    let base_dir = dirs::data_local_dir().ok_or_else(|| "unable to resolve local data directory".to_string())?;
+    let base_dir = dirs::data_local_dir()
+        .ok_or_else(|| "unable to resolve local data directory".to_string())?;
     let dir = base_dir.join("NOVA STREAM");
     fs::create_dir_all(&dir).map_err(|e| format!("failed to create app data directory: {e}"))?;
     Ok(dir)
@@ -8034,10 +10385,9 @@ fn load_download_settings() -> Result<DownloadSettings, String> {
         return Ok(DownloadSettings::default());
     }
 
-    let contents = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read download settings: {e}"))?;
-    serde_json::from_str(&contents)
-        .map_err(|e| format!("failed to parse download settings: {e}"))
+    let contents =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read download settings: {e}"))?;
+    serde_json::from_str(&contents).map_err(|e| format!("failed to parse download settings: {e}"))
 }
 
 fn save_download_settings(settings: &DownloadSettings) -> Result<(), String> {
@@ -8071,7 +10421,10 @@ fn build_download_location_info() -> Result<DownloadLocationInfo, String> {
 
 fn unique_destination_path(path: &StdPath) -> PathBuf {
     let parent = path.parent().unwrap_or_else(|| StdPath::new("."));
-    let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or("download");
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
     let extension = path.extension().and_then(|value| value.to_str());
 
     for index in 1.. {
@@ -8095,7 +10448,9 @@ fn move_or_copy_path(source: &StdPath, destination: &StdPath) -> Result<(), Stri
 
     if destination.exists() {
         if source.is_dir() && destination.is_dir() {
-            for entry in fs::read_dir(source).map_err(|e| format!("failed to read directory: {e}"))? {
+            for entry in
+                fs::read_dir(source).map_err(|e| format!("failed to read directory: {e}"))?
+            {
                 let entry = entry.map_err(|e| format!("failed to read directory entry: {e}"))?;
                 let child_source = entry.path();
                 let child_destination = destination.join(entry.file_name());
@@ -8110,7 +10465,8 @@ fn move_or_copy_path(source: &StdPath, destination: &StdPath) -> Result<(), Stri
     }
 
     if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("failed to create destination directory: {e}"))?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create destination directory: {e}"))?;
     }
 
     match fs::rename(source, destination) {
@@ -8121,14 +10477,18 @@ fn move_or_copy_path(source: &StdPath, destination: &StdPath) -> Result<(), Stri
             Ok(())
         }
         Err(_) => {
-            fs::create_dir_all(destination).map_err(|e| format!("failed to create destination directory: {e}"))?;
-            for entry in fs::read_dir(source).map_err(|e| format!("failed to read directory: {e}"))? {
+            fs::create_dir_all(destination)
+                .map_err(|e| format!("failed to create destination directory: {e}"))?;
+            for entry in
+                fs::read_dir(source).map_err(|e| format!("failed to read directory: {e}"))?
+            {
                 let entry = entry.map_err(|e| format!("failed to read directory entry: {e}"))?;
                 let child_source = entry.path();
                 let child_destination = destination.join(entry.file_name());
                 move_or_copy_path(&child_source, &child_destination)?;
             }
-            fs::remove_dir_all(source).map_err(|e| format!("failed to remove source directory: {e}"))?;
+            fs::remove_dir_all(source)
+                .map_err(|e| format!("failed to remove source directory: {e}"))?;
             Ok(())
         }
     }
@@ -8153,8 +10513,11 @@ fn move_download_root_contents(source_root: &StdPath, target_root: &StdPath) -> 
         return Ok(());
     }
 
-    fs::create_dir_all(target_root).map_err(|e| format!("failed to create target download directory: {e}"))?;
-    for entry in fs::read_dir(source_root).map_err(|e| format!("failed to read source download directory: {e}"))? {
+    fs::create_dir_all(target_root)
+        .map_err(|e| format!("failed to create target download directory: {e}"))?;
+    for entry in fs::read_dir(source_root)
+        .map_err(|e| format!("failed to read source download directory: {e}"))?
+    {
         let entry = entry.map_err(|e| format!("failed to read source entry: {e}"))?;
         let source_path = entry.path();
         let destination_path = target_root.join(entry.file_name());
@@ -8171,7 +10534,9 @@ fn build_download_output_path(request: &VideoDownloadRequest) -> Result<PathBuf,
 
     let path = match normalized_type.as_str() {
         "tv" => {
-            let series_dir = root_dir.join("series").join(format!("{}_{}", request.content_id, safe_title));
+            let series_dir = root_dir
+                .join("series")
+                .join(format!("{}_{}", request.content_id, safe_title));
             fs::create_dir_all(&series_dir)
                 .map_err(|e| format!("failed to create series download directory: {e}"))?;
             let season = request.season.unwrap_or(1);
@@ -8184,7 +10549,9 @@ fn build_download_output_path(request: &VideoDownloadRequest) -> Result<PathBuf,
             series_dir.join(format!("S{season:02}E{episode:02}{episode_suffix}.mp4"))
         }
         "anime" => {
-            let anime_dir = root_dir.join("anime").join(format!("{}_{}", request.content_id, safe_title));
+            let anime_dir = root_dir
+                .join("anime")
+                .join(format!("{}_{}", request.content_id, safe_title));
             fs::create_dir_all(&anime_dir)
                 .map_err(|e| format!("failed to create anime download directory: {e}"))?;
             let season = request.season.unwrap_or(1);
@@ -8321,8 +10688,27 @@ fn sibling_download_artifact_paths(path: &StdPath) -> Vec<PathBuf> {
             matches!(
                 extension.as_deref(),
                 Some(
-                    "mp4" | "mkv" | "ts" | "m4s" | "srt" | "vtt" | "ass" | "ssa" | "copy" | "eng" | "ita"
-                        | "jpn" | "spa" | "fre" | "ger" | "dan" | "fin" | "hun" | "kor" | "por" | "ukr"
+                    "mp4"
+                        | "mkv"
+                        | "ts"
+                        | "m4s"
+                        | "srt"
+                        | "vtt"
+                        | "ass"
+                        | "ssa"
+                        | "copy"
+                        | "eng"
+                        | "ita"
+                        | "jpn"
+                        | "spa"
+                        | "fre"
+                        | "ger"
+                        | "dan"
+                        | "fin"
+                        | "hun"
+                        | "kor"
+                        | "por"
+                        | "ukr"
                 )
             )
         })
@@ -8391,7 +10777,9 @@ fn discover_downloaded_subtitle_path(video_path: &StdPath) -> Option<PathBuf> {
                 6
             } else if name.contains(".eng.") || name.contains(".en.") || name.contains("english") {
                 5
-            } else if has_explicit_language_variants && (name.ends_with(".srt") || name.ends_with(".vtt")) {
+            } else if has_explicit_language_variants
+                && (name.ends_with(".srt") || name.ends_with(".vtt"))
+            {
                 0
             } else if name.ends_with(".srt") {
                 2
@@ -8667,7 +11055,9 @@ async fn download_subtitle_sidecar_bytes(
     subtitle_url: &str,
     headers: &HashMap<String, String>,
 ) -> Option<Vec<u8>> {
-    let (body, final_url) = fetch_subtitle_text_resource(client, subtitle_url, headers).await.ok()?;
+    let (body, final_url) = fetch_subtitle_text_resource(client, subtitle_url, headers)
+        .await
+        .ok()?;
     if body.trim().is_empty() {
         return None;
     }
@@ -8683,7 +11073,9 @@ async fn download_subtitle_sidecar_bytes(
 
     let mut merged_text = String::new();
     for segment_url in segment_urls {
-        let (segment_text, _) = fetch_subtitle_text_resource(client, &segment_url, headers).await.ok()?;
+        let (segment_text, _) = fetch_subtitle_text_resource(client, &segment_url, headers)
+            .await
+            .ok()?;
         if segment_text.trim().is_empty() {
             continue;
         }
@@ -8722,13 +11114,15 @@ async fn maybe_download_subtitle_sidecar(
         url,
     });
     let provider_subtitle = || {
-        select_preferred_stream_download_subtitle(&stream.subtitles, &stream.provider).and_then(|subtitle| {
-            if subtitle.url.trim().is_empty() {
-                None
-            } else {
-                Some(subtitle)
-            }
-        })
+        select_preferred_stream_download_subtitle(&stream.subtitles, &stream.provider).and_then(
+            |subtitle| {
+                if subtitle.url.trim().is_empty() {
+                    None
+                } else {
+                    Some(subtitle)
+                }
+            },
+        )
     };
     let mut subtitle_candidates = Vec::new();
 
@@ -8800,18 +11194,21 @@ async fn maybe_download_subtitle_sidecar(
         );
 
         let subtitle_headers = if selected_subtitle.source == "download-request"
-            || selected_subtitle.source.eq_ignore_ascii_case(&stream.provider)
+            || selected_subtitle
+                .source
+                .eq_ignore_ascii_case(&stream.provider)
         {
             stream.headers.clone()
         } else {
             HashMap::new()
         };
 
-        let bytes =
-            match download_subtitle_sidecar_bytes(&client, &subtitle_url, &subtitle_headers).await {
-                Some(bytes) if !bytes.is_empty() => bytes,
-                _ => continue,
-            };
+        let bytes = match download_subtitle_sidecar_bytes(&client, &subtitle_url, &subtitle_headers)
+            .await
+        {
+            Some(bytes) if !bytes.is_empty() => bytes,
+            _ => continue,
+        };
 
         for existing_path in subtitle_sidecar_paths_for_video(video_path)
             .into_iter()
@@ -8916,10 +11313,7 @@ fn remove_download_artifacts_from_path(path: &PathBuf) {
 
     if let Some(stem) = path.file_stem().and_then(|value| value.to_str()) {
         if stem.ends_with(".part") {
-            let restored = path.with_file_name(format!(
-                "{}.mp4",
-                stem.trim_end_matches(".part")
-            ));
+            let restored = path.with_file_name(format!("{}.mp4", stem.trim_end_matches(".part")));
             candidates.push(restored);
         }
     }
@@ -9003,8 +11397,10 @@ fn compute_downloads_storage_info() -> Result<DownloadsStorageInfo, String> {
 
     Ok(DownloadsStorageInfo {
         used_bytes: movies + series + anime + animation,
-        total_bytes: fs2::total_space(&root).map_err(|e| format!("failed to read disk size: {e}"))?,
-        free_bytes: fs2::available_space(&root).map_err(|e| format!("failed to read disk free space: {e}"))?,
+        total_bytes: fs2::total_space(&root)
+            .map_err(|e| format!("failed to read disk size: {e}"))?,
+        free_bytes: fs2::available_space(&root)
+            .map_err(|e| format!("failed to read disk free space: {e}"))?,
         breakdown,
     })
 }
@@ -9081,8 +11477,16 @@ fn discover_hls_output_candidate(
     }
 
     candidates.sort_by(|left, right| {
-        let left_ext = left.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
-        let right_ext = right.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
+        let left_ext = left
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let right_ext = right
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         let left_score = if left_ext == "mp4" { 2 } else { 1 };
         let right_score = if right_ext == "mp4" { 2 } else { 1 };
         let left_size = fs::metadata(left).map(|meta| meta.len()).unwrap_or(0);
@@ -9094,10 +11498,30 @@ fn discover_hls_output_candidate(
     });
 
     fallback_candidates.sort_by(|left, right| {
-        let left_ext = left.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
-        let right_ext = right.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
-        let left_score = if left_ext == "mp4" { 3 } else if left_ext == "mkv" { 2 } else { 1 };
-        let right_score = if right_ext == "mp4" { 3 } else if right_ext == "mkv" { 2 } else { 1 };
+        let left_ext = left
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let right_ext = right
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let left_score = if left_ext == "mp4" {
+            3
+        } else if left_ext == "mkv" {
+            2
+        } else {
+            1
+        };
+        let right_score = if right_ext == "mp4" {
+            3
+        } else if right_ext == "mkv" {
+            2
+        } else {
+            1
+        };
         let left_size = fs::metadata(left).map(|meta| meta.len()).unwrap_or(0);
         let right_size = fs::metadata(right).map(|meta| meta.len()).unwrap_or(0);
 
@@ -9168,7 +11592,10 @@ fn resolve_tool_binary(tool_base_name: &str) -> Option<PathBuf> {
         if let Ok(runtime_root) = extract_embedded_nuvio_runtime() {
             push_unique_candidate(
                 &mut candidates,
-                runtime_root.join("vendor").join("tools").join(&packaged_name),
+                runtime_root
+                    .join("vendor")
+                    .join("tools")
+                    .join(&packaged_name),
             );
             push_unique_candidate(
                 &mut candidates,
@@ -9189,11 +11616,17 @@ fn resolve_tool_binary(tool_base_name: &str) -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
         push_unique_candidate(
             &mut candidates,
-            repo_root.join("release").join("win-unpacked").join(&packaged_name),
+            repo_root
+                .join("release")
+                .join("win-unpacked")
+                .join(&packaged_name),
         );
         push_unique_candidate(
             &mut candidates,
-            repo_root.join("release").join("win-unpacked").join(&host_name),
+            repo_root
+                .join("release")
+                .join("win-unpacked")
+                .join(&host_name),
         );
     }
 
@@ -9368,11 +11801,7 @@ fn probe_ffmpeg_audio_streams(
             continue;
         }
 
-        let prefix = trimmed
-            .split(": Audio:")
-            .next()
-            .unwrap_or_default()
-            .trim();
+        let prefix = trimmed.split(": Audio:").next().unwrap_or_default().trim();
         let language = prefix
             .rsplit_once('(')
             .and_then(|(_, tail)| tail.strip_suffix(')'))
@@ -9410,7 +11839,10 @@ fn ffmpeg_audio_probe_score(
         score -= 45;
     }
 
-    if description.contains("english") || description.contains("(eng)") || description.contains("(en)") {
+    if description.contains("english")
+        || description.contains("(eng)")
+        || description.contains("(en)")
+    {
         score += 50;
     }
 
@@ -9463,7 +11895,9 @@ fn media_audio_candidate_score(path: &StdPath) -> i32 {
         .unwrap_or_default()
         .to_ascii_lowercase();
 
-    let english_markers = ["english", ".eng.", "_eng.", "-eng.", " eng ", "eng", "default", "main"];
+    let english_markers = [
+        "english", ".eng.", "_eng.", "-eng.", " eng ", "eng", "default", "main",
+    ];
     let non_english_markers = [
         "hindi",
         "tam",
@@ -9498,7 +11932,10 @@ fn media_audio_candidate_score(path: &StdPath) -> i32 {
 
     let mut score = 0;
 
-    if matches!(extension.as_str(), "m4a" | "aac" | "ac3" | "eac3" | "mp3" | "dts") {
+    if matches!(
+        extension.as_str(),
+        "m4a" | "aac" | "ac3" | "eac3" | "mp3" | "dts"
+    ) {
         score += 25;
     } else if matches!(extension.as_str(), "mp4" | "mkv" | "ts" | "m2ts" | "mov") {
         score -= 10;
@@ -9569,7 +12006,10 @@ fn discover_hls_media_candidates(
                 continue;
             }
 
-            if matches!(extension.as_str(), "mp4" | "m4a" | "aac" | "mkv" | "ts" | "m2ts" | "mov") {
+            if matches!(
+                extension.as_str(),
+                "mp4" | "m4a" | "aac" | "mkv" | "ts" | "m2ts" | "mov"
+            ) {
                 candidates.push(path);
             }
         }
@@ -9731,8 +12171,12 @@ fn write_ffmpeg_concat_list(paths: &[PathBuf], list_path: &StdPath) -> Result<()
         lines.push(format!("file '{normalized}'"));
     }
 
-    fs::write(list_path, lines.join("\n"))
-        .map_err(|error| format!("Failed to write concat list {}: {error}", list_path.display()))
+    fs::write(list_path, lines.join("\n")).map_err(|error| {
+        format!(
+            "Failed to write concat list {}: {error}",
+            list_path.display()
+        )
+    })
 }
 
 fn attempt_local_hls_bundle_recover(
@@ -9826,7 +12270,9 @@ fn attempt_local_hls_bundle_recover(
     validate_completed_video_file(&recovered_output)?;
     if has_significant_av_duration_mismatch(&recovered_output) {
         let _ = fs::remove_file(&recovered_output);
-        return Err("FFmpeg local bundle recovery produced mismatched audio/video durations".to_string());
+        return Err(
+            "FFmpeg local bundle recovery produced mismatched audio/video durations".to_string(),
+        );
     }
     if target_path.exists() {
         let _ = fs::remove_file(target_path);
@@ -9845,7 +12291,9 @@ fn attempt_ffmpeg_recover_hls_output(
     let ffmpeg_binary = resolve_ffmpeg_binary()
         .ok_or_else(|| "FFmpeg is not available for HLS recovery".to_string())?;
 
-    if attempt_local_hls_bundle_recover(temp_dir, target_path, save_name, preferred_audio_selector).is_ok() {
+    if attempt_local_hls_bundle_recover(temp_dir, target_path, save_name, preferred_audio_selector)
+        .is_ok()
+    {
         return Ok(());
     }
 
@@ -9886,7 +12334,9 @@ fn attempt_ffmpeg_recover_hls_output(
             .output()
             .map_err(|error| format!("FFmpeg manifest recovery failed to start: {error}"))?;
 
-        if manifest_output.status.success() && validate_completed_video_file(&recovered_from_manifest).is_ok() {
+        if manifest_output.status.success()
+            && validate_completed_video_file(&recovered_from_manifest).is_ok()
+        {
             if target_path.exists() {
                 let _ = fs::remove_file(target_path);
             }
@@ -9928,37 +12378,23 @@ fn attempt_ffmpeg_recover_hls_output(
         command.arg("-i").arg(audio);
     }
 
-    command
-        .arg("-map")
-        .arg("0:v:0");
+    command.arg("-map").arg("0:v:0");
 
     if audio_candidate.is_some() {
         let audio_input = audio_candidate
             .as_ref()
             .map(|path| path.to_string_lossy().to_string())
             .unwrap_or_default();
-        let audio_map = preferred_ffmpeg_audio_map_for_input(
-            &audio_input,
-            1,
-            None,
-            preferred_audio_selector,
-        )
-        .unwrap_or_else(|| "1:a:0?".to_string());
-        command
-            .arg("-map")
-            .arg(audio_map);
+        let audio_map =
+            preferred_ffmpeg_audio_map_for_input(&audio_input, 1, None, preferred_audio_selector)
+                .unwrap_or_else(|| "1:a:0?".to_string());
+        command.arg("-map").arg(audio_map);
     } else {
         let video_input = video_candidate.to_string_lossy().to_string();
-        let audio_map = preferred_ffmpeg_audio_map_for_input(
-            &video_input,
-            0,
-            None,
-            preferred_audio_selector,
-        )
-        .unwrap_or_else(|| "0:a:0?".to_string());
-        command
-            .arg("-map")
-            .arg(audio_map);
+        let audio_map =
+            preferred_ffmpeg_audio_map_for_input(&video_input, 0, None, preferred_audio_selector)
+                .unwrap_or_else(|| "0:a:0?".to_string());
+        command.arg("-map").arg(audio_map);
     }
 
     let output = command
@@ -10025,7 +12461,9 @@ fn summarize_hls_download_log(log_path: &StdPath) -> Option<String> {
             continue;
         }
 
-        if trimmed.contains("The retry attempts have been exhausted and the download of this segment has failed.") {
+        if trimmed.contains(
+            "The retry attempts have been exhausted and the download of this segment has failed.",
+        ) {
             exhausted_retry_count += 1;
             if let Some(url) = pending_url.take() {
                 failed_urls.push(url);
@@ -10055,7 +12493,11 @@ fn summarize_hls_download_log(log_path: &StdPath) -> Option<String> {
             "{} segment download{} exhausted retr{}",
             exhausted_retry_count,
             if exhausted_retry_count == 1 { "" } else { "s" },
-            if exhausted_retry_count == 1 { "y" } else { "ies" }
+            if exhausted_retry_count == 1 {
+                "y"
+            } else {
+                "ies"
+            }
         ));
     }
     if let Some(example_url) = failed_urls.into_iter().next() {
@@ -10065,7 +12507,10 @@ fn summarize_hls_download_log(log_path: &StdPath) -> Option<String> {
     Some(parts.join("; "))
 }
 
-fn compute_hls_display_total_bytes(estimated_total: Option<u64>, current_bytes: u64) -> Option<u64> {
+fn compute_hls_display_total_bytes(
+    estimated_total: Option<u64>,
+    current_bytes: u64,
+) -> Option<u64> {
     let base = estimated_total.unwrap_or(0);
     if base == 0 {
         return None;
@@ -10079,11 +12524,7 @@ fn compute_hls_display_total_bytes(estimated_total: Option<u64>, current_bytes: 
     Some(base.max(current_bytes.saturating_add(cushion)))
 }
 
-fn cleanup_stale_hls_artifacts(
-    save_dir: &StdPath,
-    save_name: &str,
-    target_path: &StdPath,
-) {
+fn cleanup_stale_hls_artifacts(save_dir: &StdPath, save_name: &str, target_path: &StdPath) {
     let Ok(entries) = fs::read_dir(save_dir) else {
         return;
     };
@@ -10110,17 +12551,16 @@ fn cleanup_stale_hls_artifacts(
             .unwrap_or_default()
             .to_ascii_lowercase();
 
-        if matches!(extension.as_str(), "ts" | "m4a" | "aac" | "mkv" | "mov" | "mp4") {
+        if matches!(
+            extension.as_str(),
+            "ts" | "m4a" | "aac" | "mkv" | "mov" | "mp4"
+        ) {
             let _ = fs::remove_file(&path);
         }
     }
 }
 
-fn cleanup_completed_hls_artifacts(
-    save_dir: &StdPath,
-    save_name: &str,
-    target_path: &StdPath,
-) {
+fn cleanup_completed_hls_artifacts(save_dir: &StdPath, save_name: &str, target_path: &StdPath) {
     cleanup_stale_hls_artifacts(save_dir, save_name, target_path);
 
     let Ok(entries) = fs::read_dir(save_dir) else {
@@ -10181,14 +12621,14 @@ fn cleanup_completed_hls_artifacts(
 }
 
 fn existing_hls_recovery_candidates(target_path: &StdPath) -> Vec<PathBuf> {
-    vec![
-        target_path.with_extension("recover.mp4"),
-    ]
+    vec![target_path.with_extension("recover.mp4")]
 }
 
 fn promote_existing_hls_recovery_output(target_path: &StdPath) -> Result<Option<u64>, String> {
     let target_is_valid = target_path.exists() && validate_video_candidate(target_path);
-    let target_size = fs::metadata(target_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let target_size = fs::metadata(target_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
 
     let mut candidates = existing_hls_recovery_candidates(target_path)
         .into_iter()
@@ -10196,8 +12636,12 @@ fn promote_existing_hls_recovery_output(target_path: &StdPath) -> Result<Option<
         .collect::<Vec<_>>();
 
     candidates.sort_by(|left, right| {
-        let left_size = fs::metadata(left).map(|metadata| metadata.len()).unwrap_or(0);
-        let right_size = fs::metadata(right).map(|metadata| metadata.len()).unwrap_or(0);
+        let left_size = fs::metadata(left)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        let right_size = fs::metadata(right)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
         right_size.cmp(&left_size)
     });
 
@@ -10217,8 +12661,16 @@ fn promote_existing_hls_recovery_output(target_path: &StdPath) -> Result<Option<
     Ok(None)
 }
 
-fn select_download_stream(streams: &[ResolvedMovieStream], quality: Option<&str>) -> Option<ResolvedMovieStream> {
-    let preferences: &[&str] = match quality.unwrap_or("high").trim().to_ascii_lowercase().as_str() {
+fn select_download_stream(
+    streams: &[ResolvedMovieStream],
+    quality: Option<&str>,
+) -> Option<ResolvedMovieStream> {
+    let preferences: &[&str] = match quality
+        .unwrap_or("high")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "standard" => &["720p", "auto", "1080p", "4k"],
         "highest" => &["4k", "1080p", "720p", "auto"],
         _ => &["1080p", "720p", "auto", "4k"],
@@ -10279,10 +12731,8 @@ fn build_explicit_download_stream(
         return None;
     }
 
-    let stream_type = infer_explicit_download_stream_type(
-        request.stream_type.as_deref(),
-        stream_url,
-    );
+    let stream_type =
+        infer_explicit_download_stream_type(request.stream_type.as_deref(), stream_url);
 
     let mut subtitles = Vec::new();
     if let Some(subtitle_url) = request
@@ -10306,7 +12756,10 @@ fn build_explicit_download_stream(
 
     Some(ResolvedMovieStream {
         url: stream_url.to_string(),
-        quality: request.quality.clone().unwrap_or_else(|| "auto".to_string()),
+        quality: request
+            .quality
+            .clone()
+            .unwrap_or_else(|| "auto".to_string()),
         provider: normalized_type.to_string(),
         headers: request.headers.clone().unwrap_or_default(),
         title: request.title.clone(),
@@ -10357,7 +12810,9 @@ async fn run_direct_video_download(
     target_path: &StdPath,
 ) -> VideoDownloadTaskOutcome {
     let temp_path = target_path.with_extension("part");
-    let mut existing_bytes = fs::metadata(&temp_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let mut existing_bytes = fs::metadata(&temp_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
 
     let client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
@@ -10384,11 +12839,17 @@ async fn run_direct_video_download(
         Err(error) => return VideoDownloadTaskOutcome::Failed(error.to_string()),
     };
 
-    if !(response.status().is_success() || response.status() == reqwest::StatusCode::PARTIAL_CONTENT) {
-        return VideoDownloadTaskOutcome::Failed(format!("Download failed: HTTP {}", response.status()));
+    if !(response.status().is_success()
+        || response.status() == reqwest::StatusCode::PARTIAL_CONTENT)
+    {
+        return VideoDownloadTaskOutcome::Failed(format!(
+            "Download failed: HTTP {}",
+            response.status()
+        ));
     }
 
-    let should_append = existing_bytes > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    let should_append =
+        existing_bytes > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
     if existing_bytes > 0 && !should_append {
         existing_bytes = 0;
         let _ = fs::remove_file(&temp_path);
@@ -10421,7 +12882,9 @@ async fn run_direct_video_download(
 
     if existing_bytes > 0 {
         let progress = target_total
-            .map(|total| clamp_download_progress((bytes_downloaded as f64 / total.max(1) as f64) * 100.0))
+            .map(|total| {
+                clamp_download_progress((bytes_downloaded as f64 / total.max(1) as f64) * 100.0)
+            })
             .unwrap_or(0);
         emit_video_download_progress(
             app,
@@ -10468,7 +12931,9 @@ async fn run_direct_video_download(
 
         if last_progress_emit.elapsed() >= Duration::from_millis(350) {
             let progress = target_total
-                .map(|total| clamp_download_progress((bytes_downloaded as f64 / total.max(1) as f64) * 100.0))
+                .map(|total| {
+                    clamp_download_progress((bytes_downloaded as f64 / total.max(1) as f64) * 100.0)
+                })
                 .unwrap_or(0);
             let elapsed = last_progress_emit.elapsed().as_secs_f64().max(0.001);
             let delta_bytes = bytes_downloaded.saturating_sub(last_progress_bytes);
@@ -10551,7 +13016,9 @@ async fn run_hls_video_download(
 
     let temp_dir = build_hls_temp_dir(target_path);
     if let Err(error) = fs::create_dir_all(&temp_dir) {
-        return VideoDownloadTaskOutcome::Failed(format!("Failed to create HLS temp directory: {error}"));
+        return VideoDownloadTaskOutcome::Failed(format!(
+            "Failed to create HLS temp directory: {error}"
+        ));
     }
     let n_m3u8dl_log_path = build_hls_log_path(&temp_dir);
     let _ = fs::remove_file(&n_m3u8dl_log_path);
@@ -10612,7 +13079,14 @@ async fn run_hls_video_download(
     if let Some(selection) = preferred_video_selection.as_ref() {
         command.arg("-sv").arg(&selection.selector);
     } else {
-        match request.quality.as_deref().unwrap_or("high").trim().to_ascii_lowercase().as_str() {
+        match request
+            .quality
+            .as_deref()
+            .unwrap_or("high")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "standard" => {
                 command.arg("-sv").arg("worst");
             }
@@ -10622,17 +13096,23 @@ async fn run_hls_video_download(
         }
     }
 
-    command.arg("-H").arg("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+    command
+        .arg("-H")
+        .arg("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
     for (key, value) in &stream.headers {
         if key.trim().is_empty() || value.trim().is_empty() {
             continue;
         }
-        command.arg("-H").arg(format!("{}: {}", key.trim(), value.trim()));
+        command
+            .arg("-H")
+            .arg(format!("{}: {}", key.trim(), value.trim()));
     }
 
     let child = match command.spawn() {
         Ok(child) => child,
-        Err(error) => return VideoDownloadTaskOutcome::Failed(format!("N_m3u8DL-RE start failed: {error}")),
+        Err(error) => {
+            return VideoDownloadTaskOutcome::Failed(format!("N_m3u8DL-RE start failed: {error}"))
+        }
     };
 
     {
@@ -10642,7 +13122,9 @@ async fn run_hls_video_download(
     }
 
     let estimated_total = request.total_bytes;
-    let mut last_bytes = recursive_dir_size(&temp_dir);
+    let mut last_size_scan = std::time::Instant::now();
+    let mut scanned_temp_bytes = recursive_dir_size(&temp_dir);
+    let mut last_bytes = scanned_temp_bytes;
     let mut last_tick = std::time::Instant::now();
     let mut last_nonzero_speed = 0u64;
     let mut peak_observed_bytes = last_bytes;
@@ -10678,7 +13160,9 @@ async fn run_hls_video_download(
                     Ok(None) => {}
                     Err(error) => {
                         *guard = None;
-                        return VideoDownloadTaskOutcome::Failed(format!("N_m3u8DL-RE wait failed: {error}"));
+                        return VideoDownloadTaskOutcome::Failed(format!(
+                            "N_m3u8DL-RE wait failed: {error}"
+                        ));
                     }
                 }
             } else {
@@ -10689,8 +13173,16 @@ async fn run_hls_video_download(
             }
         }
 
-        let current_bytes = recursive_dir_size(&temp_dir)
-            .saturating_add(fs::metadata(target_path).map(|metadata| metadata.len()).unwrap_or(0));
+        if finished.is_some() || last_size_scan.elapsed() >= Duration::from_millis(1750) {
+            scanned_temp_bytes = recursive_dir_size(&temp_dir);
+            last_size_scan = std::time::Instant::now();
+        }
+
+        let current_bytes = scanned_temp_bytes.saturating_add(
+            fs::metadata(target_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0),
+        );
         peak_observed_bytes = peak_observed_bytes.max(current_bytes);
         let display_total = compute_hls_display_total_bytes(estimated_total, current_bytes);
         let progress = display_total
@@ -10735,7 +13227,9 @@ async fn run_hls_video_download(
         if let Some(status) = finished {
             if !status.success() {
                 if !target_path.exists() {
-                    if let Some(candidate) = discover_hls_output_candidate(&save_dir, &temp_dir, &save_name) {
+                    if let Some(candidate) =
+                        discover_hls_output_candidate(&save_dir, &temp_dir, &save_name)
+                    {
                         if candidate != target_path {
                             let _ = move_or_copy_path(&candidate, target_path);
                         }
@@ -10821,7 +13315,10 @@ async fn run_hls_video_download(
         }
 
         let details = if nearby_outputs.is_empty() {
-            format!("no candidate outputs were found; preserved temp dir: {}", temp_dir.display())
+            format!(
+                "no candidate outputs were found; preserved temp dir: {}",
+                temp_dir.display()
+            )
         } else {
             format!(
                 "candidate outputs: {}; preserved temp dir: {}",
@@ -11112,9 +13609,13 @@ async fn run_video_download_task(
     }
 
     match stream.stream_type.as_str() {
-        "mp4" | "unknown" => run_direct_video_download(&app, &request, &stream, &control, &target_path).await,
+        "mp4" | "unknown" => {
+            run_direct_video_download(&app, &request, &stream, &control, &target_path).await
+        }
         "hls" => run_hls_video_download(&app, &request, &stream, &control, &target_path).await,
-        _ => VideoDownloadTaskOutcome::Failed("Unsupported stream type for offline download".to_string()),
+        _ => VideoDownloadTaskOutcome::Failed(
+            "Unsupported stream type for offline download".to_string(),
+        ),
     }
 }
 
@@ -11138,7 +13639,8 @@ fn schedule_video_downloads(app: tauri::AppHandle) {
                 }
             }
 
-            let Some(next_id) = pop_next_schedulable_download_id(&mut state, active_anime_count) else {
+            let Some(next_id) = pop_next_schedulable_download_id(&mut state, active_anime_count)
+            else {
                 break;
             };
 
@@ -11168,10 +13670,18 @@ fn schedule_video_downloads(app: tauri::AppHandle) {
     }
 
     for (request, control) in jobs {
-        emit_video_download_status(&app, &request, None, None, RuntimeDownloadStatus::Downloading, None);
+        emit_video_download_status(
+            &app,
+            &request,
+            None,
+            None,
+            RuntimeDownloadStatus::Downloading,
+            None,
+        );
         let app_handle = app.clone();
         tokio::spawn(async move {
-            let outcome = run_video_download_task(app_handle.clone(), request.clone(), control).await;
+            let outcome =
+                run_video_download_task(app_handle.clone(), request.clone(), control).await;
             finalize_video_download(app_handle, request, outcome);
         });
     }
@@ -11393,12 +13903,12 @@ async fn start_video_download(
 
         reconcile_active_download_state(&mut state);
 
-        let existing_status = state
-            .entries
-            .get(&normalized_id)
-            .map(|entry| entry.status);
+        let existing_status = state.entries.get(&normalized_id).map(|entry| entry.status);
 
-        if matches!(existing_status, Some(RuntimeDownloadStatus::Downloading | RuntimeDownloadStatus::Queued)) {
+        if matches!(
+            existing_status,
+            Some(RuntimeDownloadStatus::Downloading | RuntimeDownloadStatus::Queued)
+        ) {
             return Ok(());
         }
 
@@ -11652,7 +14162,8 @@ fn set_download_location(path: String) -> Result<DownloadLocationInfo, String> {
 
     let previous_root = downloads_root_dir()?;
     let next_root = PathBuf::from(trimmed);
-    fs::create_dir_all(&next_root).map_err(|e| format!("failed to create download directory: {e}"))?;
+    fs::create_dir_all(&next_root)
+        .map_err(|e| format!("failed to create download directory: {e}"))?;
 
     move_download_root_contents(&previous_root, &next_root)?;
 
@@ -11667,7 +14178,8 @@ fn set_download_location(path: String) -> Result<DownloadLocationInfo, String> {
 fn reset_download_location() -> Result<DownloadLocationInfo, String> {
     let previous_root = downloads_root_dir()?;
     let default_root = default_downloads_root_dir()?;
-    fs::create_dir_all(&default_root).map_err(|e| format!("failed to create default download directory: {e}"))?;
+    fs::create_dir_all(&default_root)
+        .map_err(|e| format!("failed to create default download directory: {e}"))?;
 
     move_download_root_contents(&previous_root, &default_root)?;
 
@@ -11712,14 +14224,10 @@ async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, S
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| {
-            append_updater_log(&format!("download request failed url={} error={e}", url));
-            e.to_string()
-        })?;
+    let response = client.get(&url).send().await.map_err(|e| {
+        append_updater_log(&format!("download request failed url={} error={e}", url));
+        e.to_string()
+    })?;
 
     if !response.status().is_success() {
         append_updater_log(&format!(
@@ -11832,7 +14340,10 @@ fn apply_update_for_current_platform() -> Result<(), String> {
     let update_dir = updater_runtime_dir()?;
     let (update_dmg, _) = updater_download_paths(&update_dir);
 
-    append_updater_log(&format!("apply start macos update={}", update_dmg.display()));
+    append_updater_log(&format!(
+        "apply start macos update={}",
+        update_dmg.display()
+    ));
 
     if !update_dmg.exists() {
         append_updater_log("apply aborted: macOS update file not found");
@@ -11974,7 +14485,7 @@ async fn fetch_ann_feed() -> Result<String, String> {
 
 #[tauri::command]
 async fn fetch_og_image(url: String) -> Result<String, String> {
-    use base64::{Engine as _, engine::general_purpose};
+    use base64::{engine::general_purpose, Engine as _};
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -12059,31 +14570,10 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            emit_downloads_storage_info(&app.handle());
-            tauri::async_runtime::spawn(async move {
-                let client = match reqwest::Client::builder()
-                    .redirect(reqwest::redirect::Policy::limited(5))
-                    .timeout(Duration::from_secs(5))
-                    .build()
-                {
-                    Ok(client) => client,
-                    Err(error) => {
-                        log_resolver_debug(&format!(
-                            "[nuvio_sidecar] failed to build warmup client: {}",
-                            error
-                        ));
-                        return;
-                    }
-                };
-
-                if let Err(error) = ensure_nuvio_sidecar(&client).await {
-                    log_resolver_debug(&format!(
-                        "[nuvio_sidecar] warmup failed: {}",
-                        error
-                    ));
-                }
-            });
-
+            let _ = dotenvy::dotenv();
+            let repo_env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.env");
+            let _ = dotenvy::from_path(repo_env_path);
+            let _ = app;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -12106,6 +14596,13 @@ fn main() {
             fetch_hls_manifest,
             register_media_proxy_stream,
             register_media_proxy_file,
+            get_cast_relay_status,
+            prepare_cast_media,
+            clear_cast_relay,
+            discover_cast_devices,
+            get_cast_session_status,
+            connect_cast_device,
+            disconnect_cast_device,
             find_local_subtitle_sidecar,
             read_local_text_file,
             get_local_file_metadata,
@@ -12130,6 +14627,8 @@ fn main() {
             set_video_download_max_concurrent,
             get_updater_context,
             get_runtime_environment,
+            get_watch_party_transport_config,
+            create_watch_party_token,
             download_update,
             apply_update,
             fetch_ann_feed,
@@ -12138,31 +14637,32 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|app_handle, event| {
-        match event {
-            tauri::RunEvent::WindowEvent { label, event, .. } => {
-                if label == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                    if let Some(player_window) = app_handle.get_webview_window(IFRAME_PLAYER_WINDOW_LABEL) {
-                        let _ = player_window.close();
-                        let _ = player_window.destroy();
-                    }
-
-                    if let Some(bridge_window) = app_handle.get_webview_window(BROWSER_FETCH_BRIDGE_WINDOW_LABEL) {
-                        let _ = bridge_window.close();
-                        let _ = bridge_window.destroy();
-                    }
-
-                    stop_all_video_downloads();
-                    stop_nuvio_sidecar();
-                    app_handle.exit(0);
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::WindowEvent { label, event, .. } => {
+            if label == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                if let Some(player_window) =
+                    app_handle.get_webview_window(IFRAME_PLAYER_WINDOW_LABEL)
+                {
+                    let _ = player_window.close();
+                    let _ = player_window.destroy();
                 }
-            }
-            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. } => {
+
+                if let Some(bridge_window) =
+                    app_handle.get_webview_window(BROWSER_FETCH_BRIDGE_WINDOW_LABEL)
+                {
+                    let _ = bridge_window.close();
+                    let _ = bridge_window.destroy();
+                }
+
                 stop_all_video_downloads();
                 stop_nuvio_sidecar();
+                app_handle.exit(0);
             }
-            _ => {}
         }
+        tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. } => {
+            stop_all_video_downloads();
+            stop_nuvio_sidecar();
+        }
+        _ => {}
     });
 }
-

@@ -31,6 +31,7 @@ import {
 import { searchAnime as searchAniListAnime } from '../lib/anilist'
 import { prepareAnimeDownloadRuntimeData, clearAnimeDownloadCache } from '../lib/animeDownloads'
 import useDownloadStore, { getDownloadItemByIdentity } from '../store/useDownloadStore'
+import { useShallow } from 'zustand/react/shallow'
 import { pauseVideoDownload, startVideoDownload } from '../lib/videoDownloads'
 
 const AnimePlayer = lazy(() => import('../components/Player/AnimePlayer'))
@@ -260,10 +261,10 @@ export default function Detail() {
   const [resumeProgress, setResumeProgress] = useState(location.state?.resumeProgress || null)
   const [progressMap, setProgressMap] = useState({})
   const [inWatchlist, setInWatchlist] = useState(false)
-  const allDownloadItems = useDownloadStore((state) => state.items)
-  const downloadItems = useMemo(
-    () => allDownloadItems.filter((item) => String(item?.contentId || '') === detailContentId),
-    [allDownloadItems, detailContentId]
+  // Shallow-filtered selector: only re-renders when items for THIS title change,
+  // not on every progress tick from unrelated active downloads.
+  const downloadItems = useDownloadStore(
+    useShallow((state) => state.items.filter((item) => String(item?.contentId || '') === detailContentId))
   )
   const preferredDownloadQuality = useDownloadStore((state) => state.preferredQuality)
   const setPreferredDownloadQuality = useDownloadStore((state) => state.setPreferredQuality)

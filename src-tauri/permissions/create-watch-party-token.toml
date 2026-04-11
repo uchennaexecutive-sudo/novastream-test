@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-create-watch-party-token"
+description = "Allow minting a Watch Party LiveKit token through the desktop runtime"
+commands.allow = ["create_watch_party_token"]

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { HardDrive, FolderOpen, Trash2, AlertCircle, Download, RotateCcw } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { HardDrive, FolderOpen, Trash2, AlertCircle, Download, RotateCcw, ChevronDown, Play, Info, Zap, Accessibility, Users } from 'lucide-react'
 import useAppStore, { getIsIntelMacRuntime, getReducedEffectsMode } from '../store/useAppStore'
 import useDownloadStore from '../store/useDownloadStore'
+import useWatchPartyStore from '../store/useWatchPartyStore'
 import { THEMES } from '../themes'
 import ThemeCard from '../components/UI/ThemeCard'
 import { APP_VERSION } from '../main'
@@ -36,6 +37,53 @@ function Toggle({ label, value, onChange }) {
         />
       </button>
     </div>
+  )
+}
+
+function CollapsibleSection({ title, icon, children, defaultOpen = false, className = '' }) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  return (
+    <section className={`mb-10 ${className}`}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-3 mb-4 py-1"
+        style={{ cursor: 'pointer' }}
+      >
+        <div className="flex items-center gap-2.5">
+          {icon && (
+            <span className="flex-shrink-0" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center' }}>
+              {icon}
+            </span>
+          )}
+          <h2 className="font-display font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
+            {title}
+          </h2>
+        </div>
+        <motion.div
+          animate={{ rotate: open ? 0 : -90 }}
+          transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+          style={{ flexShrink: 0 }}
+        >
+          <ChevronDown size={17} style={{ color: 'var(--text-muted)' }} />
+        </motion.div>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="body"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            style={{ overflow: 'hidden' }}
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
   )
 }
 
@@ -170,6 +218,7 @@ export default function Settings() {
   const setStorageInfo = useDownloadStore(s => s.setStorageInfo)
   const downloadItems = useDownloadStore(s => s.items)
   const deleteDownload = useDownloadStore(s => s.deleteDownload)
+  const refreshVoiceProcessing = useWatchPartyStore(s => s.refreshVoiceProcessing)
 
   const completedCount = downloadItems.filter(d => d.status === 'completed').length
   const failedCount    = downloadItems.filter(d => d.status === 'failed').length
@@ -268,6 +317,11 @@ export default function Settings() {
     }
   }
 
+  async function handleWatchPartyNoiseSuppressionChange(value) {
+    setPreference('watchPartyNoiseSuppression', value)
+    await refreshVoiceProcessing().catch(() => {})
+  }
+
   const maxConcurrentOptions = [
     { value: 1, label: '1' },
     { value: 2, label: '2' },
@@ -283,7 +337,7 @@ export default function Settings() {
   ]
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-6 max-w-4xl mx-auto">
       <h1 className="font-display font-bold text-3xl mb-1" style={{ color: 'var(--text-primary)' }}>
         ⚙ Settings
       </h1>
@@ -308,11 +362,7 @@ export default function Settings() {
       </section>
 
       {/* Downloads */}
-      <section className="mb-10">
-        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-          <Download size={18} style={{ color: 'var(--accent)' }} />
-          Downloads &amp; Offline
-        </h2>
+      <CollapsibleSection title="Downloads & Offline" icon={<Download size={18} style={{ color: 'var(--accent)' }} />}>
 
         <div
           className="rounded-2xl overflow-hidden"
@@ -541,13 +591,10 @@ export default function Settings() {
             </p>
           </div>
         </div>
-      </section>
+      </CollapsibleSection>
 
       {/* Playback */}
-      <section className="mb-10">
-        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-          ▶ Playback
-        </h2>
+      <CollapsibleSection title="Playback" icon={<Play size={17} />}>
         <div
           className="rounded-2xl p-5"
           style={{
@@ -587,13 +634,34 @@ export default function Settings() {
             onChange={v => setPreference('rememberPosition', v)}
           />
         </div>
-      </section>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Watch Party" icon={<Users size={17} />}>
+        <div
+          className="rounded-2xl p-5"
+          style={{
+            background: 'var(--bg-glass)',
+            border: '1px solid var(--border)',
+            backdropFilter: 'blur(20px)',
+            boxShadow: 'var(--card-shadow), var(--inner-glow)',
+          }}
+        >
+          <Toggle
+            label="Noise Suppression (Beta)"
+            value={preferences.watchPartyNoiseSuppression}
+            onChange={handleWatchPartyNoiseSuppressionChange}
+          />
+          <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+            Uses RNNoise to reduce keyboard, fan, and room noise for Watch Party voice chat. This only affects microphone voice, not movie audio.
+          </p>
+          <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+            Headphones still give the cleanest result and help avoid speaker bleed during Watch Party sessions.
+          </p>
+        </div>
+      </CollapsibleSection>
 
       {/* Accessibility */}
-      <section className="mb-10">
-        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-          ♿ Accessibility
-        </h2>
+      <CollapsibleSection title="Accessibility" icon={<Accessibility size={17} />}>
         <div
           className="rounded-2xl p-5"
           style={{
@@ -612,12 +680,9 @@ export default function Settings() {
             Disables background orbs, page transitions, and CSS animations. Overrides the system motion setting.
           </p>
         </div>
-      </section>
+      </CollapsibleSection>
 
-      <section className="mb-10">
-        <h2 className="font-display font-semibold text-lg mb-4" style={{ color: 'var(--text-primary)' }}>
-          Performance
-        </h2>
+      <CollapsibleSection title="Performance" icon={<Zap size={17} />}>
         <div
           className="rounded-2xl p-5"
           style={{
@@ -670,13 +735,10 @@ export default function Settings() {
                 : 'Reduced visual effects are forced off.'}
           </p>
         </div>
-      </section>
+      </CollapsibleSection>
 
       {/* About */}
-      <section>
-        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-          ℹ About
-        </h2>
+      <CollapsibleSection title="About" icon={<Info size={17} />} className="mb-0">
         <div
           className="rounded-2xl p-5"
           style={{
@@ -763,7 +825,7 @@ export default function Settings() {
             Built for personal use only.
           </p>
         </div>
-      </section>
+      </CollapsibleSection>
     </div>
   )
 }

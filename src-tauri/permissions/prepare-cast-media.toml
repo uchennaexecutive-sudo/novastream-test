@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-prepare-cast-media"
+description = "Allow preparing a cast-ready LAN relay URL for the active media"
+commands.allow = ["prepare_cast_media"]

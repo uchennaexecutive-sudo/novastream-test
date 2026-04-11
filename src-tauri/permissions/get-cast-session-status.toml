@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-cast-session-status"
+description = "Allow reading the active cast session state"
+commands.allow = ["get_cast_session_status"]

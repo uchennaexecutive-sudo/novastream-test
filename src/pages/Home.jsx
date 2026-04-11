@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import useAppStore, { getReducedEffectsMode } from '../store/useAppStore'
 import {
   getTrending,
   getPopularMovies,
@@ -77,6 +78,7 @@ const ContentRow = memo(function ContentRow({
   type,
   renderItem,
   skeletonCount = 8,
+  reducedEffectsMode = false,
 }) {
   const scrollRef = useRef(null)
   const dragStateRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
@@ -118,9 +120,9 @@ const ContentRow = memo(function ContentRow({
     return items?.map((item) => (
       renderItem
         ? renderItem(item)
-        : <MediaCard key={item.id} item={item} type={type} />
+        : <MediaCard key={item.id} item={item} type={type} reducedEffectsMode={reducedEffectsMode} />
     ))
-  }, [items, loading, renderItem, skeletonCount, type])
+  }, [items, loading, renderItem, skeletonCount, type, reducedEffectsMode])
 
   return (
     <div
@@ -177,6 +179,7 @@ const ContentRow = memo(function ContentRow({
 })
 
 export default function Home() {
+  const reducedEffectsMode = useAppStore(getReducedEffectsMode)
   const [homeData, setHomeData] = useState(INITIAL_HOME_DATA)
   const [criticalRowsLoading, setCriticalRowsLoading] = useState(true)
   const [deferredRowsLoading, setDeferredRowsLoading] = useState(true)
@@ -534,6 +537,7 @@ export default function Home() {
             type={row.type}
             renderItem={row.renderItem}
             skeletonCount={row.skeletonCount}
+            reducedEffectsMode={reducedEffectsMode}
           />
         ))}
       </div>

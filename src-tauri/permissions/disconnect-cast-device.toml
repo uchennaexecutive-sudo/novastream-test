@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-disconnect-cast-device"
+description = "Allow disconnecting the active Chromecast cast session"
+commands.allow = ["disconnect_cast_device"]

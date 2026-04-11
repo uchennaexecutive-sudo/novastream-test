@@ -129,6 +129,12 @@ body {
   animation: glow-dot 2s ease-in-out infinite;
 }
 
+/* ─── Cast Wave (animated bars next to active cast device) ─── */
+@keyframes castWave {
+  0%, 100% { height: 4px; opacity: 0.5; }
+  50% { height: 14px; opacity: 1; }
+}
+
 /* Repeated card surfaces */
 .media-card-shell,
 .continue-card-shell {

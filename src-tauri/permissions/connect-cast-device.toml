@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-connect-cast-device"
+description = "Allow connecting to a Chromecast device and loading cast media"
+commands.allow = ["connect_cast_device"]

@@ -1,6 +1,6 @@
 [package]
 name = "nova-stream"
-version = "1.6.8"
+version = "1.7.0"
 description = "NOVA STREAM - Premium Streaming Desktop App"
 authors = ["you"]
 license = ""
@@ -34,3 +34,7 @@ dirs = "5"
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 fs2 = "0.4"
+rupnp = { version = "3.0.0", features = ["tokio"] }
+dotenvy = "0.15"
+jsonwebtoken = "9.3"
+livekit-api = { version = "0.4.18", default-features = false, features = ["access-token"] }
