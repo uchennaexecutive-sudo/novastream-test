@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.7.1
+Premium streaming desktop application (Tauri 2) - v1.7.2
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -268,6 +268,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - Watch Party player/runtime path is already lazy-loaded, but deeper chunk optimization can still be done later
 
 ## Version History
+- v1.7.2 - Patch release to inject Watch Party transport env into GitHub release builds so packaged apps keep the Vercel token-service flow
 - v1.7.1 - Patch release to sync vendored Nuvio lockfile so CI/release builds succeed cleanly
 - v1.7.0 - Ship Watch Party end-to-end with packaged token-service flow, guest receiving + fullscreen viewer, host/guest identity sync, subtitle relay, offline/downloaded broadcast support, transport smoothing, and optional RNNoise voice cleanup
 - v1.6.8 - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements
