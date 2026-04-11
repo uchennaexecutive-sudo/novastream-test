@@ -1,0 +1,9 @@
+{
+  "name": "nova-stream-watch-party-token-service",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "livekit-server-sdk": "^2.15.1"
+  }
+}
