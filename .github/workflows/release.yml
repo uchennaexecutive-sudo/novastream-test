@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
 
+env:
+  # Public Watch Party transport config used by packaged builds.
+  # Token minting stays on the Vercel service, so no LiveKit secret is embedded.
+  VITE_WATCH_PARTY_LIVEKIT_URL: wss://nova-stream-7u1ceh13.livekit.cloud
+  VITE_WATCH_PARTY_TOKEN_ENDPOINT: https://novastream-watch-party-token-servic.vercel.app/api/watch-party-token
+
 jobs:
   build:
     runs-on: windows-latest
