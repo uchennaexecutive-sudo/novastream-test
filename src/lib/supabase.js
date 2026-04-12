@@ -28,7 +28,22 @@ function normalizeMediaType(value) {
 function normalizePosterPath(value) {
   const normalized = String(value || '').trim()
   if (!normalized) return null
-  return /^https?:\/\//i.test(normalized) ? null : normalized
+
+  if (!/^https?:\/\//i.test(normalized)) {
+    return normalized
+  }
+
+  try {
+    const url = new URL(normalized)
+    if (!/^image\.tmdb\.org$/i.test(url.hostname)) {
+      return null
+    }
+
+    const pathMatch = url.pathname.match(/^\/t\/p\/[^/]+(\/.+)$/i)
+    return pathMatch?.[1] || null
+  } catch {
+    return null
+  }
 }
 
 function sortByDateDesc(items, field) {
@@ -56,6 +71,15 @@ function getWatchlistKey(item) {
 
 function getHistoryKey(item) {
   return String(item?.tmdb_id || item?.id || '')
+}
+
+function normalizeComparableId(value) {
+  return String(value ?? '').trim()
+}
+
+function toSupabaseIdFilter(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : String(value ?? '').trim()
 }
 
 function getProgressKey(item) {
@@ -257,33 +281,41 @@ export const addToWatchlist = async (item) => {
 }
 
 export const removeFromWatchlist = async (tmdbId) => {
-  const normalizedId = Number(tmdbId)
+  const comparableId = normalizeComparableId(tmdbId)
+  const supabaseFilterId = toSupabaseIdFilter(tmdbId)
   const nextList = readStore(WATCHLIST_KEY)
     .map(normalizeWatchlistEntry)
-    .filter((item) => item.tmdb_id !== normalizedId)
+    .filter((item) => normalizeComparableId(item.tmdb_id) !== comparableId)
 
   writeStore(WATCHLIST_KEY, nextList)
-  emitUserDataChanged({ scopes: ['watchlist'], reason: 'watchlist-remove' })
 
   const userId = await getUserId()
-  if (!userId) return
+  if (!userId) {
+    emitUserDataChanged({ scopes: ['watchlist'], reason: 'watchlist-remove' })
+    return
+  }
 
-  supabase
-    .from('watchlist')
-    .delete()
-    .eq('user_id', userId)
-    .eq('tmdb_id', normalizedId)
-    .then(({ error }) => {
-      if (error) {
-        console.warn('[watchlist] sync delete failed:', error.message)
-      }
-    })
+  try {
+    const { error } = await supabase
+      .from('watchlist')
+      .delete()
+      .eq('user_id', userId)
+      .eq('tmdb_id', supabaseFilterId)
+
+    if (error) {
+      throw error
+    }
+  } catch (error) {
+    console.warn('[watchlist] sync delete failed:', error?.message || error)
+  }
+
+  emitUserDataChanged({ scopes: ['watchlist'], reason: 'watchlist-remove' })
 }
 
 export const isInWatchlist = async (tmdbId) => {
-  const normalizedId = Number(tmdbId)
+  const normalizedId = normalizeComparableId(tmdbId)
   const items = await getWatchlist()
-  return items.some((item) => item.tmdb_id === normalizedId)
+  return items.some((item) => normalizeComparableId(item.tmdb_id) === normalizedId)
 }
 
 export const getHistory = async () => {
@@ -355,21 +387,25 @@ export const addToHistory = async (item) => {
 }
 
 export const removeFromHistory = async (tmdbId) => {
-  const normalizedId = Number(tmdbId)
+  const comparableId = normalizeComparableId(tmdbId)
+  const supabaseFilterId = toSupabaseIdFilter(tmdbId)
   const nextList = readStore(HISTORY_KEY)
     .map(normalizeHistoryEntry)
-    .filter((item) => item.tmdb_id !== normalizedId)
+    .filter((item) => normalizeComparableId(item.tmdb_id) !== comparableId)
 
   writeStore(HISTORY_KEY, nextList)
 
   const userId = await getUserId()
   if (userId) {
     try {
-      await supabase
+      const { error } = await supabase
         .from('watch_history')
         .delete()
         .eq('user_id', userId)
-        .eq('tmdb_id', normalizedId)
+        .eq('tmdb_id', supabaseFilterId)
+      if (error) {
+        throw error
+      }
     } catch (error) {
       console.warn('[history] sync delete failed:', error?.message || error)
     }

@@ -1,4 +1,5 @@
 import { memo, useRef, useCallback } from 'react'
+import { useMovieNoHd } from '../../lib/movieHdStatus'
 import { useNavigate } from 'react-router-dom'
 import { imgW342 } from '../../lib/tmdb'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
@@ -18,6 +19,7 @@ function MediaCard({ item, type, aspectRatio = 'portrait', reducedEffectsMode: r
   const rating = item.vote_average
 
   const isSquare = aspectRatio === 'square'
+  const noHd = useMovieNoHd(item, type)
 
   // Prefetch the navigation target on hover so clicks feel instant.
   const cachedNavRef = useRef(null)
@@ -106,6 +108,20 @@ function MediaCard({ item, type, aspectRatio = 'portrait', reducedEffectsMode: r
             </svg>
           </div>
         </div>
+
+        {noHd && (
+          <div
+            className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold"
+            style={{
+              background: 'rgba(0,0,0,0.72)',
+              color: '#f59e0b',
+              border: '1px solid rgba(245,158,11,0.35)',
+              backdropFilter: reducedEffectsMode ? 'none' : 'blur(8px)',
+            }}
+          >
+            No HD
+          </div>
+        )}
 
         {rating > 0 && (
           <div

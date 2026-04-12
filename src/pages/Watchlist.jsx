@@ -40,8 +40,8 @@ export default function Watchlist() {
 
   const handleRemove = async (e, tmdbId) => {
     e.stopPropagation()
+    setItems(prev => prev.filter(i => String(i.tmdb_id) !== String(tmdbId)))
     await removeFromWatchlist(tmdbId)
-    setItems(prev => prev.filter(i => i.tmdb_id !== tmdbId))
   }
 
   return (

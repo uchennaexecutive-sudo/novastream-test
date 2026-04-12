@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.7.4
+Premium streaming desktop application (Tauri 2) - v1.7.5
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -29,8 +29,10 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Watchlist - localStorage-backed add/remove/check, responsive grid
 - [x] Watch history - auto-recorded on play, localStorage-backed
 - [x] Continue Watching - deduplicated episodic entries so each show displays only the latest watched episode
-- [x] Resume flow - Continue Watching opens detail first, detail pages refresh resume state after player close, and episodic players sync final episode/progress back to detail
+- [x] Resume flow - Continue Watching opens detail first, detail pages refresh resume state after player close, episodic players sync final episode/progress back to detail, and Home dismissals no longer delete the underlying resume/history state
 - [x] User data hydration recovery - signed-in watchlist/history/profile stats now rehydrate after auth/session changes, history stays live with the current native players, and movie/episode resume reliably reopens from saved progress
+- [x] User data removal persistence - Continue Watching dismissals stay hidden until playback resumes, and Watchlist / History removals now persist cleanly across page revisits
+- [x] Movie HD availability warnings - Home cards and Detail now show `No HD` / `HD not out yet` only for recent theatrical-only movie releases, avoiding old-title false positives from sparse TMDB release history
 - [x] Settings - theme picker, playback prefs, update status with real download % progress bar
 - [x] 6 themes - Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
 - [x] Layout - sidebar (top-aligned logo, collapses to 72px, expands to 240px on hover), top bar (search), ambient orbs
@@ -205,8 +207,10 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 ## Anime Detail / Search Routing
 - `src/pages/Detail.jsx` now uses AniList identity state (`anilistId`, anime titles, anime year) for anime-specific detail handling
 - `src/lib/animeMapper.js` separates normal seasonal anime from long-running anime and groups extra content into Movies / OVA / ONA / Specials
+- Standalone episodic ONAs can now be promoted into the main season pipeline when they are the franchise's primary running release, so newer ONA-first shows update like normal seasons instead of staying stuck as one-card extras
 - Bleach sequel handling was corrected so sequel seasons can appear without collapsing the whole franchise into a single long-runner bucket
 - One Piece is treated as a long-running anime and no longer builds fake sequel seasons from AniList relation noise
+- Anime detail pages now recover missing AniList identity on first load, so anime season data can self-heal when route-state AniList ids are missing
 - `src/components/Search/SearchOverlay.jsx` now supports AniList anime results in addition to TMDB Movies / Series results
 - Anime search navigation now mirrors the Anime browse page flow by matching AniList results to TMDB before opening detail pages
 
@@ -275,6 +279,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - Watch Party player/runtime path is already lazy-loaded, but deeper chunk optimization can still be done later
 
 ## Version History
+- v1.7.5 - Fix standalone ONA season mapping and first-load anime identity recovery, make Continue Watching / Watchlist / History removals persist correctly, and tighten movie `No HD` warnings so only recent theatrical-only releases are tagged
 - v1.7.4 - Restore signed-in user data hydration, fix resume reopening in native playback, recover the Downloads library from existing on-disk files, and add the missing Tauri capability grants for library scanning
 - v1.7.3 - Stabilize Watch Party host playback and downloaded-media broadcasting, prewarm the Nuvio sidecar, lazy-load HLS playback setup, and clean non-blocking build warnings without changing the release architecture
 - v1.7.2 - Patch release to inject Watch Party transport env into GitHub release builds so packaged apps keep the Vercel token-service flow

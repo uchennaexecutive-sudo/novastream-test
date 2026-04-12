@@ -189,6 +189,69 @@ export const discoverMovies = (params = {}) =>
 export const discoverTV = (params = {}) =>
   tmdb.get('/discover/tv', { params }).then(r => r.data)
 
+// ── HD availability helpers ───────────────────────────────────────────────────
+
+/**
+ * Fetches the TMDB release_dates for a single movie.
+ * Lightweight endpoint — returns only release-date records, no heavy payload.
+ */
+export const getMovieReleaseDates = (id) =>
+  tmdb.get(`/movie/${id}/release_dates`).then((r) => r.data)
+
+const NO_HD_WARNING_WINDOW_DAYS = 180
+
+function isRecentMovieRelease(releaseDateValue) {
+  const releaseDate = String(releaseDateValue || '').trim()
+  if (!releaseDate) return false
+
+  const releaseAt = new Date(`${releaseDate}T00:00:00`).getTime()
+  if (!Number.isFinite(releaseAt)) return false
+
+  const daysSinceRelease = (Date.now() - releaseAt) / 86400000
+  return daysSinceRelease >= 0 && daysSinceRelease <= NO_HD_WARNING_WINDOW_DAYS
+}
+
+/**
+ * Precise check for Detail page surfaces, using the release_dates
+ * append_to_response payload from TMDB.
+ *
+ * TMDB release types:
+ *   2 = limited theatrical  3 = theatrical
+ *   4 = digital             5 = physical / home video
+ *
+ * Returns true when a recent movie has a theatrical date in the past but no
+ * digital or physical date exists yet.
+ *
+ * TMDB release history can be sparse for older catalog titles, especially in
+ * the US region. To avoid false positives on movies that are obviously already
+ * available in HD, this warning is limited to recent releases and accepts
+ * digital / physical dates from any region.
+ */
+export function parseReleaseDatesNoHd(releaseDatesData, releaseDateValue = '') {
+  const results = releaseDatesData?.results
+  if (!Array.isArray(results) || results.length === 0) return false
+  if (!isRecentMovieRelease(releaseDateValue)) return false
+
+  // Prefer the US region; fall back to the first available region.
+  const region = results.find((r) => r.iso_3166_1 === 'US') || results[0]
+  if (!Array.isArray(region?.release_dates) || region.release_dates.length === 0) return false
+
+  const now = Date.now()
+  const dates = region.release_dates
+
+  const hasTheatrical = dates.some(
+    (d) => (d.type === 2 || d.type === 3) && new Date(d.release_date).getTime() <= now
+  )
+  const hasDigitalOrPhysical = results.some((entry) => (
+    Array.isArray(entry?.release_dates)
+    && entry.release_dates.some(
+      (d) => (d.type === 4 || d.type === 5) && new Date(d.release_date).getTime() <= now
+    )
+  ))
+
+  return hasTheatrical && !hasDigitalOrPhysical
+}
+
 export const GENRE_MAP = {
   28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
   80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',

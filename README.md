@@ -6,7 +6,7 @@
 
 *Built with Tauri 2, React 18, and Rust*
 
-[![Version](https://img.shields.io/badge/version-1.7.4-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.7.5-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -49,6 +49,7 @@ No browser tabs. No extensions. No fuss.
 - **Continue Watching** deduplicated per show
 - **Resume playback** for movies and episodes with detail-page reopen support
 - **Episode navigation** inside the player
+- **Movie HD availability warning** so recent theatrical-only films can show `No HD` / `HD not out yet` before digital release
 
 ### Downloads and Offline
 - **Download anything**: movies, series episodes, anime, and animation
@@ -184,7 +185,7 @@ Watch Party notes:
 
 ## Current Version
 
-**v1.7.4** - Restore signed-in sync hydration, fix native resume reopening, recover the Downloads library from existing on-disk files, and add the missing Tauri capability grants for library scanning.
+**v1.7.5** - Fix standalone ONA season mapping and first-load anime identity recovery, make Continue Watching / Watchlist / History removals persist correctly, and tighten movie `No HD` warnings so only recent theatrical-only releases are tagged.
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 

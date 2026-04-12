@@ -3,6 +3,7 @@ import { emitUserDataChanged } from './userDataEvents'
 
 const DEVICE_ID_STORAGE_KEY = 'nova_device_id'
 const LOCAL_PROGRESS_STORAGE_KEY = 'nova_watch_progress'
+const HIDDEN_CONTINUE_STORAGE_KEY = 'nova_hidden_continue'
 
 const hasLocalStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 
@@ -68,6 +69,32 @@ const readLocalRows = () => {
 const writeLocalRows = (rows) => {
   if (!hasLocalStorage()) return
   window.localStorage.setItem(LOCAL_PROGRESS_STORAGE_KEY, JSON.stringify(rows))
+}
+
+const readHiddenContinueKeys = () => {
+  if (!hasLocalStorage()) return []
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(HIDDEN_CONTINUE_STORAGE_KEY) || '[]')
+    return Array.isArray(parsed)
+      ? parsed.map(value => String(value || '').trim()).filter(Boolean)
+      : []
+  } catch {
+    return []
+  }
+}
+
+const writeHiddenContinueKeys = (keys) => {
+  if (!hasLocalStorage()) return
+  const uniqueKeys = [...new Set((Array.isArray(keys) ? keys : []).map(value => String(value || '').trim()).filter(Boolean))]
+  window.localStorage.setItem(HIDDEN_CONTINUE_STORAGE_KEY, JSON.stringify(uniqueKeys))
+}
+
+const clearHiddenContinueKey = (item) => {
+  const hiddenKey = buildContinueWatchingKey(item)
+  const currentKeys = readHiddenContinueKeys()
+  if (!currentKeys.includes(hiddenKey)) return false
+  writeHiddenContinueKeys(currentKeys.filter(key => key !== hiddenKey))
+  return true
 }
 
 const mergeRows = (...collections) => {
@@ -195,6 +222,7 @@ export async function saveProgress(item) {
   const userId = await getUserId()
   const payload = buildPayload(item, userId)
   const localRow = upsertLocalRow(payload)
+  clearHiddenContinueKey(payload)
   emitUserDataChanged({ scopes: ['progress'], reason: 'progress-save' })
 
   // Only sync to cloud when signed in
@@ -221,11 +249,13 @@ export async function getContinueWatching() {
     fetchRemoteRows(),
     Promise.resolve(readLocalRows()),
   ])
+  const hiddenKeys = new Set(readHiddenContinueKeys())
 
   const seen = new Set()
   return mergeRows(remoteRows, localRows)
     .filter(item => item.progress_seconds > 0)
     .filter(isResumableProgress)
+    .filter(item => !hiddenKeys.has(buildContinueWatchingKey(item)))
     .filter((item) => {
       const key = buildContinueWatchingKey(item)
       if (seen.has(key)) return false
@@ -274,7 +304,10 @@ export async function deleteProgressEntry(contentId, season, episode) {
   writeLocalRows(rows)
 
   const userId = await getUserId()
-  if (!userId) return
+  if (!userId) {
+    emitUserDataChanged({ scopes: ['progress'], reason: 'progress-remove' })
+    return
+  }
 
   try {
     let query = supabase
@@ -291,6 +324,20 @@ export async function deleteProgressEntry(contentId, season, episode) {
   } catch (error) {
     console.error('[progress] delete failed', error)
   }
+
+  emitUserDataChanged({ scopes: ['progress'], reason: 'progress-remove' })
+}
+
+export async function dismissContinueWatchingItem(item) {
+  const hiddenKey = buildContinueWatchingKey(item)
+  const currentKeys = readHiddenContinueKeys()
+
+  if (!currentKeys.includes(hiddenKey)) {
+    writeHiddenContinueKeys([...currentKeys, hiddenKey])
+  }
+
+  emitUserDataChanged({ scopes: ['progress'], reason: 'continue-dismiss' })
+  return hiddenKey
 }
 
 export async function getAllProgressRows() {

@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { imgW1280 } from '../../lib/tmdb'
+import { useMovieNoHd } from '../../lib/movieHdStatus'
 import GlassButton from '../UI/GlassButton'
 import RatingBadge from '../UI/RatingBadge'
 import GlassBadge from '../UI/GlassBadge'
@@ -18,6 +19,7 @@ function HeroSlide({ item }) {
   const overview = item.overview?.slice(0, 200) + (item.overview?.length > 200 ? '...' : '')
   const genres = (item.genre_ids || []).slice(0, 3).map(id => GENRE_MAP[id]).filter(Boolean)
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)
+  const noHd = useMovieNoHd(item, type)
 
   const handleOpen = async () => {
     const target = await buildDetailNavigationForTmdbItem(item, type)
@@ -104,6 +106,18 @@ function HeroSlide({ item }) {
             </span>
           )}
           {genres.map(g => <GlassBadge key={g}>{g}</GlassBadge>)}
+          {noHd && (
+            <span
+              className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md"
+              style={{
+                background: 'rgba(245,158,11,0.15)',
+                color: '#f59e0b',
+                border: '1px solid rgba(245,158,11,0.3)',
+              }}
+            >
+              No HD
+            </span>
+          )}
         </div>
 
         {/* Overview */}

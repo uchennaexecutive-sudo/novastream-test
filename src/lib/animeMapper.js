@@ -136,34 +136,64 @@ const hasMainlineSeasonRelation = (item) => {
 const isSeasonLike = (item) =>
     getKind(item) === 'season'
 
-const isPromotedOnaSeason = (item) =>
-    String(item?.format || '').toUpperCase() === 'ONA'
-    && hasExplicitSeasonNumberMarker(item)
-    && hasMainlineSeasonRelation(item)
+const hasEpisodicSeasonSignals = (item) => {
+    const explicitEpisodes = Number(item?.episodes || 0)
+    const nextEpisodeNumber = Number(item?.nextAiringEpisode?.episode || 0)
+    const releasedEpisodes = getReleasedEpisodeCount(item)
 
-const isCanonicalSeasonLike = (item) =>
-    isSeasonLike(item) || isPromotedOnaSeason(item)
+    return explicitEpisodes > 1 || nextEpisodeNumber > 1 || releasedEpisodes > 1
+}
+
+const hasTvMainlineSeasonInRelated = (related = [], rootId = null) =>
+    (Array.isArray(related) ? related : []).some((item) => {
+        const format = String(item?.format || '').toUpperCase()
+        if (format !== 'TV' && format !== 'TV_SHORT') return false
+        if (String(item?.status || '').toUpperCase() === 'NOT_YET_RELEASED') return false
+        if (item?.id === rootId) return true
+        return hasMainlineSeasonRelation(item)
+    })
+
+const isStandaloneMainlineOnaSeason = (item, rootId, related = []) =>
+    String(item?.format || '').toUpperCase() === 'ONA'
+    && hasEpisodicSeasonSignals(item)
+    && !hasTvMainlineSeasonInRelated(related, rootId)
+    && (
+        item?.id === rootId
+        || hasMainlineSeasonRelation(item)
+    )
+
+const isPromotedOnaSeason = (item, rootId, related = []) =>
+    String(item?.format || '').toUpperCase() === 'ONA'
+    && (
+        (
+            hasExplicitSeasonNumberMarker(item)
+            && hasMainlineSeasonRelation(item)
+        ) || isStandaloneMainlineOnaSeason(item, rootId, related)
+    )
+
+const isCanonicalSeasonLike = (item, rootId, related = []) =>
+    isSeasonLike(item) || isPromotedOnaSeason(item, rootId, related)
 
 const isReleasedSeasonCandidate = (item) =>
     String(item?.status || '').toUpperCase() !== 'NOT_YET_RELEASED'
 
-const isMainlineSeasonEntry = (item, rootId) => {
+const isMainlineSeasonEntry = (item, rootId, related = []) => {
     if (!item?.id) return false
     if (!isReleasedSeasonCandidate(item)) return false
 
     if (item.id === rootId) {
-        return isCanonicalSeasonLike(item)
+        return isCanonicalSeasonLike(item, rootId, related)
     }
 
-    if (isCanonicalSeasonLike(item)) {
+    if (isCanonicalSeasonLike(item, rootId, related)) {
         return hasMainlineSeasonRelation(item)
     }
 
     return false
 }
 
-const isTvShortExtra = (item, rootId) =>
-    String(item?.format || '').toUpperCase() === 'TV_SHORT' && !isMainlineSeasonEntry(item, rootId)
+const isTvShortExtra = (item, rootId, related = []) =>
+    String(item?.format || '').toUpperCase() === 'TV_SHORT' && !isMainlineSeasonEntry(item, rootId, related)
 
 function collectRelatedAnime(root) {
     const baseTitle = getTitle(root)
@@ -226,7 +256,7 @@ export function resolveAnimeCanonicalRoot(media) {
     if (!media?.id) return null
 
     const related = collectRelatedAnime(media)
-    const seasonCandidates = related.filter(isCanonicalSeasonLike)
+    const seasonCandidates = related.filter((item) => isCanonicalSeasonLike(item, media.id, related))
 
     if (!seasonCandidates.length) return media
 
@@ -307,12 +337,12 @@ export function buildAnimeCanonicalFromAniList(media) {
     const related = collectRelatedAnime(media)
     const longRunner = isLongRunner(media)
 
-    const seasonsRaw = related.filter((item) => isMainlineSeasonEntry(item, media.id))
+    const seasonsRaw = related.filter((item) => isMainlineSeasonEntry(item, media.id, related))
     const moviesRaw = related.filter((item) => getKind(item) === 'movie')
     const ovaRaw = related.filter((item) => getKind(item) === 'ova')
-    const onaRaw = related.filter((item) => getKind(item) === 'ona' && !isMainlineSeasonEntry(item, media.id))
+    const onaRaw = related.filter((item) => getKind(item) === 'ona' && !isMainlineSeasonEntry(item, media.id, related))
     const specialsRaw = related.filter(
-        (item) => getKind(item) === 'special' || isTvShortExtra(item, media.id)
+        (item) => getKind(item) === 'special' || isTvShortExtra(item, media.id, related)
     )
 
     const baseTitle = normalizeTitle(getTitle(media))

@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } fro
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronLeft, WifiOff } from 'lucide-react'
-import { getDetails, imgOriginal, imgW500 } from '../lib/tmdb'
+import { getDetails, imgOriginal, imgW500, parseReleaseDatesNoHd } from '../lib/tmdb'
 import { preloadAnimePlayback } from '../lib/consumet'
 import { isMovieLikeMediaType } from '../lib/embeds'
 import {
@@ -28,6 +28,7 @@ import {
   buildAnimeEpisodesFromAniListEntry,
   resolveAnimeCanonicalRoot,
 } from '../lib/animeMapper'
+import { resolveAniListMatchForTmdbItem } from '../lib/animeClassification'
 import { searchAnime as searchAniListAnime } from '../lib/anilist'
 import { prepareAnimeDownloadRuntimeData, clearAnimeDownloadCache } from '../lib/animeDownloads'
 import useDownloadStore, { getDownloadItemByIdentity } from '../store/useDownloadStore'
@@ -155,6 +156,18 @@ const hasExplicitSeasonTitleMarker = (item) => {
     || /\b[2-9]\d*(st|nd|rd|th)\s+season\b/.test(title)
     || /\bfinal\s+season\b/.test(title)
   ))
+}
+
+const hasEpisodicOnaSeasonSignals = (item) => {
+  const explicitEpisodes = Number(item?.episodes || 0)
+  const nextEpisodeNumber = Number(item?.nextAiringEpisode?.episode || 0)
+  const status = String(item?.status || '').toUpperCase()
+
+  if (explicitEpisodes > 1) return true
+  if (nextEpisodeNumber > 1) return true
+  if ((status === 'RELEASING' || status === 'FINISHED') && explicitEpisodes > 0) return explicitEpisodes > 1
+
+  return false
 }
 
 function mergeSupplementalAnimeSeasons(canonical, candidates = []) {
@@ -286,6 +299,8 @@ export default function Detail() {
   const [animePlayTitle, setAnimePlayTitle] = useState('')
   const [animePlayAltTitle, setAnimePlayAltTitle] = useState('')
   const [prefetchedAnimeData, setPrefetchedAnimeData] = useState(null)
+  const [resolvedAnilistId, setResolvedAnilistId] = useState(null)
+  const [resolvedCanonicalAnilistId, setResolvedCanonicalAnilistId] = useState(null)
 
   const animePrefetchRef = useRef(new Map())
   const prefetchedAnimeIdRef = useRef(null)
@@ -298,6 +313,8 @@ export default function Detail() {
     location.state?.animeAltTitle || data?.original_name || data?.original_title || ''
   const anilistId = Number(location.state?.anilistId) || null
   const canonicalAnilistId = Number(location.state?.canonicalAnilistId) || null
+  const effectiveAnilistId = anilistId || resolvedAnilistId || null
+  const effectiveCanonicalAnilistId = canonicalAnilistId || resolvedCanonicalAnilistId || null
 
   useEffect(() => {
     setLoading(true)
@@ -319,10 +336,15 @@ export default function Detail() {
     setAnimePlayTitle('')
     setAnimePlayAltTitle('')
     setPrefetchedAnimeData(null)
+    setResolvedAnilistId(null)
+    setResolvedCanonicalAnilistId(null)
     autoOpenHandledRef.current = false
 
+    // Append release_dates for movie-like types — gives us precise theatrical vs
+    // digital release info without an extra API round-trip. TMDB silently omits
+    // the field for TV types so there is no downside including it always.
     withTimeout(
-      getDetails(type, id, 'credits'),
+      getDetails(type, id, isMovieLike ? ['credits', 'release_dates'] : 'credits'),
       DETAIL_REQUEST_TIMEOUT_MS,
       'This title took too long to load. Please try again.'
     )
@@ -489,6 +511,36 @@ export default function Detail() {
     }
   }, [applyProgressState, id, loadProgressState, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, type])
 
+  useEffect(() => {
+    if (!isAnime || !data?.id) return undefined
+    if (anilistId || canonicalAnilistId) return undefined
+
+    let cancelled = false
+    setCanonicalLoading(true)
+
+    resolveAniListMatchForTmdbItem(data, type)
+      .then((match) => {
+        if (cancelled) return
+
+        if (match?.id) {
+          setResolvedAnilistId(Number(match.id) || null)
+          setResolvedCanonicalAnilistId(Number(match.id) || null)
+          return
+        }
+
+        setCanonicalLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCanonicalLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [anilistId, canonicalAnilistId, data, isAnime, type])
+
   const normalizePlayerCloseProgress = useCallback((payload) => {
     if (!payload) return null
 
@@ -537,7 +589,7 @@ export default function Detail() {
   }, [applyProgressState, loadProgressState, normalizePlayerCloseProgress])
 
   useEffect(() => {
-    const animeIdentityId = canonicalAnilistId || anilistId
+    const animeIdentityId = effectiveCanonicalAnilistId || effectiveAnilistId
     if (!isAnime || !animeIdentityId) return undefined
 
     let cancelled = false
@@ -555,6 +607,14 @@ export default function Detail() {
           if (cancelled) return
         }
 
+        if (!canonicalAnilistId && rootMedia?.id) {
+          setResolvedCanonicalAnilistId(Number(rootMedia.id) || null)
+        }
+
+        if (!anilistId && media?.id) {
+          setResolvedAnilistId(Number(media.id) || null)
+        }
+
         const result = buildAnimeCanonicalFromAniList(rootMedia)
         const rootTitle =
           rootMedia?.title?.english || rootMedia?.title?.romaji || rootMedia?.title?.native || ''
@@ -564,6 +624,18 @@ export default function Detail() {
               .then((items) => (Array.isArray(items) ? items : []))
               .catch(() => [])
           : []
+        const hasSupplementalTvMainline = supplementalCandidates.some((candidate) => {
+          const candidateKey = normalizeAnimeFranchiseKey(
+            candidate?.title?.english || candidate?.title?.romaji || candidate?.title?.native || ''
+          )
+          const format = String(candidate?.format || '').toUpperCase()
+          const status = String(candidate?.status || '').toUpperCase()
+
+          if (!candidateKey || candidateKey !== rootKey) return false
+          if (status === 'NOT_YET_RELEASED') return false
+
+          return format === 'TV' || format === 'TV_SHORT'
+        })
 
         const supplementalSeasonCandidates = supplementalCandidates.filter((candidate) => {
           const candidateKey = normalizeAnimeFranchiseKey(
@@ -579,7 +651,10 @@ export default function Detail() {
             return true
           }
 
-          return format === 'ONA' && hasExplicitSeasonTitleMarker(candidate)
+          return format === 'ONA' && (
+            hasExplicitSeasonTitleMarker(candidate)
+            || (!hasSupplementalTvMainline && hasEpisodicOnaSeasonSignals(candidate))
+          )
         })
 
         const mergedResult = mergeSupplementalAnimeSeasons(result, supplementalSeasonCandidates)
@@ -610,7 +685,15 @@ export default function Detail() {
     return () => {
       cancelled = true
     }
-  }, [anilistId, canonicalAnilistId, isAnime, location.state?.resumeSeason, resumeProgress?.season])
+  }, [
+    anilistId,
+    canonicalAnilistId,
+    effectiveAnilistId,
+    effectiveCanonicalAnilistId,
+    isAnime,
+    location.state?.resumeSeason,
+    resumeProgress?.season,
+  ])
 
   const selectedCanonicalEntry = canonicalAnime?.entries?.[selectedEntryIndex] || null
 
@@ -882,6 +965,7 @@ export default function Detail() {
   const trailer = deferredDetailData.trailer
   const similar = deferredDetailData.similar
   const genres = data.genres || []
+  const noHd = isMovieLike && parseReleaseDatesNoHd(data.release_dates, data.release_date)
   const numSeasons = data.number_of_seasons || 0
   const year = (data.release_date || data.first_air_date || '').slice(0, 4)
   const showResumeButton = isResumableProgress(resumeProgress)
@@ -923,8 +1007,8 @@ export default function Detail() {
       : title,
     animeAltTitle: contentType === 'anime' ? (animeAltTitle || animeTitle || playbackAnimeTitle || title) : null,
     animeSearchTitles: contentType === 'anime' ? animeDownloadSearchTitles : [],
-    anilistId: contentType === 'anime' ? anilistId : null,
-    canonicalAnilistId: contentType === 'anime' ? canonicalAnilistId : null,
+    anilistId: contentType === 'anime' ? effectiveAnilistId : null,
+    canonicalAnilistId: contentType === 'anime' ? effectiveCanonicalAnilistId : null,
     detailMediaType: contentType === 'anime' ? type : null,
     providerAnimeId: contentType === 'anime' ? prefetchedAnimeData?.animeId || null : null,
     providerMatchedTitle: contentType === 'anime' ? prefetchedAnimeData?.matchedTitle || null : null,
@@ -1245,6 +1329,22 @@ export default function Detail() {
                 {genres.map((genre) => (
                   <GlassBadge key={genre.id}>{genre.name}</GlassBadge>
                 ))}
+              </div>
+            )}
+
+            {noHd && (
+              <div
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium mb-5"
+                style={{
+                  background: 'rgba(245,158,11,0.08)',
+                  color: '#f59e0b',
+                  border: '1px solid rgba(245,158,11,0.22)',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0, opacity: 0.85 }}>
+                  <path d="M12 2 2 20h20L12 2zm0 5 7 12H5l7-12zm-1 4v4h2v-4h-2zm0 5v2h2v-2h-2z" />
+                </svg>
+                HD not out yet — this title may currently be in theaters only
               </div>
             )}
 
@@ -1967,8 +2067,8 @@ export default function Detail() {
               animeSearchTitles: seasonDownloadContext.contentType === 'anime'
                 ? animeDownloadSearchTitles
                 : [],
-              anilistId: seasonDownloadContext.contentType === 'anime' ? anilistId : null,
-              canonicalAnilistId: seasonDownloadContext.contentType === 'anime' ? canonicalAnilistId : null,
+              anilistId: seasonDownloadContext.contentType === 'anime' ? effectiveAnilistId : null,
+              canonicalAnilistId: seasonDownloadContext.contentType === 'anime' ? effectiveCanonicalAnilistId : null,
               detailMediaType: seasonDownloadContext.contentType === 'anime' ? type : null,
               providerAnimeId: seasonDownloadContext.contentType === 'anime'
                 ? prefetchedAnimeData?.animeId || null

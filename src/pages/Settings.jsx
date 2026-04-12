@@ -769,6 +769,8 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.7.5 - Fix standalone ONA season mapping and first-load anime identity recovery, make Continue Watching / Watchlist / History removals persist correctly, and tighten movie No HD warnings so only recent theatrical-only releases are tagged</p>
+            <p>v1.7.4 - Restore signed-in sync hydration, fix native resume reopening, recover the Downloads library from existing on-disk files, and add the missing Tauri capability grants for library scanning</p>
             <p>v1.6.8 - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements</p>
             <p>v1.6.7 - Expand macOS support with bundled tools, helper-app DMG install and update flow, Intel Mac reduced visual effects, and smoother Home scrolling</p>
             <p>v1.6.6 - Harden Windows auto-update and embedded Nuvio runtime refresh so movie, series, and animation playback recover reliably after update</p>

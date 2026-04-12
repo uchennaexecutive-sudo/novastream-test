@@ -94,7 +94,7 @@ export default function History() {
 
   const handleRemove = async (e, tmdbId) => {
     e.stopPropagation()
-    setItems(prev => prev.filter(i => i.tmdb_id !== tmdbId && String(i.id) !== String(tmdbId)))
+    setItems(prev => prev.filter(i => String(i.tmdb_id) !== String(tmdbId) && String(i.id) !== String(tmdbId)))
     await removeFromHistory(tmdbId)
   }
 

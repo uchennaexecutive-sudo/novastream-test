@@ -13,7 +13,7 @@ import {
   getAnimationMovies,
   getRecommendations,
 } from '../lib/tmdb'
-import { getContinueWatching, deleteProgressEntry } from '../lib/progress'
+import { dismissContinueWatchingItem, getContinueWatching } from '../lib/progress'
 import HeroSlide from '../components/Cards/HeroSlide'
 import MediaCard from '../components/Cards/MediaCard'
 import ContinueCard from '../components/Cards/ContinueCard'
@@ -379,11 +379,9 @@ export default function Home() {
         String(i.content_id || i.tmdb_id || i.id) !== String(tmdbId)
       ),
     }))
-    // Only delete the progress entry so getContinueWatching() won't return it.
+    // Keep resume/history data intact and only hide this entry from the
     // Do NOT remove from watch history — that's a separate user action from the
-    // History page. Removing history here would also strip the image fallback data,
-    // causing the card to appear blank in the History view.
-    await deleteProgressEntry(item.content_id, item.season, item.episode)
+    await dismissContinueWatchingItem(item)
   }, [])
 
   const renderContinueItem = useCallback(
