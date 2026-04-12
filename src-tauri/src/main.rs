@@ -77,6 +77,7 @@ const MOVIE_SUBTITLE_CACHE_TTL_SECS: u64 = 60 * 60;
 const WYZIE_SUBTITLES_BASE_URL: &str = "https://sub.wyzie.io";
 const SUBDL_API_BASE_URL: &str = "https://api.subdl.com/api/v1";
 const SUBDL_DOWNLOAD_BASE_URL: &str = "https://dl.subdl.com";
+#[allow(dead_code)]
 const SUBF2M_BASE_URL: &str = "https://subf2m.co";
 const OPENSUBTITLES_API_BASE_URL: &str = "https://api.opensubtitles.com/api/v1";
 const OPENSUBTITLES_CLIENT_USER_AGENT: &str = "NOVA STREAM v1.5.5";
@@ -820,6 +821,7 @@ struct AnimeTextWithSessionResponse {
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct ResolverEvalRequestEvent {
     request_id: String,
     script: String,
@@ -2166,6 +2168,29 @@ async fn ensure_nuvio_sidecar(client: &reqwest::Client) -> Result<(), String> {
     ))
 }
 
+async fn prewarm_nuvio_sidecar() {
+    let client = match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .timeout(Duration::from_secs(15))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            log_resolver_debug(&format!(
+                "[nuvio_sidecar] prewarm client build failed: {}",
+                error
+            ));
+            return;
+        }
+    };
+
+    if let Err(error) = ensure_nuvio_sidecar(&client).await {
+        log_resolver_debug(&format!("[nuvio_sidecar] prewarm failed: {}", error));
+    } else {
+        log_resolver_debug("[nuvio_sidecar] prewarm complete");
+    }
+}
+
 fn stop_nuvio_sidecar() {
     if let Ok(mut guard) = nuvio_sidecar_child().lock() {
         if let Some(mut child) = guard.take() {
@@ -3190,6 +3215,12 @@ async fn media_proxy_local_file_response(
     let mut response = http::Response::builder()
         .status(status)
         .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Headers", "*")
+        .header(
+            "Access-Control-Expose-Headers",
+            "Accept-Ranges, Content-Length, Content-Range, Content-Type",
+        )
         .header("Content-Length", content_length.to_string())
         .header(
             "Content-Type",
@@ -4982,6 +5013,7 @@ fn prepare_proxy_request(
     prepare_request_with_accept(url, headers, session_id, "*/*")
 }
 
+#[allow(dead_code)]
 fn should_use_browser_bridge(session_id: Option<&str>) -> bool {
     resolver_session(session_id)
         .and_then(|session| session.window_label)
@@ -7775,6 +7807,7 @@ fn parse_opensubtitles_file_id(url: &str) -> Option<u64> {
         .and_then(|value| value.parse::<u64>().ok())
 }
 
+#[allow(dead_code)]
 fn normalize_opensubtitles_subtitles(data: &serde_json::Value) -> Vec<ResolvedMovieSubtitle> {
     let Some(streams) = data.get("data").and_then(|value| value.as_array()) else {
         return Vec::new();
@@ -7859,6 +7892,7 @@ fn normalize_opensubtitles_subtitles(data: &serde_json::Value) -> Vec<ResolvedMo
     subtitles
 }
 
+#[allow(dead_code)]
 async fn fetch_opensubtitles_subtitles(
     client: &reqwest::Client,
     imdb_id: &str,
@@ -7975,6 +8009,7 @@ async fn resolve_opensubtitles_download_link(
         .ok_or_else(|| "OpenSubtitles download response missing link".to_string())
 }
 
+#[allow(dead_code)]
 async fn resolve_tmdb_subtitle_query(
     client: &reqwest::Client,
     tmdb_id: &str,
@@ -8005,6 +8040,7 @@ async fn resolve_tmdb_subtitle_query(
     Ok((title, year))
 }
 
+#[allow(dead_code)]
 async fn fetch_subf2m_subtitles(
     client: &reqwest::Client,
     tmdb_id: &str,
@@ -9811,6 +9847,7 @@ fn watch_party_transport_configuration_error() -> String {
     )
 }
 
+#[allow(dead_code)]
 fn current_unix_timestamp() -> Result<u64, String> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -14574,6 +14611,9 @@ fn main() {
             let repo_env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.env");
             let _ = dotenvy::from_path(repo_env_path);
             let _ = app;
+            tauri::async_runtime::spawn(async move {
+                prewarm_nuvio_sidecar().await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

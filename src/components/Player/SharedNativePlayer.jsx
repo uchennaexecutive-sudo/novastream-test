@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import Hls from 'hls.js'
 import { invoke } from '@tauri-apps/api/core'
 import {
   Captions,
@@ -18,6 +17,7 @@ import {
 import CastButton from '../Cast/CastButton'
 import CastDeviceSheet from '../Cast/CastDeviceSheet'
 import useCastStore from '../../store/useCastStore'
+import { loadHls } from '../../lib/loadHls'
 import WatchPartyPlayerOverlay from './WatchPartyPlayerOverlay'
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2]
@@ -513,107 +513,123 @@ export default function SharedNativePlayer({
       }, delayMs)
     }
 
-    if (isHlsStream && Hls.isSupported()) {
-      const TauriLoader = createTauriLoader(
-        Hls.DefaultConfig.loader,
-        () => streamHeaders || {},
-        () => streamSessionId
-      )
-      const hls = new Hls({
-        loader: TauriLoader,
-        fLoader: TauriLoader,
-        pLoader: TauriLoader,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        lowLatencyMode: false,
-        progressive: true,
-        startLevel: 0,
-      })
-      hlsRef.current = hls
-
-      const attachSource = (sourceValue) => {
-        if (disposed) return
-        scheduleStartupFailure()
-        hls.loadSource(sourceValue)
-        hls.attachMedia(video)
-      }
-
-      invoke('fetch_hls_manifest', {
-        url: streamUrl,
-        headers: streamHeaders,
-        sessionId: streamSessionId,
-      })
-        .then((rewrittenManifest) => {
+    if (isHlsStream) {
+      void loadHls()
+        .then((Hls) => {
           if (disposed) return
 
-          manifestBlobUrl = URL.createObjectURL(new Blob(
-            [rewrittenManifest],
-            { type: 'application/vnd.apple.mpegurl' }
-          ))
-          attachSource(manifestBlobUrl)
-        })
-        .catch((manifestError) => {
-          if (disposed) return
-          const detail = manifestError instanceof Error
-            ? manifestError.message
-            : String(manifestError)
-
-          console.warn('[SharedNativePlayer] manifest fetch failed', {
-            streamUrl,
-            streamSessionId,
-            detail,
-          })
-
-          if (streamSessionId) {
-            handleStartupFailure(detail || 'Manifest fetch failed')
+          if (!Hls.isSupported()) {
+            notifyStreamFailure('HLS playback is not supported in this runtime')
             return
           }
 
-          attachSource(streamUrl)
-        })
-
-      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-        const levels = hls.levels
-          .map(level => level.height)
-          .filter(Boolean)
-          .filter((value, index, array) => array.indexOf(value) === index)
-          .sort((a, b) => b - a)
-
-        if (levels.length > 0) {
-          setAvailableResolutions([
-            { value: 'auto', label: 'Auto' },
-            ...levels.map(value => ({ value: String(value), label: `${value}p` })),
-          ])
-        }
-
-        video.play().catch(() => { })
-      })
-
-      hls.on(Hls.Events.LEVEL_LOADED, () => {
-        const followupTimeout = streamSessionId ? SESSION_STARTUP_TIMEOUT_MS : 25000
-        scheduleStartupFailure('Startup timeout after initial HLS level load', followupTimeout)
-      })
-
-      hls.on(Hls.Events.FRAG_BUFFERED, () => {
-        markStartupReady()
-      })
-
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        const detail = formatHlsErrorDetail(data)
-
-        if (data?.fatal) {
-          console.warn('[SharedNativePlayer] fatal HLS error', {
-            type: data.type,
-            details: data.details,
-            reason: data.reason,
-            responseCode: data.response?.code,
-            url: data.url || data.frag?.url,
-            streamUrl,
-            detail,
+          const TauriLoader = createTauriLoader(
+            Hls.DefaultConfig.loader,
+            () => streamHeaders || {},
+            () => streamSessionId
+          )
+          const hls = new Hls({
+            loader: TauriLoader,
+            fLoader: TauriLoader,
+            pLoader: TauriLoader,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            lowLatencyMode: false,
+            progressive: true,
+            startLevel: 0,
           })
-          handleStartupFailure(detail || 'Fatal HLS playback error')
-        }
-      })
+          hlsRef.current = hls
+
+          const attachSource = (sourceValue) => {
+            if (disposed) return
+            scheduleStartupFailure()
+            hls.loadSource(sourceValue)
+            hls.attachMedia(video)
+          }
+
+          void invoke('fetch_hls_manifest', {
+            url: streamUrl,
+            headers: streamHeaders,
+            sessionId: streamSessionId,
+          })
+            .then((rewrittenManifest) => {
+              if (disposed) return
+
+              manifestBlobUrl = URL.createObjectURL(new Blob(
+                [rewrittenManifest],
+                { type: 'application/vnd.apple.mpegurl' }
+              ))
+              attachSource(manifestBlobUrl)
+            })
+            .catch((manifestError) => {
+              if (disposed) return
+              const detail = manifestError instanceof Error
+                ? manifestError.message
+                : String(manifestError)
+
+              console.warn('[SharedNativePlayer] manifest fetch failed', {
+                streamUrl,
+                streamSessionId,
+                detail,
+              })
+
+              if (streamSessionId) {
+                handleStartupFailure(detail || 'Manifest fetch failed')
+                return
+              }
+
+              attachSource(streamUrl)
+            })
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            const levels = hls.levels
+              .map(level => level.height)
+              .filter(Boolean)
+              .filter((value, index, array) => array.indexOf(value) === index)
+              .sort((a, b) => b - a)
+
+            if (levels.length > 0) {
+              setAvailableResolutions([
+                { value: 'auto', label: 'Auto' },
+                ...levels.map(value => ({ value: String(value), label: `${value}p` })),
+              ])
+            }
+
+            video.play().catch(() => { })
+          })
+
+          hls.on(Hls.Events.LEVEL_LOADED, () => {
+            const followupTimeout = streamSessionId ? SESSION_STARTUP_TIMEOUT_MS : 25000
+            scheduleStartupFailure('Startup timeout after initial HLS level load', followupTimeout)
+          })
+
+          hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            markStartupReady()
+          })
+
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            const detail = formatHlsErrorDetail(data)
+
+            if (data?.fatal) {
+              console.warn('[SharedNativePlayer] fatal HLS error', {
+                type: data.type,
+                details: data.details,
+                reason: data.reason,
+                responseCode: data.response?.code,
+                url: data.url || data.frag?.url,
+                streamUrl,
+                detail,
+              })
+              handleStartupFailure(detail || 'Fatal HLS playback error')
+            }
+          })
+        })
+        .catch((hlsError) => {
+          if (disposed) return
+          notifyStreamFailure(
+            hlsError instanceof Error ? hlsError.message : String(hlsError)
+          )
+        })
 
       return () => {
         disposed = true
@@ -979,6 +995,7 @@ export default function SharedNativePlayer({
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 52, paddingBottom: 140 }}>
             <video
               ref={videoRef}
+              crossOrigin="anonymous"
               style={isFullscreen
                 ? { width: '100vw', height: '100vh', objectFit: 'contain', position: 'fixed', top: 0, left: 0, background: '#000', opacity: error ? 0.2 : 1 }
                 : { width: '100%', height: '100%', objectFit: 'contain', background: '#000', opacity: error ? 0.2 : 1 }}

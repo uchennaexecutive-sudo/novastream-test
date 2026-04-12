@@ -56,6 +56,9 @@ const transport = {
   publishedVideoTrack: null,
   publishedAudioTrack: null,
   publishedElement: null,
+  publishedSourceFingerprint: '',
+  expectedPublishedVideo: false,
+  expectedPublishedAudio: false,
   publishedMicrophoneTrack: null,
   microphoneCleanup: null,
   microphoneNoiseSuppressionEnabled: false,
@@ -343,6 +346,20 @@ function clearRemoteTracks() {
   emitRemoteTrackState()
 }
 
+function getPlaybackSourceFingerprint(element, label = '') {
+  if (!element) {
+    return ''
+  }
+
+  const parts = [
+    normalizeValue(label),
+    normalizeValue(element.currentSrc || element.src || ''),
+    normalizeValue(element.dataset?.watchPartySourceKey || ''),
+  ].filter(Boolean)
+
+  return parts.join('::')
+}
+
 function syncRemoteTracksFromRoom() {
   if (!transport.room) {
     return false
@@ -491,7 +508,7 @@ function startTransportHealthMonitor() {
       return
     }
 
-    if (!transport.remoteVideoTrack && !transport.remoteAudioTrack) {
+    if (!transport.remoteVideoTrack || !transport.remoteAudioTrack) {
       syncRemoteTracksFromRoom()
     }
 
@@ -602,99 +619,48 @@ function capturePlaybackStream(element) {
 }
 
 function sourceCaptureNeedsRepublish() {
-  return [
-    transport.publishedVideoTrack,
-    transport.publishedAudioTrack,
-  ].filter(Boolean).some((track) => (
-    track.readyState === 'ended' || track.muted
-  ))
+  if (
+    !transport.expectedPublishedVideo
+    && transport.captureStream?.getVideoTracks().some(trackIsActive)
+  ) {
+    return true
+  }
+
+  if (transport.expectedPublishedVideo && !trackIsActive(transport.publishedVideoTrack)) {
+    return true
+  }
+
+  if (
+    !transport.expectedPublishedAudio
+    && transport.captureStream?.getAudioTracks().some(trackIsActive)
+  ) {
+    return true
+  }
+
+  if (transport.expectedPublishedAudio && !trackIsActive(transport.publishedAudioTrack)) {
+    return true
+  }
+
+  return false
 }
 
 async function cleanupBroadcastAudioGraph() {
-  const audioContext = transport.broadcastAudioContext
-  const sourceNode = transport.broadcastAudioSourceNode
-  const destinationNode = transport.broadcastAudioDestinationNode
-
   transport.broadcastAudioContext = null
   transport.broadcastAudioSourceNode = null
   transport.broadcastAudioDestinationNode = null
   transport.broadcastAudioElement = null
-
-  if (sourceNode) {
-    try {
-      sourceNode.disconnect()
-    } catch {
-      // Best effort cleanup only.
-    }
-  }
-
-  if (destinationNode) {
-    try {
-      destinationNode.disconnect()
-    } catch {
-      // Best effort cleanup only.
-    }
-  }
-
-  if (audioContext) {
-    try {
-      await audioContext.close()
-    } catch {
-      // Best effort cleanup only.
-    }
-  }
 }
 
-async function ensureBroadcastAudioTrack(element) {
-  if (!element) {
+async function ensureBroadcastAudioTrack(captureStream) {
+  if (!captureStream) {
     return null
   }
 
-  if (
-    transport.broadcastAudioElement === element
-    && transport.broadcastAudioDestinationNode
-  ) {
-    const [existingTrack] = transport.broadcastAudioDestinationNode.stream.getAudioTracks()
-    if (existingTrack && existingTrack.readyState !== 'ended') {
-      if (transport.broadcastAudioContext?.state === 'suspended') {
-        await transport.broadcastAudioContext.resume().catch(() => {})
-      }
-      return existingTrack
-    }
-  }
+  const tracks = captureStream
+    .getAudioTracks()
+    .filter((track) => track.readyState !== 'ended')
 
-  if (transport.broadcastAudioElement && transport.broadcastAudioElement !== element) {
-    await cleanupBroadcastAudioGraph()
-  }
-
-  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext
-  if (!AudioContextConstructor) {
-    return null
-  }
-
-  const audioContext = new AudioContextConstructor()
-  const sourceNode = audioContext.createMediaElementSource(element)
-  const destinationNode = audioContext.createMediaStreamDestination()
-
-  sourceNode.connect(destinationNode)
-  sourceNode.connect(audioContext.destination)
-
-  if (audioContext.state === 'suspended') {
-    await audioContext.resume().catch(() => {})
-  }
-
-  const [audioTrack] = destinationNode.stream.getAudioTracks()
-  if (!audioTrack) {
-    await cleanupBroadcastAudioGraph()
-    return null
-  }
-
-  transport.broadcastAudioContext = audioContext
-  transport.broadcastAudioSourceNode = sourceNode
-  transport.broadcastAudioDestinationNode = destinationNode
-  transport.broadcastAudioElement = element
-
-  return audioTrack
+  return tracks[0] || null
 }
 
 async function unpublishTrack(track, { stopTrack = true } = {}) {
@@ -718,17 +684,18 @@ async function unpublishTrack(track, { stopTrack = true } = {}) {
 async function clearPublishedTracks({ keepAudioGraph = false } = {}) {
   await unpublishTrack(transport.publishedVideoTrack)
   await unpublishTrack(transport.publishedAudioTrack, {
-    stopTrack: !keepAudioGraph,
+    stopTrack: true,
   })
 
   transport.publishedVideoTrack = null
   transport.publishedAudioTrack = null
   transport.captureStream = null
   transport.publishedElement = null
+  transport.publishedSourceFingerprint = ''
+  transport.expectedPublishedVideo = false
+  transport.expectedPublishedAudio = false
 
-  if (!keepAudioGraph) {
-    await cleanupBroadcastAudioGraph()
-  }
+  await cleanupBroadcastAudioGraph()
 }
 
 function createMicrophoneConstraints() {
@@ -835,13 +802,17 @@ function trackIsActive(track) {
 }
 
 function hasActivePublishedSource() {
+  const currentFingerprint = getPlaybackSourceFingerprint(
+    transport.sourceElement,
+    transport.sourceLabel
+  )
+
   return Boolean(
     transport.publishedElement
     && transport.publishedElement === transport.sourceElement
-    && (
-      trackIsActive(transport.publishedVideoTrack)
-      || trackIsActive(transport.publishedAudioTrack)
-    )
+    && transport.publishedSourceFingerprint === currentFingerprint
+    && (!transport.expectedPublishedVideo || trackIsActive(transport.publishedVideoTrack))
+    && (!transport.expectedPublishedAudio || trackIsActive(transport.publishedAudioTrack))
   )
 }
 
@@ -871,6 +842,11 @@ async function publishCurrentPlaybackSource() {
     return false
   }
 
+  const currentFingerprint = getPlaybackSourceFingerprint(
+    transport.sourceElement,
+    transport.sourceLabel
+  )
+
   if (!transport.sourceElement) {
     await clearPublishedTracks()
     emitBroadcastStatus('awaiting-source', '')
@@ -895,10 +871,9 @@ async function publishCurrentPlaybackSource() {
   let audioTrack = null
 
   try {
-    audioTrack = await ensureBroadcastAudioTrack(transport.sourceElement)
+    audioTrack = await ensureBroadcastAudioTrack(captureStream)
   } catch {
-    // Fall back to the capture stream's audio track if the media-element audio graph
-    // is unavailable for this source/runtime.
+    // Best effort only. We'll fall back to the capture stream audio tracks below.
   }
 
   if (!audioTrack) {
@@ -913,13 +888,7 @@ async function publishCurrentPlaybackSource() {
     )
   }
 
-  await clearPublishedTracks({
-    keepAudioGraph: Boolean(
-      audioTrack
-      && transport.broadcastAudioElement
-      && transport.broadcastAudioElement === transport.sourceElement
-    ),
-  })
+  await clearPublishedTracks()
 
   try {
     if (videoTrack) {
@@ -942,6 +911,9 @@ async function publishCurrentPlaybackSource() {
 
     transport.captureStream = captureStream
     transport.publishedElement = transport.sourceElement
+    transport.publishedSourceFingerprint = currentFingerprint
+    transport.expectedPublishedVideo = Boolean(videoTrack)
+    transport.expectedPublishedAudio = Boolean(audioTrack)
     await publishSubtitleState().catch(() => {})
     emitBroadcastStatus('publishing', transport.sourceLabel)
     return true
@@ -1421,12 +1393,7 @@ export async function pauseWatchPartyBroadcast() {
     return false
   }
 
-  await clearPublishedTracks({
-    keepAudioGraph: Boolean(
-      transport.sourceElement
-      && transport.broadcastAudioElement === transport.sourceElement
-    ),
-  })
+  await clearPublishedTracks()
 
   if (transport.room && transport.room.state === 'connected') {
     emitBroadcastStatus('awaiting-source', transport.sourceLabel)

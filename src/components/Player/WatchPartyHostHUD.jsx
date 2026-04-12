@@ -28,6 +28,22 @@ const MAX_AVATAR_STACK = 3
 // ─── Status label + dot colour ──────────────────────────────────────────────
 
 function StatusIndicator({ broadcastStatus, transportState }) {
+  if (broadcastStatus === 'publishing') {
+    return (
+      <>
+        <motion.span
+          className="flex-shrink-0"
+          style={{ width: 7, height: 7, borderRadius: '50%', background: '#ef4444', display: 'block' }}
+          animate={{ opacity: [1, 0.25, 1] }}
+          transition={{ duration: 1.4, repeat: Infinity }}
+        />
+        <span style={{ color: '#fca5a5', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em' }}>
+          LIVE
+        </span>
+      </>
+    )
+  }
+
   // Placeholder: Codex will wire real runtime transport state into broadcastStatus
   const isConnecting =
     broadcastStatus === 'connecting' ||
@@ -43,22 +59,6 @@ function StatusIndicator({ broadcastStatus, transportState }) {
         />
         <span style={{ color: '#c4b5fd', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em' }}>
           CONNECTING
-        </span>
-      </>
-    )
-  }
-
-  if (broadcastStatus === 'publishing') {
-    return (
-      <>
-        <motion.span
-          className="flex-shrink-0"
-          style={{ width: 7, height: 7, borderRadius: '50%', background: '#ef4444', display: 'block' }}
-          animate={{ opacity: [1, 0.25, 1] }}
-          transition={{ duration: 1.4, repeat: Infinity }}
-        />
-        <span style={{ color: '#fca5a5', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em' }}>
-          LIVE
         </span>
       </>
     )

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import Hls from 'hls.js'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import {
   Captions,
@@ -27,6 +26,7 @@ import {
   getMovieSubtitles,
   getSeriesSubtitles,
 } from '../../lib/movieSubtitles'
+import { loadHls } from '../../lib/loadHls'
 import useAppStore, { getReducedEffectsMode } from '../../store/useAppStore'
 import useCastStore from '../../store/useCastStore'
 import CastButton from '../Cast/CastButton'
@@ -1207,77 +1207,93 @@ export default function MoviePlayer({
       handleStartupFailure()
     }, STARTUP_TIMEOUT_MS)
 
-    if (streamType === 'hls' && Hls.isSupported()) {
-      const MovieLoader = createMovieLoader(Hls.DefaultConfig.loader, () => stream.headers || {})
-      const hls = new Hls({
-        loader: MovieLoader,
-        fLoader: MovieLoader,
-        pLoader: MovieLoader,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        lowLatencyMode: false,
-        progressive: true,
-        startLevel: -1,
-      })
-
-      hlsRef.current = hls
-
-      invoke('fetch_movie_manifest', {
-        url: stream.url,
-        headers: stream.headers || {},
-      })
-        .then((rewrittenManifest) => {
+    if (streamType === 'hls') {
+      void loadHls()
+        .then((Hls) => {
           if (disposed) return
 
-          manifestBlobUrl = URL.createObjectURL(new Blob(
-            [rewrittenManifest],
-            { type: 'application/vnd.apple.mpegurl' }
-          ))
+          if (!Hls.isSupported()) {
+            handleStartupFailure('HLS playback is not supported in this runtime')
+            return
+          }
 
-          hls.loadSource(manifestBlobUrl)
-          hls.attachMedia(video)
+          const MovieLoader = createMovieLoader(Hls.DefaultConfig.loader, () => stream.headers || {})
+          const hls = new Hls({
+            loader: MovieLoader,
+            fLoader: MovieLoader,
+            pLoader: MovieLoader,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            lowLatencyMode: false,
+            progressive: true,
+            startLevel: -1,
+          })
+
+          hlsRef.current = hls
+
+          void invoke('fetch_movie_manifest', {
+            url: stream.url,
+            headers: stream.headers || {},
+          })
+            .then((rewrittenManifest) => {
+              if (disposed) return
+
+              manifestBlobUrl = URL.createObjectURL(new Blob(
+                [rewrittenManifest],
+                { type: 'application/vnd.apple.mpegurl' }
+              ))
+
+              hls.loadSource(manifestBlobUrl)
+              hls.attachMedia(video)
+            })
+            .catch((manifestError) => {
+              if (disposed) return
+              handleStartupFailure(
+                manifestError instanceof Error ? manifestError.message : String(manifestError)
+              )
+            })
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            const levels = hls.levels
+              .map(level => level.height)
+              .filter(Boolean)
+              .filter((value, index, array) => array.indexOf(value) === index)
+              .sort((a, b) => b - a)
+
+            if (levels.length > 0) {
+              setAvailableResolutions([
+                { value: 'auto', label: 'Auto' },
+                ...levels.map(value => ({ value: String(value), label: `${value}p` })),
+              ])
+            }
+
+            video.play().catch(() => {})
+          })
+
+          hls.on(Hls.Events.LEVEL_LOADED, () => {
+            clearStartupTimer()
+            startupTimerRef.current = window.setTimeout(() => {
+              handleStartupFailure('Startup timeout after initial HLS level load')
+            }, 15000)
+          })
+
+          hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            markStartupReady()
+          })
+
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data?.fatal) {
+              const detail = [data.type, data.details, data.reason].filter(Boolean).join(' | ')
+              handleStartupFailure(detail || 'Fatal HLS playback error')
+            }
+          })
         })
-        .catch((manifestError) => {
+        .catch((hlsError) => {
           if (disposed) return
           handleStartupFailure(
-            manifestError instanceof Error ? manifestError.message : String(manifestError)
+            hlsError instanceof Error ? hlsError.message : String(hlsError)
           )
         })
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        const levels = hls.levels
-          .map(level => level.height)
-          .filter(Boolean)
-          .filter((value, index, array) => array.indexOf(value) === index)
-          .sort((a, b) => b - a)
-
-        if (levels.length > 0) {
-          setAvailableResolutions([
-            { value: 'auto', label: 'Auto' },
-            ...levels.map(value => ({ value: String(value), label: `${value}p` })),
-          ])
-        }
-
-        video.play().catch(() => {})
-      })
-
-      hls.on(Hls.Events.LEVEL_LOADED, () => {
-        clearStartupTimer()
-        startupTimerRef.current = window.setTimeout(() => {
-          handleStartupFailure('Startup timeout after initial HLS level load')
-        }, 15000)
-      })
-
-      hls.on(Hls.Events.FRAG_BUFFERED, () => {
-        markStartupReady()
-      })
-
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data?.fatal) {
-          const detail = [data.type, data.details, data.reason].filter(Boolean).join(' | ')
-          handleStartupFailure(detail || 'Fatal HLS playback error')
-        }
-      })
 
       return () => {
         disposed = true
@@ -1650,6 +1666,7 @@ export default function MoviePlayer({
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 52, paddingBottom: 140 }}>
             <video
               ref={videoRef}
+              crossOrigin="anonymous"
               style={isFullscreen
                 ? { width: '100vw', height: '100vh', objectFit: 'contain', position: 'fixed', top: 0, left: 0, background: '#000', opacity: error ? 0.2 : 1 }
                 : { width: '100%', height: '100%', objectFit: 'contain', background: '#000', opacity: error ? 0.2 : 1 }}

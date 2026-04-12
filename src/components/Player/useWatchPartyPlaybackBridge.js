@@ -19,51 +19,58 @@ export default function useWatchPartyPlaybackBridge({
       return undefined
     }
 
+    let hasRegisteredSurface = false
+
+    const elementLooksReady = () => (
+      element.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+      || (!element.paused && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA)
+      || element.currentTime > 0
+    )
+
     const syncPlaybackSurface = () => registerPlaybackSurface({
       element,
       label,
     })
 
-    void syncPlaybackSurface()
-
-    const handleMediaReady = () => {
-      void syncPlaybackSurface()
-    }
-
-    const handlePlaybackGone = () => {
-      void unregisterPlaybackSurface(element)
-    }
-
-    element.addEventListener('loadedmetadata', handleMediaReady)
-    element.addEventListener('loadeddata', handleMediaReady)
-    element.addEventListener('canplay', handleMediaReady)
-    element.addEventListener('play', handleMediaReady)
-    element.addEventListener('playing', handleMediaReady)
-    element.addEventListener('seeked', handleMediaReady)
-    element.addEventListener('waiting', handleMediaReady)
-    element.addEventListener('stalled', handleMediaReady)
-    element.addEventListener('suspend', handleMediaReady)
-    element.addEventListener('emptied', handlePlaybackGone)
-    element.addEventListener('ended', handlePlaybackGone)
-
-    const playbackHealthTimer = window.setInterval(() => {
-      if (element.ended || element.readyState < 2) {
+    const syncPlaybackSurfaceIfReady = () => {
+      if (!elementLooksReady()) {
         return
       }
 
+      hasRegisteredSurface = true
       void syncPlaybackSurface()
-    }, 3000)
+    }
+
+    const handleMediaReady = () => {
+      syncPlaybackSurfaceIfReady()
+    }
+
+    const handlePlaybackGone = () => {
+      hasRegisteredSurface = false
+      void unregisterPlaybackSurface(element)
+    }
+
+    element.addEventListener('canplay', handleMediaReady)
+    element.addEventListener('play', handleMediaReady)
+    element.addEventListener('playing', handleMediaReady)
+    element.addEventListener('emptied', handlePlaybackGone)
+    element.addEventListener('ended', handlePlaybackGone)
+
+    syncPlaybackSurfaceIfReady()
+
+    const playbackHealthTimer = window.setInterval(() => {
+      if (element.ended || (!hasRegisteredSurface && !elementLooksReady())) {
+        return
+      }
+
+      hasRegisteredSurface = true
+      void syncPlaybackSurface()
+    }, 10000)
 
     return () => {
-      element.removeEventListener('loadedmetadata', handleMediaReady)
-      element.removeEventListener('loadeddata', handleMediaReady)
       element.removeEventListener('canplay', handleMediaReady)
       element.removeEventListener('play', handleMediaReady)
       element.removeEventListener('playing', handleMediaReady)
-      element.removeEventListener('seeked', handleMediaReady)
-      element.removeEventListener('waiting', handleMediaReady)
-      element.removeEventListener('stalled', handleMediaReady)
-      element.removeEventListener('suspend', handleMediaReady)
       element.removeEventListener('emptied', handlePlaybackGone)
       element.removeEventListener('ended', handlePlaybackGone)
       window.clearInterval(playbackHealthTimer)
