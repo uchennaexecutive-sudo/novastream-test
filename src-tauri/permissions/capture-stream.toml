@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-capture-stream"
+description = "Allows the app to open a capture window for dynamic stream resolution."
+commands.allow = ["capture_stream"]

@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.7.3
+Premium streaming desktop application (Tauri 2) - v1.7.4
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -30,6 +30,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Watch history - auto-recorded on play, localStorage-backed
 - [x] Continue Watching - deduplicated episodic entries so each show displays only the latest watched episode
 - [x] Resume flow - Continue Watching opens detail first, detail pages refresh resume state after player close, and episodic players sync final episode/progress back to detail
+- [x] User data hydration recovery - signed-in watchlist/history/profile stats now rehydrate after auth/session changes, history stays live with the current native players, and movie/episode resume reliably reopens from saved progress
 - [x] Settings - theme picker, playback prefs, update status with real download % progress bar
 - [x] 6 themes - Nova Dark, Nova Light, Midnight Blue, Ember, Aurora, Sakura
 - [x] Layout - sidebar (top-aligned logo, collapses to 72px, expands to 240px on hover), top bar (search), ambient orbs
@@ -146,13 +147,16 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Downloads are first-class for Movies / Series / Animation / Anime through `src/pages/Downloads.jsx`, `src/store/useDownloadStore.js`, `src/lib/videoDownloads.js`, and `src/lib/animeDownloads.js`
 - The Downloads page is split into active `Downloads` and completed `Library` tabs, with storage summary, filter chips, row actions, and per-item offline entry points
 - Download actions are wired from `src/pages/Detail.jsx` and episode surfaces; completed items feed back into detail pages as offline-capable entries
+- Completed-library recovery now includes disk scan hydration on app start/manual refresh, metadata-preserving merge behavior, TMDB enrichment for recovered catalog rows, and a visible refresh action so existing files can repopulate the library after logout/login/restart/update
 - Rust command surface for the feature lives in `src-tauri/src/main.rs` and includes:
   - `start_video_download`
   - `pause_video_download`
   - `cancel_video_download`
   - `delete_video_download`
   - `get_downloads_storage_info`
+  - `scan_download_library`
   - `get_download_location` / `set_download_location` / `reset_download_location`
+- Tauri capability grants matter for downloads recovery: `scan_download_library` and related local-file/runtime commands must remain explicitly allowed in `src-tauri/capabilities/default.json` via the matching `src-tauri/permissions/*.toml` files or the library can appear empty even while storage usage still reports correctly
 - Current download engine split:
   - direct MP4-style downloads use Rust `reqwest` streaming with resume-aware progress updates
   - HLS downloads use `N_m3u8DL-RE` as the primary downloader
@@ -222,8 +226,11 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Supabase tables: `profiles` (avatar_style, avatar_seed, username, theme, preferences), `watchlist`, `watch_history`, `watch_progress` — all with RLS
 - `syncFromCloud()` in `src/lib/supabase.js` — pulls watchlist, history, and watch_progress from cloud on sign-in/session-restore; merges with local (cloud wins on conflicts)
 - Write-through sync: every `addToWatchlist`, `removeFromWatchlist`, `addToHistory`, `saveProgress` call also syncs to Supabase when signed in
+- UI hydration is event-driven now: Watchlist, History, Home/Continue Watching, and Profile stats reload on auth or user-data changes instead of staying stuck with mount-time snapshots
+- History source of truth is `watch_history` with progress enrichment layered on top; do not regress it into one-card-per-episode progress rendering
 - Theme + preferences sync: `setTheme` / `setPreference` in `useAppStore.js` call `syncProfileSetting()` to update `profiles` row; restored via `applyProfileSettings()` in useAuthStore on session boot
 - Watch progress (`src/lib/progress.js`): uses shared Supabase client, switched from `device_id` to `user_id`; guests get localStorage-only (cloud skipped gracefully)
+- Supabase `watch_progress` must match the current app contract: `user_id`-based rows with conflict target `(user_id, content_id, season, episode)`; older `device_id` schemas break signed-in resume/continue-watching behavior
 - Supabase auto-trigger `handle_new_user` creates `profiles` row with username + avatar_seed on sign-up
 - Guest users: all data is localStorage-only; signing in later does not recover pre-sign-in local data
 
@@ -268,6 +275,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - Watch Party player/runtime path is already lazy-loaded, but deeper chunk optimization can still be done later
 
 ## Version History
+- v1.7.4 - Restore signed-in user data hydration, fix resume reopening in native playback, recover the Downloads library from existing on-disk files, and add the missing Tauri capability grants for library scanning
 - v1.7.3 - Stabilize Watch Party host playback and downloaded-media broadcasting, prewarm the Nuvio sidecar, lazy-load HLS playback setup, and clean non-blocking build warnings without changing the release architecture
 - v1.7.2 - Patch release to inject Watch Party transport env into GitHub release builds so packaged apps keep the Vercel token-service flow
 - v1.7.1 - Patch release to sync vendored Nuvio lockfile so CI/release builds succeed cleanly

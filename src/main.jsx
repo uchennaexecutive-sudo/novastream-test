@@ -14,13 +14,14 @@ import React, { lazy, Suspense, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom/client'
 import { invoke } from '@tauri-apps/api/core'
 import App from './App'
+import { recoverCompletedDownloadCatalog } from './lib/downloadCatalogRecovery'
 import useAppStore, { getIsIntelMacRuntime, getReducedEffectsMode } from './store/useAppStore'
 import useDownloadStore from './store/useDownloadStore'
 
 const UpdateToast = lazy(() => import('./components/UI/UpdateToast'))
 
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-const APP_VERSION = '1.7.3'
+const APP_VERSION = '1.7.4'
 const UPDATE_API = 'https://raw.githubusercontent.com/uchennaexecutive-sudo/novastream-test/main/updates/latest.json'
 const UPDATE_CHECK_TIMEOUT_MS = 15000
 const UPDATE_INITIAL_DELAY_MS = 5000
@@ -169,6 +170,7 @@ function Root() {
   const applyVideoDownloadCompleted = useDownloadStore(s => s.applyCompletedEvent)
   const applyVideoDownloadFailed = useDownloadStore(s => s.applyFailedEvent)
   const setDownloadsStorageInfo = useDownloadStore(s => s.setStorageInfo)
+  const hydrateCompletedDownloads = useDownloadStore(s => s.hydrateCompletedDownloads)
   const updateDownload = useDownloadStore(s => s.updateDownload)
   const maxConcurrentDownloads = useDownloadStore(s => s.maxConcurrent)
   const updateState = useAppStore(s => s.updateState)
@@ -282,6 +284,37 @@ function Root() {
       cancelScheduledTask()
     }
   }, [isSpecialWindow, setDownloadsStorageInfo])
+
+  useEffect(() => {
+    if (isSpecialWindow || !isTauri) return undefined
+
+    let cancelled = false
+    const cancelScheduledTask = scheduleNonCritical(() => {
+      import('./lib/videoDownloads')
+        .then(({ scanDownloadLibrary }) => scanDownloadLibrary())
+        .then(async (payload) => {
+          if (cancelled || !Array.isArray(payload) || payload.length === 0) {
+            return
+          }
+
+          hydrateCompletedDownloads(payload)
+          const existingItems = useDownloadStore.getState().items
+
+          const recoveredItems = await recoverCompletedDownloadCatalog(payload, existingItems)
+          if (!cancelled && recoveredItems.length > 0) {
+            hydrateCompletedDownloads(recoveredItems)
+          }
+        })
+        .catch((error) => {
+          console.warn('[downloads] failed to scan existing library items', error)
+        })
+    }, 1100)
+
+    return () => {
+      cancelled = true
+      cancelScheduledTask()
+    }
+  }, [hydrateCompletedDownloads, isSpecialWindow])
 
   useEffect(() => {
     if (isSpecialWindow || !isTauri) return undefined

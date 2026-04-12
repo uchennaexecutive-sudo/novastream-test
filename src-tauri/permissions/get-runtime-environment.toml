@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-runtime-environment"
+description = "Allows the app to query the current OS and architecture for runtime environment detection."
+commands.allow = ["get_runtime_environment"]

@@ -1,17 +1,42 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { getWatchlist, removeFromWatchlist } from '../lib/supabase'
 import { imgW500 } from '../lib/tmdb'
+import useAuthStore from '../store/useAuthStore'
+import { hasUserDataScope, subscribeUserDataChanged } from '../lib/userDataEvents'
 
 export default function Watchlist() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
+  const userId = useAuthStore((state) => state.user?.id || null)
+
+  const loadWatchlist = useCallback(async ({ withLoading = false } = {}) => {
+    if (withLoading) {
+      setLoading(true)
+    }
+
+    try {
+      const nextItems = await getWatchlist()
+      setItems(nextItems)
+    } finally {
+      if (withLoading) {
+        setLoading(false)
+      }
+    }
+  }, [])
 
   useEffect(() => {
-    getWatchlist().then(setItems).finally(() => setLoading(false))
-  }, [])
+    void loadWatchlist({ withLoading: true })
+  }, [loadWatchlist, userId])
+
+  useEffect(() => (
+    subscribeUserDataChanged((detail) => {
+      if (!hasUserDataScope(detail, ['watchlist'])) return
+      void loadWatchlist()
+    })
+  ), [loadWatchlist])
 
   const handleRemove = async (e, tmdbId) => {
     e.stopPropagation()

@@ -34,6 +34,10 @@ export async function getDownloadsStorageInfo() {
   return invokeIfAvailable('get_downloads_storage_info')
 }
 
+export async function scanDownloadLibrary() {
+  return invokeIfAvailable('scan_download_library')
+}
+
 export async function setVideoDownloadMaxConcurrent(maxConcurrent) {
   return invokeIfAvailable('set_video_download_max_concurrent', {
     payload: {

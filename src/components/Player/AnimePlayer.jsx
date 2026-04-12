@@ -8,6 +8,7 @@ import {
 } from '../../lib/animeAddons/resolveAnimeStreams'
 import { resolveAnimeDownloadStream } from '../../lib/animeDownloads'
 import { saveProgress } from '../../lib/progress'
+import { syncPlaybackHistory } from '../../lib/supabase'
 import SharedNativePlayer from './SharedNativePlayer'
 
 const STREAM_RETRY_DELAY_MS = 2000
@@ -116,6 +117,7 @@ export default function AnimePlayer({
   const lockedProviderIdRef = useRef('')
   const lockedEpisodeRef = useRef(null)
   const successfulProviderIdRef = useRef('')
+  const lastHistoryCheckpointRef = useRef(0)
   const lastPlaybackRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
     durationSeconds: 0,
@@ -213,7 +215,7 @@ export default function AnimePlayer({
 
     if (!effectiveContentId || progressSeconds <= 0) return null
 
-    return saveProgress({
+    const persistPromise = saveProgress({
       contentId: String(effectiveContentId),
       contentType: 'anime',
       title: animeTitle,
@@ -224,6 +226,22 @@ export default function AnimePlayer({
       progressSeconds,
       durationSeconds,
     })
+
+    const checkpoint = Math.max(1, Math.floor(progressSeconds / 30))
+    if (checkpoint > lastHistoryCheckpointRef.current) {
+      lastHistoryCheckpointRef.current = checkpoint
+      syncPlaybackHistory({
+        tmdbId: effectiveContentId,
+        mediaType: 'anime',
+        title: animeTitle,
+        posterPath: poster,
+        season: season || 1,
+        episode: currentEpisode,
+        progressSeconds,
+      }).catch(() => {})
+    }
+
+    return persistPromise
   }, [animeTitle, backdrop, contentId, currentEpisode, poster, season])
 
   const buildClosePayload = useCallback((snapshot = lastPlaybackRef.current) => ({
@@ -370,6 +388,7 @@ export default function AnimePlayer({
     clearRetryTimer()
     candidateIndexRef.current = 0
     candidateListRef.current = []
+    lastHistoryCheckpointRef.current = 0
     lastPlaybackRef.current = { progressSeconds: 0, durationSeconds: 0 }
     setResumePosition(0)
     resetPlaybackState()
@@ -393,6 +412,7 @@ export default function AnimePlayer({
       successfulProviderIdRef.current = ''
       lockedProviderIdRef.current = ''
       lockedEpisodeRef.current = null
+      lastHistoryCheckpointRef.current = 0
       lastPlaybackRef.current = {
         progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
         durationSeconds: 0,
@@ -435,6 +455,7 @@ export default function AnimePlayer({
     successfulProviderIdRef.current = ''
     lockedProviderIdRef.current = ''
     lockedEpisodeRef.current = null
+    lastHistoryCheckpointRef.current = 0
     lastPlaybackRef.current = {
       progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
       durationSeconds: 0,

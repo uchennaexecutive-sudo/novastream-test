@@ -448,6 +448,26 @@ export default function Detail() {
     requestedResumeSeason,
   ])
 
+  const getTargetEpisodeProgress = useCallback((seasonNumber, episodeNumber) => {
+    if (isMovieLike) return null
+
+    const normalizedSeason = Number(seasonNumber) || null
+    const normalizedEpisode = Number(episodeNumber) || null
+    if (!normalizedSeason || !normalizedEpisode) return null
+
+    const exactProgress = progressMap[getEpisodeProgressKey(normalizedSeason, normalizedEpisode)]
+    if (exactProgress) return exactProgress
+
+    if (
+      Number(resumeProgress?.season) === normalizedSeason
+      && Number(resumeProgress?.episode) === normalizedEpisode
+    ) {
+      return resumeProgress
+    }
+
+    return null
+  }, [isMovieLike, progressMap, resumeProgress])
+
   useEffect(() => {
     let cancelled = false
 
@@ -703,12 +723,7 @@ export default function Detail() {
     const targetResumeProgress = (
       isMovieLike
         ? resumeProgress
-        : (
-          Number(resumeProgress?.season) === nextSeason
-          && Number(resumeProgress?.episode) === nextEpisode
-        )
-          ? resumeProgress
-          : null
+        : getTargetEpisodeProgress(nextSeason, nextEpisode)
     )
 
     setPlaySeason(nextSeason)
@@ -733,6 +748,7 @@ export default function Detail() {
   }, [
     animeAltTitle,
     animeTitle,
+    getTargetEpisodeProgress,
     isAnime,
     isMovieLike,
     playEpisode,
@@ -1590,11 +1606,20 @@ export default function Detail() {
                               }
                             }
 
+                            const targetEpisodeNumber = isMainSeriesLauncher(episode) ? 1 : episodeNumber
+                            const targetEpisodeProgress = getTargetEpisodeProgress(
+                              entrySeason,
+                              targetEpisodeNumber
+                            )
+
                             handlePlay(
                               entrySeason,
-                              isMainSeriesLauncher(episode) ? 1 : episodeNumber,
-                              0,
-                              defaultDurationHint,
+                              targetEpisodeNumber,
+                              Math.max(0, Math.floor(Number(targetEpisodeProgress?.progress_seconds || 0))),
+                              Math.max(
+                                0,
+                                Math.floor(Number(targetEpisodeProgress?.duration_seconds || defaultDurationHint || 0))
+                              ),
                               selectedCanonicalEntry?.title || playbackAnimeTitle || animeTitle,
                               animeAltTitle || animeTitle
                             )
@@ -1796,14 +1821,25 @@ export default function Detail() {
                   })),
                 })
               }}
-              onPlay={(seasonNumber, episodeNumber, runtime) =>
+              onPlay={(seasonNumber, episodeNumber, runtime) => {
+                const targetEpisodeProgress = getTargetEpisodeProgress(seasonNumber, episodeNumber)
+
                 handlePlay(
                   seasonNumber,
                   episodeNumber,
-                  0,
-                  Math.max(0, Math.floor(Number(runtime || data.episode_run_time?.[0] || 0) * 60))
+                  Math.max(0, Math.floor(Number(targetEpisodeProgress?.progress_seconds || 0))),
+                  Math.max(
+                    0,
+                    Math.floor(
+                      Number(
+                        targetEpisodeProgress?.duration_seconds
+                        || (Number(runtime || data.episode_run_time?.[0] || 0) * 60)
+                        || 0
+                      )
+                    )
+                  )
                 )
-              }
+              }}
               onPlayOfflineEpisode={(seasonNumber, episodeNumber) => {
                 const offlineEpisodeItem = getDownloadItemByIdentity(downloadItems, {
                   contentId: data.id,

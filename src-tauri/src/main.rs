@@ -1066,6 +1066,28 @@ struct DownloadsStorageInfo {
     breakdown: HashMap<String, u64>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScannedDownloadLibraryItem {
+    id: String,
+    content_id: String,
+    content_type: String,
+    title: String,
+    season: Option<u32>,
+    episode: Option<u32>,
+    episode_title: Option<String>,
+    status: String,
+    progress: u8,
+    bytes_downloaded: u64,
+    total_bytes: u64,
+    speed_bytes_per_sec: u64,
+    file_path: String,
+    subtitle_file_path: Option<String>,
+    queued_at: Option<u64>,
+    completed_at: Option<u64>,
+    detail_media_type: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DownloadSettings {
@@ -11442,6 +11464,272 @@ fn compute_downloads_storage_info() -> Result<DownloadsStorageInfo, String> {
     })
 }
 
+fn normalize_download_library_title(value: &str) -> String {
+    let normalized = value.replace('_', " ");
+    let collapsed = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = collapsed.trim();
+
+    if trimmed.is_empty() {
+        "Downloaded".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn split_download_identity(value: &str) -> Option<(String, String)> {
+    let trimmed = value.trim();
+    let (content_id, raw_title) = trimmed.split_once('_')?;
+    let normalized_content_id = content_id.trim().to_string();
+    if normalized_content_id.is_empty() {
+        return None;
+    }
+
+    Some((
+        normalized_content_id,
+        normalize_download_library_title(raw_title),
+    ))
+}
+
+fn parse_download_episode_stem(value: &str) -> Option<(u32, u32, Option<String>)> {
+    let trimmed = value.trim();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() < 4 || !matches!(bytes.first(), Some(b'S' | b's')) {
+        return None;
+    }
+
+    let mut index = 1usize;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+    }
+    if index <= 1 || index >= bytes.len() || !matches!(bytes.get(index), Some(b'E' | b'e')) {
+        return None;
+    }
+
+    let season = trimmed[1..index].parse::<u32>().ok()?;
+    let episode_start = index + 1;
+    let mut episode_end = episode_start;
+    while episode_end < bytes.len() && bytes[episode_end].is_ascii_digit() {
+        episode_end += 1;
+    }
+    if episode_end <= episode_start {
+        return None;
+    }
+
+    let episode = trimmed[episode_start..episode_end].parse::<u32>().ok()?;
+    let remainder = trimmed[episode_end..]
+        .trim_start_matches('_')
+        .trim();
+    let episode_title = if remainder.is_empty() {
+        None
+    } else {
+        Some(normalize_download_library_title(remainder))
+    };
+
+    Some((season, episode, episode_title))
+}
+
+fn build_scanned_download_id(
+    content_type: &str,
+    content_id: &str,
+    season: Option<u32>,
+    episode: Option<u32>,
+) -> String {
+    let normalized_type = normalize_video_download_content_type(content_type);
+    if normalized_type == "tv" || normalized_type == "anime" {
+        return format!(
+            "{}::{}::{}::{}",
+            normalized_type,
+            content_id,
+            season.unwrap_or(0),
+            episode.unwrap_or(0)
+        );
+    }
+
+    format!("{}::{}", normalized_type, content_id)
+}
+
+fn file_modified_millis(path: &StdPath) -> Option<u64> {
+    fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as u64)
+}
+
+fn build_scanned_download_item(
+    content_type: &str,
+    content_id: String,
+    title: String,
+    season: Option<u32>,
+    episode: Option<u32>,
+    episode_title: Option<String>,
+    path: &StdPath,
+) -> Option<ScannedDownloadLibraryItem> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+
+    let normalized_type = normalize_video_download_content_type(content_type);
+    let total_bytes = metadata.len();
+    let file_path = path.to_string_lossy().to_string();
+
+    Some(ScannedDownloadLibraryItem {
+        id: build_scanned_download_id(&normalized_type, &content_id, season, episode),
+        content_id,
+        content_type: normalized_type.clone(),
+        title,
+        season,
+        episode,
+        episode_title,
+        status: "completed".to_string(),
+        progress: 100,
+        bytes_downloaded: total_bytes,
+        total_bytes,
+        speed_bytes_per_sec: 0,
+        file_path: file_path.clone(),
+        subtitle_file_path: discover_downloaded_subtitle_path(path)
+            .map(|value| value.to_string_lossy().to_string()),
+        queued_at: file_modified_millis(path),
+        completed_at: file_modified_millis(path),
+        detail_media_type: if normalized_type == "anime" {
+            Some(if episode.unwrap_or(0) > 0 {
+                "tv".to_string()
+            } else {
+                "movie".to_string()
+            })
+        } else {
+            None
+        },
+    })
+}
+
+fn collect_primary_media_files(root: &StdPath, output: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_primary_media_files(&path, output);
+            continue;
+        }
+
+        if path.is_file() && is_download_primary_media_path(&path) {
+            output.push(path);
+        }
+    }
+}
+
+fn scan_flat_download_category(root: &StdPath, content_type: &str) -> Vec<ScannedDownloadLibraryItem> {
+    let mut files = Vec::new();
+    collect_primary_media_files(root, &mut files);
+
+    files.into_iter()
+        .filter_map(|path| {
+            let stem = path.file_stem()?.to_str()?;
+            let (content_id, title) = split_download_identity(stem)?;
+            build_scanned_download_item(content_type, content_id, title, None, None, None, &path)
+        })
+        .collect()
+}
+
+fn scan_grouped_download_category(root: &StdPath, content_type: &str) -> Vec<ScannedDownloadLibraryItem> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+
+    let mut results = Vec::new();
+
+    for entry in entries.flatten() {
+        let group_path = entry.path();
+        if !group_path.is_dir() {
+            continue;
+        }
+
+        let Some(folder_name) = group_path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Some((content_id, title)) = split_download_identity(folder_name) else {
+            continue;
+        };
+
+        let Ok(files) = fs::read_dir(&group_path) else {
+            continue;
+        };
+
+        for file in files.flatten() {
+            let path = file.path();
+            if !path.is_file() || !is_download_primary_media_path(&path) {
+                continue;
+            }
+
+            let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            let Some((season, episode, episode_title)) = parse_download_episode_stem(stem) else {
+                continue;
+            };
+
+            if let Some(item) = build_scanned_download_item(
+                content_type,
+                content_id.clone(),
+                title.clone(),
+                Some(season),
+                Some(episode),
+                episode_title,
+                &path,
+            ) {
+                results.push(item);
+            }
+        }
+    }
+
+    results
+}
+
+#[tauri::command]
+fn scan_download_library() -> Result<Vec<ScannedDownloadLibraryItem>, String> {
+    let root = downloads_root_dir()?;
+    let mut items_by_id: HashMap<String, ScannedDownloadLibraryItem> = HashMap::new();
+
+    let discovered_items = [
+        scan_flat_download_category(&root.join("movies"), "movie"),
+        scan_grouped_download_category(&root.join("series"), "tv"),
+        scan_grouped_download_category(&root.join("anime"), "anime"),
+        scan_flat_download_category(&root.join("animation"), "animation"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+
+    for item in discovered_items {
+        match items_by_id.get(&item.id) {
+            Some(existing)
+                if existing.total_bytes > item.total_bytes
+                    || existing.completed_at.unwrap_or(0) >= item.completed_at.unwrap_or(0) => {}
+            _ => {
+                items_by_id.insert(item.id.clone(), item);
+            }
+        }
+    }
+
+    let mut items = items_by_id.into_values().collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        right
+            .completed_at
+            .unwrap_or(0)
+            .cmp(&left.completed_at.unwrap_or(0))
+            .then_with(|| right.total_bytes.cmp(&left.total_bytes))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    Ok(items)
+}
+
 fn discover_hls_output_candidate(
     save_dir: &StdPath,
     temp_dir: &StdPath,
@@ -14661,6 +14949,7 @@ fn main() {
             cancel_video_download,
             delete_video_download,
             get_downloads_storage_info,
+            scan_download_library,
             get_download_location,
             set_download_location,
             reset_download_location,

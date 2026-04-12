@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fetch-anime-json"
+description = "Allows the app to fetch anime JSON data through the Rust HTTP client."
+commands.allow = ["fetch_anime_json"]

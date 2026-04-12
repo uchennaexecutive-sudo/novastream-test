@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { getSeasonDetails } from '../../lib/tmdb'
 import { saveProgress } from '../../lib/progress'
+import { syncPlaybackHistory } from '../../lib/supabase'
 import {
   getAnimationStreams,
   getMovieStreams,
@@ -471,10 +472,12 @@ export default function MoviePlayer({
   const hideTimerRef = useRef(null)
   const startupTimerRef = useRef(null)
   const resumeAppliedRef = useRef(false)
+  const lastResumeAttemptAtRef = useRef(0)
   const directMediaUrlRef = useRef('')
   const handledFailureKeyRef = useRef('')
   const streamLoadRequestIdRef = useRef(0)
   const expandedFallbackUsedRef = useRef(false)
+  const lastHistoryCheckpointRef = useRef(0)
   const lastProgressRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
     durationSeconds: 0,
@@ -628,7 +631,7 @@ export default function MoviePlayer({
 
     if (progressSeconds <= 0) return Promise.resolve(null)
 
-    return saveProgress({
+    const persistPromise = saveProgress({
       contentId: String(tmdbId),
       contentType: contentType === 'series' ? 'tv' : contentType,
       title,
@@ -639,6 +642,22 @@ export default function MoviePlayer({
       progressSeconds,
       durationSeconds,
     })
+
+    const checkpoint = Math.max(1, Math.floor(progressSeconds / 30))
+    if (checkpoint > lastHistoryCheckpointRef.current) {
+      lastHistoryCheckpointRef.current = checkpoint
+      syncPlaybackHistory({
+        tmdbId,
+        mediaType: contentType === 'series' ? 'tv' : contentType,
+        title,
+        posterPath: poster,
+        season: isSeriesContent(contentType) ? currentSeason : null,
+        episode: isSeriesContent(contentType) ? currentEpisode : null,
+        progressSeconds,
+      }).catch(() => {})
+    }
+
+    return persistPromise
   }, [backdrop, contentType, currentEpisode, currentSeason, poster, title, tmdbId])
 
   const buildClosePayload = useCallback((snapshot = lastProgressRef.current) => ({
@@ -652,8 +671,17 @@ export default function MoviePlayer({
     if (isFullscreen) invoke('set_player_fullscreen', { fullscreen: false }).catch(() => {})
     const payload = buildClosePayload()
     persistProgress(payload).catch(() => {})
+    syncPlaybackHistory({
+      tmdbId,
+      mediaType: contentType === 'series' ? 'tv' : contentType,
+      title,
+      posterPath: poster,
+      season: payload.season,
+      episode: payload.episode,
+      progressSeconds: payload.progressSeconds,
+    }).catch(() => {})
     onClose?.(payload)
-  }, [buildClosePayload, isFullscreen, onClose, persistProgress])
+  }, [buildClosePayload, contentType, isFullscreen, onClose, persistProgress, poster, title, tmdbId])
 
   const scheduleControlsHide = useCallback(() => {
     clearHideTimer()
@@ -900,6 +928,7 @@ export default function MoviePlayer({
 
     persistProgress().catch(() => {})
     lastProgressRef.current = { progressSeconds: 0, durationSeconds: 0 }
+    lastHistoryCheckpointRef.current = 0
     expandedFallbackUsedRef.current = false
     setCurrentEpisode(Number(nextEpisodeMeta.episode_number))
     setStreams([])
@@ -915,6 +944,7 @@ export default function MoviePlayer({
     setCurrentSeason(Number(season) || 1)
     setCurrentEpisode(Number(episode) || 1)
     expandedFallbackUsedRef.current = false
+    lastHistoryCheckpointRef.current = 0
     lastProgressRef.current = {
       progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
       durationSeconds: 0,
@@ -1034,6 +1064,7 @@ export default function MoviePlayer({
   useEffect(() => {
     handledFailureKeyRef.current = ''
     resumeAppliedRef.current = false
+    lastResumeAttemptAtRef.current = 0
     setCurrentTime(0)
     setDuration(0)
     setBufferedEnd(0)
@@ -1301,7 +1332,9 @@ export default function MoviePlayer({
         if (manifestBlobUrl) {
           URL.revokeObjectURL(manifestBlobUrl)
         }
-        hls.destroy()
+        if (hlsRef.current) {
+          hlsRef.current.destroy()
+        }
         hlsRef.current = null
       }
     }
@@ -1377,22 +1410,47 @@ export default function MoviePlayer({
     if (!video || !stream?.url) return undefined
 
     const applyPendingResume = () => {
-      if (resumeAppliedRef.current) return
-      const safeResumeTime = video.duration
-        ? Math.min(lastProgressRef.current.progressSeconds || 0, Math.max(video.duration - 2, 0))
-        : lastProgressRef.current.progressSeconds || 0
+      const requestedResumeTime = Math.max(
+        0,
+        Math.floor(Number(lastProgressRef.current.progressSeconds || 0))
+      )
+      const safeResumeTime = video.duration && Number.isFinite(video.duration)
+        ? Math.min(requestedResumeTime, Math.max(video.duration - 2, 0))
+        : requestedResumeTime
 
       if (!Number.isFinite(safeResumeTime) || safeResumeTime <= 0) {
         resumeAppliedRef.current = true
         return
       }
 
-      video.currentTime = safeResumeTime
-      setCurrentTime(safeResumeTime)
-      resumeAppliedRef.current = true
+      const currentVideoTime = Number(video.currentTime || 0)
+      if (Math.abs(currentVideoTime - safeResumeTime) <= 1.5 || currentVideoTime >= safeResumeTime - 1) {
+        resumeAppliedRef.current = true
+        return
+      }
+
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      if (now - lastResumeAttemptAtRef.current < 250) return
+      lastResumeAttemptAtRef.current = now
+
+      try {
+        video.currentTime = safeResumeTime
+      } catch {
+        return
+      }
+
+      const nextVideoTime = Number(video.currentTime || 0)
+      setCurrentTime(nextVideoTime > 0 ? nextVideoTime : safeResumeTime)
+      if (Math.abs(nextVideoTime - safeResumeTime) <= 1.5 || nextVideoTime >= safeResumeTime - 1) {
+        resumeAppliedRef.current = true
+      }
     }
 
     const syncState = () => {
+      if (!resumeAppliedRef.current) {
+        applyPendingResume()
+      }
+
       const nextProgress = video.currentTime || 0
       const nextDuration = video.duration || 0
 
@@ -1414,12 +1472,14 @@ export default function MoviePlayer({
 
     const handlePlay = () => {
       setIsPlaying(true)
+      applyPendingResume()
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         markStartupReady()
       }
     }
     const handlePlaying = () => {
       setIsPlaying(true)
+      applyPendingResume()
       markStartupReady()
     }
     const handlePause = () => setIsPlaying(false)
@@ -1434,6 +1494,11 @@ export default function MoviePlayer({
     const handleLoadedMetadata = () => {
       syncState()
       applyPendingResume()
+    }
+    const handleSeeked = () => {
+      if (!resumeAppliedRef.current) {
+        applyPendingResume()
+      }
     }
     const handleVideoError = () => {
       const mediaError = video.error
@@ -1452,6 +1517,7 @@ export default function MoviePlayer({
     video.addEventListener('play', handlePlay)
     video.addEventListener('playing', handlePlaying)
     video.addEventListener('pause', handlePause)
+    video.addEventListener('seeked', handleSeeked)
     video.addEventListener('error', handleVideoError)
 
     return () => {
@@ -1464,6 +1530,7 @@ export default function MoviePlayer({
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('playing', handlePlaying)
       video.removeEventListener('pause', handlePause)
+      video.removeEventListener('seeked', handleSeeked)
       video.removeEventListener('error', handleVideoError)
     }
   }, [handleStreamFailure, markStartupReady, stream?.url])

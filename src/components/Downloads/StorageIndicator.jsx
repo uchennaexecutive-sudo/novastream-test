@@ -39,6 +39,7 @@ export default function StorageIndicator({
   onManage,
   // Phase E wiring point: call invoke("get_downloads_storage_info") to refresh real disk usage
   onRefreshStorage = null,
+  refreshLabel = 'Refresh',
 }) {
   const usedBytesNum = Number(usedBytes) || 0
   const totalBytesNum = Number(totalBytes) || 0
@@ -84,11 +85,12 @@ export default function StorageIndicator({
           {onRefreshStorage && (
             <button
               onClick={onRefreshStorage}
-              className="flex items-center gap-1 text-xs transition-colors duration-150"
-              style={{ color: 'var(--text-muted)' }}
-              title="Refresh storage info from disk"
+              className="flex items-center gap-1.5 text-xs font-medium transition-colors duration-150"
+              style={{ color: 'var(--text-secondary)' }}
+              title="Refresh library and storage info from disk"
             >
               <RefreshCw size={11} />
+              <span>{refreshLabel}</span>
             </button>
           )}
           {onManage && (

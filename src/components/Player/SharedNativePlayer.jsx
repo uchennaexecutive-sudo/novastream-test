@@ -241,6 +241,7 @@ export default function SharedNativePlayer({
   const hideTimerRef = useRef(null)
   const startupTimerRef = useRef(null)
   const resumeAppliedRef = useRef(false)
+  const lastResumeAttemptAtRef = useRef(0)
   const lastProgressRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
     durationSeconds: 0,
@@ -451,6 +452,7 @@ export default function SharedNativePlayer({
 
   useEffect(() => {
     resumeAppliedRef.current = false
+    lastResumeAttemptAtRef.current = 0
     lastProgressRef.current = {
       progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
       durationSeconds: 0,
@@ -637,7 +639,9 @@ export default function SharedNativePlayer({
         if (manifestBlobUrl) {
           URL.revokeObjectURL(manifestBlobUrl)
         }
-        hls.destroy()
+        if (hlsRef.current) {
+          hlsRef.current.destroy()
+        }
         hlsRef.current = null
       }
     }
@@ -761,23 +765,46 @@ export default function SharedNativePlayer({
     if (!video || !streamUrl) return undefined
 
     const applyPendingResume = () => {
-      if (resumeAppliedRef.current) return
-      const safeResumeTime = video.duration
-        ? Math.min(Number(resumeAt) || 0, Math.max(video.duration - 2, 0))
-        : Number(resumeAt) || 0
+      const requestedResumeTime = Math.max(0, Math.floor(Number(resumeAt) || 0))
+      const safeResumeTime = video.duration && Number.isFinite(video.duration)
+        ? Math.min(requestedResumeTime, Math.max(video.duration - 2, 0))
+        : requestedResumeTime
 
       if (!Number.isFinite(safeResumeTime) || safeResumeTime <= 0) {
         resumeAppliedRef.current = true
         return
       }
 
-      video.currentTime = safeResumeTime
-      setCurrentTime(safeResumeTime)
-      lastProgressRef.current.progressSeconds = safeResumeTime
-      resumeAppliedRef.current = true
+      const currentVideoTime = Number(video.currentTime || 0)
+      if (Math.abs(currentVideoTime - safeResumeTime) <= 1.5 || currentVideoTime >= safeResumeTime - 1) {
+        resumeAppliedRef.current = true
+        return
+      }
+
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      if (now - lastResumeAttemptAtRef.current < 250) return
+      lastResumeAttemptAtRef.current = now
+
+      try {
+        video.currentTime = safeResumeTime
+      } catch {
+        return
+      }
+
+      const nextVideoTime = Number(video.currentTime || 0)
+      setCurrentTime(nextVideoTime > 0 ? nextVideoTime : safeResumeTime)
+      lastProgressRef.current.progressSeconds = nextVideoTime > 0 ? nextVideoTime : safeResumeTime
+
+      if (Math.abs(nextVideoTime - safeResumeTime) <= 1.5 || nextVideoTime >= safeResumeTime - 1) {
+        resumeAppliedRef.current = true
+      }
     }
 
     const syncState = () => {
+      if (!resumeAppliedRef.current) {
+        applyPendingResume()
+      }
+
       const nextProgress = video.currentTime || 0
       const nextDuration = video.duration || 0
 
@@ -806,12 +833,14 @@ export default function SharedNativePlayer({
 
     const handlePlay = () => {
       setIsPlaying(true)
+      applyPendingResume()
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         markStartupReady()
       }
     }
     const handlePlaying = () => {
       setIsPlaying(true)
+      applyPendingResume()
       markStartupReady()
     }
     const handlePause = () => setIsPlaying(false)
@@ -826,6 +855,11 @@ export default function SharedNativePlayer({
     const handleLoadedMetadata = () => {
       syncState()
       applyPendingResume()
+    }
+    const handleSeeked = () => {
+      if (!resumeAppliedRef.current) {
+        applyPendingResume()
+      }
     }
     const handleVideoError = () => {
       const mediaError = video.error
@@ -844,6 +878,7 @@ export default function SharedNativePlayer({
     video.addEventListener('play', handlePlay)
     video.addEventListener('playing', handlePlaying)
     video.addEventListener('pause', handlePause)
+    video.addEventListener('seeked', handleSeeked)
     video.addEventListener('error', handleVideoError)
 
     return () => {
@@ -856,6 +891,7 @@ export default function SharedNativePlayer({
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('playing', handlePlaying)
       video.removeEventListener('pause', handlePause)
+      video.removeEventListener('seeked', handleSeeked)
       video.removeEventListener('error', handleVideoError)
     }
   }, [markStartupReady, notifyStreamFailure, onPlaybackSnapshot, resumeAt, resumeKey, streamUrl])

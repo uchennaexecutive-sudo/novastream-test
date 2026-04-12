@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-local-file-metadata"
+description = "Allows the app to read metadata (size, existence) for a local file path."
+commands.allow = ["get_local_file_metadata"]

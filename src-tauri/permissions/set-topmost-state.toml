@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-set-topmost-state"
+description = "Allows the app to set the window always-on-top state."
+commands.allow = ["set_topmost_state"]

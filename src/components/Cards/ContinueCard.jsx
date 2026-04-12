@@ -4,7 +4,7 @@ import { imgW500 } from '../../lib/tmdb'
 import { getProgressPercent } from '../../lib/progress'
 import { buildDetailNavigationForTmdbItem } from '../../lib/animeClassification'
 
-function ContinueCard({ item }) {
+function ContinueCard({ item, onRemove }) {
   const navigate = useNavigate()
   const contentType = item.content_type || item.media_type || 'movie'
   const contentId = item.content_id || item.tmdb_id || item.id
@@ -111,6 +111,17 @@ function ContinueCard({ item }) {
             />
           </div>
         </div>
+
+        {onRemove && (
+          <button
+            className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.8)' }}
+            onClick={(e) => { e.stopPropagation(); onRemove(item) }}
+            title="Remove from history"
+          >
+            <span style={{ fontSize: 12, lineHeight: 1 }}>✕</span>
+          </button>
+        )}
 
         <div className="continue-card__cta absolute inset-0 flex items-center justify-center">
           <div

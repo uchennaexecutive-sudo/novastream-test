@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-scan-download-library"
+description = "Allows the app to scan the downloads folder on disk and recover completed library entries."
+commands.allow = ["scan_download_library"]

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -10,6 +10,7 @@ import DownloadQueueItem from '../components/Downloads/DownloadQueueItem'
 import DownloadLibraryRow from '../components/Downloads/DownloadLibraryRow'
 import LibraryGroup from '../components/Downloads/LibraryGroup'
 import StorageIndicator from '../components/Downloads/StorageIndicator'
+import { recoverCompletedDownloadCatalog } from '../lib/downloadCatalogRecovery'
 import useDownloadStore from '../store/useDownloadStore'
 import { prepareAnimeDownloadRuntimeData, clearAnimeDownloadCache } from '../lib/animeDownloads'
 import {
@@ -17,6 +18,7 @@ import {
   deleteVideoDownload as deleteVideoDownloadFile,
   getDownloadsStorageInfo,
   pauseVideoDownload,
+  scanDownloadLibrary,
   startVideoDownload,
 } from '../lib/videoDownloads'
 
@@ -74,7 +76,9 @@ function buildLibraryStructure(completedItems, filter) {
         return sa - sb
       }),
     }))
-    .sort((a, b) => (b.latestCompletedAt || '').localeCompare(a.latestCompletedAt || ''))
+    .sort((a, b) => (
+      new Date(b.latestCompletedAt || 0).getTime() - new Date(a.latestCompletedAt || 0).getTime()
+    ))
 
   return { groupList, flat }
 }
@@ -206,15 +210,52 @@ const getStoredDownloadBytes = (item) => (
 export default function Downloads() {
   const [activeTab, setActiveTab] = useState('downloads')
   const [libraryFilter, setLibraryFilter] = useState('all')
+  const [isRefreshingLibrary, setIsRefreshingLibrary] = useState(false)
   const navigate = useNavigate()
 
   const downloadItems  = useDownloadStore((s) => s.items)
   const storage        = useDownloadStore((s) => s.storage)
   const setStorageInfo = useDownloadStore((s) => s.setStorageInfo)
+  const hydrateCompletedDownloads = useDownloadStore((s) => s.hydrateCompletedDownloads)
   const pauseDownload  = useDownloadStore((s) => s.pauseDownload)
   const resumeDownload = useDownloadStore((s) => s.resumeDownload)
   const cancelDownload = useDownloadStore((s) => s.cancelDownload)
   const deleteDownload = useDownloadStore((s) => s.deleteDownload)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function hydrateLibraryFromDisk() {
+      try {
+        const [libraryItems, storageInfo] = await Promise.all([
+          scanDownloadLibrary(),
+          getDownloadsStorageInfo(),
+        ])
+
+        if (cancelled) return
+        if (Array.isArray(libraryItems) && libraryItems.length > 0) {
+          hydrateCompletedDownloads(libraryItems)
+          const existingItems = useDownloadStore.getState().items
+
+          const recoveredItems = await recoverCompletedDownloadCatalog(libraryItems, existingItems)
+          if (!cancelled && recoveredItems.length > 0) {
+            hydrateCompletedDownloads(recoveredItems)
+          }
+        }
+        if (storageInfo) {
+          setStorageInfo(storageInfo)
+        }
+      } catch (error) {
+        console.warn('[downloads] library hydration failed', error)
+      }
+    }
+
+    void hydrateLibraryFromDisk()
+
+    return () => {
+      cancelled = true
+    }
+  }, [hydrateCompletedDownloads, setStorageInfo])
 
   const activeItems = useMemo(() => (
     [...downloadItems]
@@ -363,10 +404,24 @@ export default function Downloads() {
   }
 
   async function handleRefreshStorage() {
+    setIsRefreshingLibrary(true)
     try {
-      const info = await getDownloadsStorageInfo()
+      const [libraryItems, info] = await Promise.all([
+        scanDownloadLibrary(),
+        getDownloadsStorageInfo(),
+      ])
+      if (Array.isArray(libraryItems) && libraryItems.length > 0) {
+        hydrateCompletedDownloads(libraryItems)
+        const existingItems = useDownloadStore.getState().items
+
+        const recoveredItems = await recoverCompletedDownloadCatalog(libraryItems, existingItems)
+        if (recoveredItems.length > 0) {
+          hydrateCompletedDownloads(recoveredItems)
+        }
+      }
       if (info) setStorageInfo(info)
     } catch (e) { console.warn('[downloads] refresh storage failed', e) }
+    finally { setIsRefreshingLibrary(false) }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -502,6 +557,7 @@ export default function Downloads() {
           breakdown={storageSummary.breakdown}
           onManage={() => navigate('/settings')}
           onRefreshStorage={handleRefreshStorage}
+          refreshLabel={isRefreshingLibrary ? 'Refreshing...' : 'Refresh'}
         />
       </motion.div>
 

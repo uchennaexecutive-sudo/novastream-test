@@ -35,6 +35,27 @@ const toByteCount = (value) => {
 }
 
 const nowIso = () => new Date().toISOString()
+const normalizeTimestamp = (value, fallback = null) => {
+  if (value == null || value === '') return fallback
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return fallback
+    const parsed = Date.parse(trimmed)
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString()
+
+    const numeric = Number(trimmed)
+    if (!Number.isFinite(numeric) || numeric <= 0) return fallback
+    const millis = numeric > 1e12 ? numeric : numeric * 1000
+    return new Date(millis).toISOString()
+  }
+
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback
+  const millis = numeric > 1e12 ? numeric : numeric * 1000
+  return new Date(millis).toISOString()
+}
+
 const normalizeSubtitleFilePath = (value) => {
   const normalized = String(value || '').trim()
   return /\.(srt|vtt|ass|ssa|sub)$/i.test(normalized) ? normalized : null
@@ -75,6 +96,15 @@ export const getDownloadItemByIdentity = (items, identity) => {
 
   return (Array.isArray(items) ? items : []).find((item) => (
     buildDownloadLookupKey(item) === lookupKey
+  )) || null
+}
+
+const getDownloadItemByFilePath = (items, filePath) => {
+  const normalizedPath = String(filePath || '').trim()
+  if (!normalizedPath) return null
+
+  return (Array.isArray(items) ? items : []).find((item) => (
+    String(item?.filePath || '').trim() === normalizedPath
   )) || null
 }
 
@@ -162,9 +192,9 @@ const normalizeDownloadItem = (payload = {}, existing = null) => {
       payload.subtitleFilePath ?? payload.subtitle_file_path ?? existing?.subtitleFilePath ?? null
     ),
     errorMessage: payload.errorMessage ?? payload.error_message ?? existing?.errorMessage ?? '',
-    queuedAt: payload.queuedAt ?? payload.queued_at ?? existing?.queuedAt ?? nowIso(),
-    startedAt: payload.startedAt ?? payload.started_at ?? existing?.startedAt ?? null,
-    completedAt: payload.completedAt ?? payload.completed_at ?? existing?.completedAt ?? null,
+    queuedAt: normalizeTimestamp(payload.queuedAt ?? payload.queued_at, existing?.queuedAt ?? nowIso()),
+    startedAt: normalizeTimestamp(payload.startedAt ?? payload.started_at, existing?.startedAt ?? null),
+    completedAt: normalizeTimestamp(payload.completedAt ?? payload.completed_at, existing?.completedAt ?? null),
   }
 }
 
@@ -268,6 +298,34 @@ const useDownloadStore = create(persist((set, get) => ({
         breakdown: info.breakdown ?? state.storage.breakdown ?? null,
       },
     }))
+  },
+
+  hydrateCompletedDownloads: (payloads = []) => {
+    const discoveredItems = Array.isArray(payloads) ? payloads : []
+    if (discoveredItems.length === 0) return
+
+    set((state) => {
+      let nextItems = Array.isArray(state.items) ? [...state.items] : []
+
+      for (const payload of discoveredItems) {
+        const existing = getDownloadItemByIdentity(nextItems, payload)
+          || getDownloadItemByFilePath(nextItems, payload.filePath ?? payload.file_path)
+        if (existing && ACTIVE_STATUSES.has(existing.status)) {
+          continue
+        }
+
+        nextItems = upsertItem(nextItems, {
+          id: existing?.id ?? payload.id,
+          ...payload,
+          status: 'completed',
+          progress: 100,
+          speedBytesPerSec: 0,
+          errorMessage: '',
+        })
+      }
+
+      return { items: nextItems }
+    })
   },
 
   upsertDownload: (payload = {}) => {

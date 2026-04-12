@@ -13,13 +13,15 @@ import {
   getAnimationMovies,
   getRecommendations,
 } from '../lib/tmdb'
-import { getContinueWatching } from '../lib/progress'
+import { getContinueWatching, deleteProgressEntry } from '../lib/progress'
 import HeroSlide from '../components/Cards/HeroSlide'
 import MediaCard from '../components/Cards/MediaCard'
 import ContinueCard from '../components/Cards/ContinueCard'
 import SkeletonCard from '../components/UI/SkeletonCard'
 import { saveData, getData, hasData } from '../lib/sessionCache'
 import { isLikelyAnimeTmdbItem } from '../lib/animeClassification'
+import useAuthStore from '../store/useAuthStore'
+import { hasUserDataScope, subscribeUserDataChanged } from '../lib/userDataEvents'
 
 const HOME_ROWS_CACHE_KEY = 'home-rows'
 const INITIAL_VISIBLE_ROW_COUNT = 4
@@ -179,6 +181,7 @@ const ContentRow = memo(function ContentRow({
 })
 
 export default function Home() {
+  const userId = useAuthStore((state) => state.user?.id || null)
   const reducedEffectsMode = useAppStore(getReducedEffectsMode)
   const [homeData, setHomeData] = useState(INITIAL_HOME_DATA)
   const [criticalRowsLoading, setCriticalRowsLoading] = useState(true)
@@ -273,52 +276,61 @@ export default function Home() {
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
+  const loadWatchRows = useCallback(async () => {
+    try {
+      const continueItems = await getContinueWatching()
 
-    async function loadWatchRows() {
-      try {
-        const continueItems = await getContinueWatching()
-        if (cancelled) return
-
-        if (!continueItems[0]?.content_id) {
-          setWatchRows({
-            continueWatching: continueItems,
-            recommendations: [],
-            recommendationTitle: '',
-            loading: false,
-          })
-          return
-        }
-
-        const seedItem = continueItems[0]
-        const recommendationType = seedItem.content_type === 'movie' ? 'movie' : 'tv'
-        const nextRecommendations = await getRecommendations(recommendationType, seedItem.content_id)
-        if (cancelled) return
-
+      if (!continueItems[0]?.content_id) {
         setWatchRows({
           continueWatching: continueItems,
-          recommendations: Array.isArray(nextRecommendations) ? nextRecommendations.slice(0, 20) : [],
-          recommendationTitle: seedItem.title || '',
-          loading: false,
-        })
-      } catch {
-        if (cancelled) return
-        setWatchRows({
-          continueWatching: [],
           recommendations: [],
           recommendationTitle: '',
           loading: false,
         })
+        return
+      }
+
+      const seedItem = continueItems[0]
+      const recommendationType = seedItem.content_type === 'movie' ? 'movie' : 'tv'
+      const nextRecommendations = await getRecommendations(recommendationType, seedItem.content_id)
+
+      setWatchRows({
+        continueWatching: continueItems,
+        recommendations: Array.isArray(nextRecommendations) ? nextRecommendations.slice(0, 20) : [],
+        recommendationTitle: seedItem.title || '',
+        loading: false,
+      })
+    } catch {
+      setWatchRows({
+        continueWatching: [],
+        recommendations: [],
+        recommendationTitle: '',
+        loading: false,
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      if (!cancelled) {
+        await loadWatchRows()
       }
     }
 
-    void loadWatchRows()
-
+    void run()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadWatchRows, userId])
+
+  useEffect(() => (
+    subscribeUserDataChanged((detail) => {
+      if (!hasUserDataScope(detail, ['history', 'progress'])) return
+      void loadWatchRows()
+    })
+  ), [loadWatchRows])
 
   useEffect(() => {
     if (homeData.trending.length <= 1) return undefined
@@ -358,9 +370,31 @@ export default function Home() {
 
   const heroItems = useMemo(() => homeData.trending.slice(0, 5), [homeData.trending])
 
+  const handleRemoveContinue = useCallback(async (item) => {
+    const tmdbId = item.content_id || item.tmdb_id || item.id
+    // Optimistic update
+    setWatchRows(prev => ({
+      ...prev,
+      continueWatching: prev.continueWatching.filter(i =>
+        String(i.content_id || i.tmdb_id || i.id) !== String(tmdbId)
+      ),
+    }))
+    // Only delete the progress entry so getContinueWatching() won't return it.
+    // Do NOT remove from watch history — that's a separate user action from the
+    // History page. Removing history here would also strip the image fallback data,
+    // causing the card to appear blank in the History view.
+    await deleteProgressEntry(item.content_id, item.season, item.episode)
+  }, [])
+
   const renderContinueItem = useCallback(
-    (item) => <ContinueCard key={`${item.content_id}-${item.season || 0}-${item.episode || 0}`} item={item} />,
-    []
+    (item) => (
+      <ContinueCard
+        key={`${item.content_id}-${item.season || 0}-${item.episode || 0}`}
+        item={item}
+        onRemove={handleRemoveContinue}
+      />
+    ),
+    [handleRemoveContinue]
   )
 
   const rowDefinitions = useMemo(() => {

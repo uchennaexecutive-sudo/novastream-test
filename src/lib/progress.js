@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient'
+import { emitUserDataChanged } from './userDataEvents'
 
 const DEVICE_ID_STORAGE_KEY = 'nova_device_id'
 const LOCAL_PROGRESS_STORAGE_KEY = 'nova_watch_progress'
@@ -125,6 +126,10 @@ async function fetchRemoteRows({ contentId = null, season = undefined, episode =
     return (data || []).map(normalizeRow).filter(Boolean)
   } catch (error) {
     console.error('[progress] remote fetch failed', error)
+    const message = String(error?.message || error || '')
+    if (/watch_progress|user_id|device_id|season|episode|constraint/i.test(message)) {
+      console.warn('[progress] schema compatibility issue is likely affecting remote progress reads')
+    }
     return []
   }
 }
@@ -190,6 +195,7 @@ export async function saveProgress(item) {
   const userId = await getUserId()
   const payload = buildPayload(item, userId)
   const localRow = upsertLocalRow(payload)
+  emitUserDataChanged({ scopes: ['progress'], reason: 'progress-save' })
 
   // Only sync to cloud when signed in
   if (!userId) return localRow
@@ -201,6 +207,10 @@ export async function saveProgress(item) {
     if (error) throw error
   } catch (error) {
     console.error('[progress] cloud save failed', error)
+    const message = String(error?.message || error || '')
+    if (/watch_progress|user_id|device_id|season|episode|constraint/i.test(message)) {
+      console.warn('[progress] schema compatibility issue is likely affecting cloud progress saves')
+    }
   }
 
   return localRow
@@ -249,6 +259,38 @@ export async function getContentProgressMap(contentId) {
     }
     return accumulator
   }, {})
+}
+
+export async function deleteProgressEntry(contentId, season, episode) {
+  const normalizedContentId = String(contentId || '')
+  const normalizedSeason = toNullableInteger(season)
+  const normalizedEpisode = toNullableInteger(episode)
+
+  const rows = readLocalRows().filter((row) => !(
+    row.content_id === normalizedContentId
+    && row.season === normalizedSeason
+    && row.episode === normalizedEpisode
+  ))
+  writeLocalRows(rows)
+
+  const userId = await getUserId()
+  if (!userId) return
+
+  try {
+    let query = supabase
+      .from('watch_progress')
+      .delete()
+      .eq('user_id', userId)
+      .eq('content_id', normalizedContentId)
+
+    query = normalizedSeason === null ? query.is('season', null) : query.eq('season', normalizedSeason)
+    query = normalizedEpisode === null ? query.is('episode', null) : query.eq('episode', normalizedEpisode)
+
+    const { error } = await query
+    if (error) throw error
+  } catch (error) {
+    console.error('[progress] delete failed', error)
+  }
 }
 
 export async function getAllProgressRows() {

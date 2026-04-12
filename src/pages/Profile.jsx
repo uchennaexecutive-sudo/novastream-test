@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { Camera, Check, LogOut, Trash2, Lock, ChevronRight, User, Clock, Film, Star } from 'lucide-react'
 import useAuthStore from '../store/useAuthStore'
+import { getHistory } from '../lib/supabase'
+import { getAllProgressRows } from '../lib/progress'
 import { dicebearUrl, supabase } from '../lib/supabaseClient'
+import { hasUserDataScope, subscribeUserDataChanged } from '../lib/userDataEvents'
 
 // Shared avatar catalogue (must match Auth.jsx)
 const AVATAR_STYLES = [
@@ -389,19 +392,49 @@ export default function Profile() {
     if (!user) navigate('/', { replace: true })
   }, [user, navigate])
 
-  // Load stats from localStorage history
-  useEffect(() => {
+  const loadStats = useCallback(async () => {
     try {
-      const history = JSON.parse(localStorage.getItem('nova-history') || '[]')
-      const totalSeconds = history.reduce((sum, item) => sum + (item.progress_seconds || 0), 0)
+      const [historyItems, progressRows] = await Promise.all([
+        getHistory(),
+        getAllProgressRows(),
+      ])
+
+      const titleKeys = new Set()
+      for (const item of historyItems) {
+        titleKeys.add(`${item.media_type || 'movie'}::${item.tmdb_id}`)
+      }
+      for (const row of progressRows) {
+        titleKeys.add(`${row.content_type || 'movie'}::${row.content_id}`)
+      }
+
+      const totalSecondsFromProgress = progressRows.reduce((sum, row) => (
+        sum + Math.max(0, Number(row?.progress_seconds || 0))
+      ), 0)
+      const fallbackHistorySeconds = historyItems.reduce((sum, item) => (
+        sum + Math.max(0, Number(item?.progress_seconds || 0))
+      ), 0)
+
       setStats({
-        titles: history.length,
-        hours: Math.round(totalSeconds / 3600),
+        titles: titleKeys.size,
+        hours: Math.round((totalSecondsFromProgress || fallbackHistorySeconds) / 3600),
       })
     } catch {
-      // ignore
+      setStats({ titles: 0, hours: 0 })
     }
   }, [])
+
+  useEffect(() => {
+    if (!user) return undefined
+    void loadStats()
+    return undefined
+  }, [loadStats, user])
+
+  useEffect(() => (
+    subscribeUserDataChanged((detail) => {
+      if (!hasUserDataScope(detail, ['history', 'progress'])) return
+      void loadStats()
+    })
+  ), [loadStats])
 
   const handleAvatarSave = async ({ style, seed }) => {
     await updateProfile({ avatar_style: style, avatar_seed: seed })
