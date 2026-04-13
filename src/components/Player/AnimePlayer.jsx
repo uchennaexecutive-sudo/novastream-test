@@ -540,6 +540,9 @@ export default function AnimePlayer({
           getEnabledAnimeAddonProviders().map((provider) => provider?.id).filter(Boolean)
         )
 
+        const freshStateForProvider = nextStateMap[prefetchedAnime.providerId]
+        const freshAnimeId = freshStateForProvider?.animeId
+
         if (!enabledProviderIds.has(prefetchedAnime.providerId)) {
           console.info('[AnimePlayer] skipping prefetched anime override', {
             providerId: prefetchedAnime.providerId,
@@ -547,16 +550,23 @@ export default function AnimePlayer({
             episodeCount: prefetchedAnime.episodes.length,
             reason: 'prefetched provider is not enabled in anime addons',
           })
+        } else if (freshAnimeId && freshAnimeId !== prefetchedAnime.animeId) {
+          console.info('[AnimePlayer] skipping prefetched anime override — fresh resolve disagreed', {
+            providerId: prefetchedAnime.providerId,
+            prefetchedAnimeId: prefetchedAnime.animeId,
+            freshAnimeId,
+            reason: 'fresh resolveAnimeProviderStates returned a different animeId; using fresh result',
+          })
         } else {
-        nextStateMap[prefetchedAnime.providerId] = {
-          providerId: prefetchedAnime.providerId,
-          animeId: prefetchedAnime.animeId,
-          matchedTitle: prefetchedAnime.matchedTitle || animeTitle,
-          anime: prefetchedAnime.anime || { id: prefetchedAnime.animeId },
-          episodes: prefetchedAnime.episodes,
-          streamCandidatesByEpisode:
-            nextStateMap[prefetchedAnime.providerId]?.streamCandidatesByEpisode || {},
-        }
+          nextStateMap[prefetchedAnime.providerId] = {
+            providerId: prefetchedAnime.providerId,
+            animeId: prefetchedAnime.animeId,
+            matchedTitle: prefetchedAnime.matchedTitle || animeTitle,
+            anime: prefetchedAnime.anime || { id: prefetchedAnime.animeId },
+            episodes: prefetchedAnime.episodes,
+            streamCandidatesByEpisode:
+              nextStateMap[prefetchedAnime.providerId]?.streamCandidatesByEpisode || {},
+          }
         }
       }
 

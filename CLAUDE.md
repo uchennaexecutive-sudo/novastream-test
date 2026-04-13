@@ -1,7 +1,7 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.7.5
+Premium streaming desktop application (Tauri 2) - v1.7.8
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
@@ -29,7 +29,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Watchlist - localStorage-backed add/remove/check, responsive grid
 - [x] Watch history - auto-recorded on play, localStorage-backed
 - [x] Continue Watching - deduplicated episodic entries so each show displays only the latest watched episode
-- [x] Resume flow - Continue Watching opens detail first, detail pages refresh resume state after player close, episodic players sync final episode/progress back to detail, and Home dismissals no longer delete the underlying resume/history state
+- [x] Resume flow - Continue Watching opens detail first, detail pages refresh resume state after player close, episodic players sync final episode/progress back to detail, Home dismissals no longer delete the underlying resume/history state, and anime resume is re-enabled via canplay-gated seek (prevents black screen and backward-seek snap-back)
 - [x] User data hydration recovery - signed-in watchlist/history/profile stats now rehydrate after auth/session changes, history stays live with the current native players, and movie/episode resume reliably reopens from saved progress
 - [x] User data removal persistence - Continue Watching dismissals stay hidden until playback resumes, and Watchlist / History removals now persist cleanly across page revisits
 - [x] Movie HD availability warnings - Home cards and Detail now show `No HD` / `HD not out yet` only for recent theatrical-only movie releases, avoiding old-title false positives from sparse TMDB release history
@@ -97,6 +97,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - Gogo source-quality guardrails reject obvious CAM / bad wrapper cases when they are detected
 - Anime fallback changes must remain provider-scoped; do not use shared timeout/path tweaks that weaken Gogoanime because AnimePahe exists as fallback
 - Anime next-episode behavior now resets provider stickiness on episode change so each episode starts with Gogoanime as fresh primary and only falls through to AnimePahe when that specific episode fails on Gogo
+- `prefetchedAnime` from `preloadAnimePlayback` (triggered in Detail.jsx ~500ms after mount) must never blindly override the fresh `resolveAnimeProviderStates` result in AnimePlayer.jsx — if the fresh resolve returns a different `animeId` for the same provider, the fresh result wins; the preload is only applied when the fresh resolve found nothing for that provider or agreed on the same `animeId` (prevents wrong-season playback for sequels like JJK S3, Frieren S2)
 - AnimePahe fallback now works for episodes Gogoanime cannot play, but AnimePahe startup is still best improved through provider-specific optimization rather than shared resolver shortcuts
 - Anime browse/detail/search architecture remains:
   - AniList-powered browse in `src/pages/Anime.jsx`
@@ -279,6 +280,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - Watch Party player/runtime path is already lazy-loaded, but deeper chunk optimization can still be done later
 
 ## Version History
+- v1.7.8 - Fix anime wrong-season playback for sequels (JJK S3, Frieren S2) by preventing stale prefetch from overriding fresh provider scoring, re-enable anime resume via canplay-gated seek so backward seeks no longer snap back, and add progress bars to anime episode cards
 - v1.7.5 - Fix standalone ONA season mapping and first-load anime identity recovery, make Continue Watching / Watchlist / History removals persist correctly, and tighten movie `No HD` warnings so only recent theatrical-only releases are tagged
 - v1.7.4 - Restore signed-in user data hydration, fix resume reopening in native playback, recover the Downloads library from existing on-disk files, and add the missing Tauri capability grants for library scanning
 - v1.7.3 - Stabilize Watch Party host playback and downloaded-media broadcasting, prewarm the Nuvio sidecar, lazy-load HLS playback setup, and clean non-blocking build warnings without changing the release architecture

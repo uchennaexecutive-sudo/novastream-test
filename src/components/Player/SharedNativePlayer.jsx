@@ -776,10 +776,8 @@ export default function SharedNativePlayer({
     if (!video || !streamUrl) return undefined
 
     const applyPendingResume = () => {
-      // Resume disabled — always start from beginning.
-      resumeAppliedRef.current = true
-      return
-      // eslint-disable-next-line no-unreachable
+      if (resumeAppliedRef.current) return
+
       const requestedResumeTime = Math.max(0, Math.floor(Number(resumeAt) || 0))
       const safeResumeTime = video.duration && Number.isFinite(video.duration)
         ? Math.min(requestedResumeTime, Math.max(video.duration - 2, 0))
@@ -790,15 +788,8 @@ export default function SharedNativePlayer({
         return
       }
 
-      const currentVideoTime = Number(video.currentTime || 0)
-      if (Math.abs(currentVideoTime - safeResumeTime) <= 1.5 || currentVideoTime >= safeResumeTime - 1) {
-        resumeAppliedRef.current = true
-        return
-      }
-
-      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
-      if (now - lastResumeAttemptAtRef.current < 250) return
-      lastResumeAttemptAtRef.current = now
+      // Mark done immediately — prevents re-firing on backward seeks
+      resumeAppliedRef.current = true
 
       try {
         resumeSeekInProgressRef.current = true
@@ -811,17 +802,9 @@ export default function SharedNativePlayer({
       const nextVideoTime = Number(video.currentTime || 0)
       setCurrentTime(nextVideoTime > 0 ? nextVideoTime : safeResumeTime)
       lastProgressRef.current.progressSeconds = nextVideoTime > 0 ? nextVideoTime : safeResumeTime
-
-      if (Math.abs(nextVideoTime - safeResumeTime) <= 1.5 || nextVideoTime >= safeResumeTime - 1) {
-        resumeAppliedRef.current = true
-      }
     }
 
     const syncState = () => {
-      if (!resumeAppliedRef.current) {
-        applyPendingResume()
-      }
-
       const nextProgress = video.currentTime || 0
       const nextDuration = video.duration || 0
 
@@ -850,14 +833,12 @@ export default function SharedNativePlayer({
 
     const handlePlay = () => {
       setIsPlaying(true)
-      applyPendingResume()
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         markStartupReady()
       }
     }
     const handlePlaying = () => {
       setIsPlaying(true)
-      applyPendingResume()
       // Frames are actually rendering — clear all seek nudge flags.
       resumeSeekInProgressRef.current = false
       userSeekedRef.current = false
@@ -865,6 +846,8 @@ export default function SharedNativePlayer({
     }
     const handlePause = () => setIsPlaying(false)
     const handleCanPlay = () => {
+      // Only fire resume here — canplay guarantees the browser has data ready,
+      // which avoids the WebView2 black-screen stall caused by seeking too early.
       applyPendingResume()
       if (resumeSeekInProgressRef.current) {
         video.play().catch(() => {})
@@ -872,17 +855,16 @@ export default function SharedNativePlayer({
       markStartupReady()
     }
     const handleLoadedData = () => {
-      applyPendingResume()
       markStartupReady()
     }
     const handleLoadedMetadata = () => {
       syncState()
-      applyPendingResume()
-    }
-    const handleSeeked = () => {
-      if (!resumeAppliedRef.current) {
+      // Attempt resume early if enough data is already buffered; canplay is the reliable fallback.
+      if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
         applyPendingResume()
       }
+    }
+    const handleSeeked = () => {
       // If the seek was triggered by applyPendingResume, attempt play — data
       // may not be buffered yet so we also retry in handleCanPlay.
       if (resumeSeekInProgressRef.current) {

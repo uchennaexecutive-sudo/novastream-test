@@ -1850,6 +1850,27 @@ export default function Detail() {
                                   ? `Season ${entrySeason}`
                                   : selectedCanonicalEntry?.label || 'Anime'}
                             </span>
+
+                            {(() => {
+                              const ep = getTargetEpisodeProgress(entrySeason, episodeNumber)
+                              const progressPercent = ep?.progress_seconds && ep?.duration_seconds
+                                ? Math.min(100, Math.round((ep.progress_seconds / ep.duration_seconds) * 100))
+                                : 0
+                              if (progressPercent <= 0) return null
+                              return (
+                                <div className="mt-2">
+                                  <div className="text-[10px] mb-1" style={{ color: 'var(--text-muted)' }}>
+                                    {progressPercent}% watched
+                                  </div>
+                                  <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.12)' }}>
+                                    <div
+                                      className="h-full rounded-full"
+                                      style={{ width: `${progressPercent}%`, background: 'var(--accent)' }}
+                                    />
+                                  </div>
+                                </div>
+                              )
+                            })()}
                           </div>
                         </motion.div>
                       )

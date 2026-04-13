@@ -23,6 +23,12 @@ function extractDescriptorTokens(titles = []) {
         const title = String(rawTitle || '').trim()
         if (!title) continue
 
+        // Extract season number as a token before stripping it — "Season 3" → "3"
+        const seasonNumMatch = title.match(/\bSeason\s+(\d+)\b/i) || title.match(/\b(\d+)(?:st|nd|rd|th)\s+Season\b/i)
+        if (seasonNumMatch?.[1]) {
+            tokens.add(seasonNumMatch[1])
+        }
+
         const seasonless = title
             .replace(/\bSeason\s+\d+\b/gi, ' ')
             .replace(/\bCour\s+\d+\b/gi, ' ')
@@ -107,8 +113,12 @@ function scoreMatch(match, titles = []) {
     const baseTitle = normalizeText(match?.title || match?.matchedTitle || '')
     if (!baseTitle) return -1
 
+    const slugNormalized = normalizeText(match?.animeId || '')
     const descriptorTokens = extractDescriptorTokens(titles)
-    const descriptorOverlap = countTokenOverlap(baseTitle, descriptorTokens)
+    const descriptorOverlap = Math.max(
+        countTokenOverlap(baseTitle, descriptorTokens),
+        countTokenOverlap(slugNormalized, descriptorTokens)
+    )
     const requestsDub = titles.some((rawTitle) => /\bdub\b/i.test(String(rawTitle || '')))
     const requestsSub = titles.some((rawTitle) => /\bsub\b/i.test(String(rawTitle || '')))
     const isDubMatch =

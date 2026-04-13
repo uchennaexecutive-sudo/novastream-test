@@ -6,7 +6,7 @@
 
 *Built with Tauri 2, React 18, and Rust*
 
-[![Version](https://img.shields.io/badge/version-1.7.5-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.7.8-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -185,7 +185,7 @@ Watch Party notes:
 
 ## Current Version
 
-**v1.7.5** - Fix standalone ONA season mapping and first-load anime identity recovery, make Continue Watching / Watchlist / History removals persist correctly, and tighten movie `No HD` warnings so only recent theatrical-only releases are tagged.
+**v1.7.8** - Fix anime wrong-season playback for sequels (JJK S3, Frieren S2), re-enable anime resume with correct seek timing so backward seeks no longer snap back, and add watch progress bars to anime episode cards.
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 
