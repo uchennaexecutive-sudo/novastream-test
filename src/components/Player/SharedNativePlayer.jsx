@@ -241,6 +241,9 @@ export default function SharedNativePlayer({
   const hideTimerRef = useRef(null)
   const startupTimerRef = useRef(null)
   const resumeAppliedRef = useRef(false)
+  const resumeAtRef = useRef(resumeAt)
+  const resumeSeekInProgressRef = useRef(false)
+  const userSeekedRef = useRef(false)
   const lastResumeAttemptAtRef = useRef(0)
   const lastProgressRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
@@ -383,6 +386,7 @@ export default function SharedNativePlayer({
   const seekTo = (time) => {
     const video = videoRef.current
     if (!video || !Number.isFinite(time)) return
+    userSeekedRef.current = true
     video.currentTime = time
     setCurrentTime(time)
   }
@@ -451,6 +455,7 @@ export default function SharedNativePlayer({
   }, [clearPreparedCastMedia])
 
   useEffect(() => {
+    resumeAtRef.current = resumeAt
     resumeAppliedRef.current = false
     lastResumeAttemptAtRef.current = 0
     lastProgressRef.current = {
@@ -607,6 +612,12 @@ export default function SharedNativePlayer({
 
           hls.on(Hls.Events.FRAG_BUFFERED, () => {
             markStartupReady()
+            // User seeked to an unbuffered position — nudge play() once the
+            // first fragment at the new position is ready.
+            if (userSeekedRef.current && !video.paused && !video.ended) {
+              userSeekedRef.current = false
+              video.play().catch(() => { })
+            }
           })
 
           hls.on(Hls.Events.ERROR, (_, data) => {
@@ -765,6 +776,10 @@ export default function SharedNativePlayer({
     if (!video || !streamUrl) return undefined
 
     const applyPendingResume = () => {
+      // Resume disabled — always start from beginning.
+      resumeAppliedRef.current = true
+      return
+      // eslint-disable-next-line no-unreachable
       const requestedResumeTime = Math.max(0, Math.floor(Number(resumeAt) || 0))
       const safeResumeTime = video.duration && Number.isFinite(video.duration)
         ? Math.min(requestedResumeTime, Math.max(video.duration - 2, 0))
@@ -786,8 +801,10 @@ export default function SharedNativePlayer({
       lastResumeAttemptAtRef.current = now
 
       try {
+        resumeSeekInProgressRef.current = true
         video.currentTime = safeResumeTime
       } catch {
+        resumeSeekInProgressRef.current = false
         return
       }
 
@@ -841,11 +858,17 @@ export default function SharedNativePlayer({
     const handlePlaying = () => {
       setIsPlaying(true)
       applyPendingResume()
+      // Frames are actually rendering — clear all seek nudge flags.
+      resumeSeekInProgressRef.current = false
+      userSeekedRef.current = false
       markStartupReady()
     }
     const handlePause = () => setIsPlaying(false)
     const handleCanPlay = () => {
       applyPendingResume()
+      if (resumeSeekInProgressRef.current) {
+        video.play().catch(() => {})
+      }
       markStartupReady()
     }
     const handleLoadedData = () => {
@@ -859,6 +882,11 @@ export default function SharedNativePlayer({
     const handleSeeked = () => {
       if (!resumeAppliedRef.current) {
         applyPendingResume()
+      }
+      // If the seek was triggered by applyPendingResume, attempt play — data
+      // may not be buffered yet so we also retry in handleCanPlay.
+      if (resumeSeekInProgressRef.current) {
+        video.play().catch(() => {})
       }
     }
     const handleVideoError = () => {
@@ -1046,9 +1074,7 @@ export default function SharedNativePlayer({
             />
 
             {subtitleEnabled && subtitleText && !effectiveLoading && !error && (
-              <div style={{ position: 'absolute', left: '50%', bottom: controlsVisible ? 132 : 88, transform: 'translateX(-50%)', zIndex: 26, maxWidth: '80%', padding: '8px 14px', borderRadius: 999, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 18, lineHeight: 1.4, textAlign: 'center', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}>
-                {subtitleText}
-              </div>
+              <div style={{ position: 'absolute', left: '50%', bottom: controlsVisible ? 132 : 88, transform: 'translateX(-50%)', zIndex: 26, maxWidth: '80%', padding: '8px 14px', borderRadius: 999, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 18, lineHeight: 1.4, textAlign: 'center', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }} dangerouslySetInnerHTML={{ __html: subtitleText }} />
             )}
 
             {effectiveLoading && (

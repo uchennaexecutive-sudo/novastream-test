@@ -12,10 +12,8 @@ env:
   VITE_WATCH_PARTY_TOKEN_ENDPOINT: https://novastream-watch-party-token-servic.vercel.app/api/watch-party-token
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
-    permissions:
-      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +23,9 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            vendor/nuvio-streams-addon/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -34,10 +35,18 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install dependencies
+      - name: Cache vendored Nuvio sidecar dependencies
+        id: cache_nuvio_windows
+        uses: actions/cache@v4
+        with:
+          path: vendor/nuvio-streams-addon/node_modules
+          key: ${{ runner.os }}-nuvio-node-modules-${{ hashFiles('vendor/nuvio-streams-addon/package-lock.json') }}
+
+      - name: Install app dependencies
         run: npm ci
 
       - name: Install vendored Nuvio sidecar dependencies
+        if: steps.cache_nuvio_windows.outputs.cache-hit != 'true'
         working-directory: vendor/nuvio-streams-addon
         run: npm ci --omit=dev --no-audit --no-fund
 
@@ -47,54 +56,225 @@ jobs:
       - name: Get version from tag
         id: version
         shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Find portable exe
-        id: artifacts
+      - name: Find and rename portable exe
+        id: artifact
         shell: powershell
         run: |
-          Write-Host "=== Looking for portable exe ==="
-          $releaseExe = Get-ChildItem -Path "src-tauri/target/release" -Filter "nova-stream.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          $portableName = "NOVA-STREAM-${{ steps.version.outputs.VERSION }}-portable.exe"
+          $releaseDir = Join-Path $env:RUNNER_TEMP "release-assets"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
-          if ($releaseExe) {
-            $exePath = $releaseExe.FullName.Replace('\', '/')
-            Write-Host "Found portable exe: $exePath"
-            "PORTABLE_EXE=$exePath" >> $env:GITHUB_OUTPUT
-            "PORTABLE_NAME=NOVA-STREAM-${{ steps.version.outputs.VERSION }}-portable.exe" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Host "ERROR: No portable exe found! Listing all exes:"
+          $releaseExe = Get-ChildItem -Path "src-tauri/target/release" -Filter "nova-stream.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $releaseExe) {
+            Write-Host "ERROR: No portable exe found. Listing available exes:"
             Get-ChildItem -Path "src-tauri/target/release" -Filter "*.exe" -File | ForEach-Object { Write-Host $_.FullName }
             exit 1
           }
 
-      - name: Rename portable exe
-        shell: powershell
+          $artifactPath = Join-Path $releaseDir $portableName
+          Copy-Item $releaseExe.FullName $artifactPath -Force
+          "ARTIFACT_PATH=$artifactPath" >> $env:GITHUB_OUTPUT
+          "ARTIFACT_NAME=$portableName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: ${{ steps.artifact.outputs.ARTIFACT_PATH }}
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos:
+    runs-on: macos-latest
+    env:
+      NODE_RUNTIME_VERSION: 20.20.2
+      NODE_RUNTIME_DIR: ${{ runner.temp }}/nova-stream-node-runtimes/20.20.2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            vendor/nuvio-streams-addon/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Cache vendored Nuvio sidecar dependencies
+        id: cache_nuvio_macos
+        uses: actions/cache@v4
+        with:
+          path: vendor/nuvio-streams-addon/node_modules
+          key: ${{ runner.os }}-nuvio-node-modules-${{ hashFiles('vendor/nuvio-streams-addon/package-lock.json') }}
+
+      - name: Cache embedded macOS Node runtimes
+        id: cache_node_runtime
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NODE_RUNTIME_DIR }}
+          key: ${{ runner.os }}-embedded-node-runtimes-${{ env.NODE_RUNTIME_VERSION }}
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install vendored Nuvio sidecar dependencies
+        if: steps.cache_nuvio_macos.outputs.cache-hit != 'true'
+        working-directory: vendor/nuvio-streams-addon
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Add macOS targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Download embedded macOS Node runtimes
+        if: steps.cache_node_runtime.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          Copy-Item "${{ steps.artifacts.outputs.PORTABLE_EXE }}" "${{ steps.artifacts.outputs.PORTABLE_NAME }}"
+          mkdir -p "$NODE_RUNTIME_DIR"
+
+          curl -fsSL "https://nodejs.org/download/release/v${NODE_RUNTIME_VERSION}/node-v${NODE_RUNTIME_VERSION}-darwin-x64.tar.gz" \
+            -o "$NODE_RUNTIME_DIR/node-darwin-x64.tar.gz"
+          curl -fsSL "https://nodejs.org/download/release/v${NODE_RUNTIME_VERSION}/node-v${NODE_RUNTIME_VERSION}-darwin-arm64.tar.gz" \
+            -o "$NODE_RUNTIME_DIR/node-darwin-arm64.tar.gz"
+
+          tar -xzf "$NODE_RUNTIME_DIR/node-darwin-x64.tar.gz" -C "$NODE_RUNTIME_DIR"
+          tar -xzf "$NODE_RUNTIME_DIR/node-darwin-arm64.tar.gz" -C "$NODE_RUNTIME_DIR"
+
+      - name: Expose embedded macOS Node runtimes
+        shell: bash
+        run: |
+          echo "NOVA_STREAM_NODE_BINARY_MACOS_X64=$NODE_RUNTIME_DIR/node-v${NODE_RUNTIME_VERSION}-darwin-x64/bin/node" >> "$GITHUB_ENV"
+          echo "NOVA_STREAM_NODE_BINARY_MACOS_ARM64=$NODE_RUNTIME_DIR/node-v${NODE_RUNTIME_VERSION}-darwin-arm64/bin/node" >> "$GITHUB_ENV"
+
+      - name: Build Tauri app (macOS universal bundle)
+        run: npx tauri build --target universal-apple-darwin --bundles app
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Find macOS app bundle
+        id: bundle
+        shell: bash
+        run: |
+          APP_PATH=$(find src-tauri/target/universal-apple-darwin/release/bundle -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No macOS app bundle found"
+            find src-tauri/target/universal-apple-darwin/release/bundle -maxdepth 4 -print
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_OUTPUT"
+          echo "ARTIFACT_NAME=NOVA-STREAM-${{ steps.version.outputs.VERSION }}-macos.dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Package macOS DMG artifact
+        id: package_artifact
+        shell: bash
+        run: |
+          ARTIFACT_NAME="${{ steps.bundle.outputs.ARTIFACT_NAME }}"
+          APP_PATH="${{ steps.bundle.outputs.APP_PATH }}"
+          APP_NAME="$(basename "$APP_PATH")"
+          INSTALLER_APP_NAME="NOVA STREAM Installer.app"
+          STAGING_DIR="$(mktemp -d)"
+          ARTIFACT_DIR="$RUNNER_TEMP/release-assets"
+
+          mkdir -p "$ARTIFACT_DIR"
+          ditto "$APP_PATH" "$STAGING_DIR/$APP_NAME"
+          ditto "release/macos/$INSTALLER_APP_NAME" "$STAGING_DIR/$INSTALLER_APP_NAME"
+          chmod +x "$STAGING_DIR/$INSTALLER_APP_NAME/Contents/MacOS/install-helper"
+          ln -s /Applications "$STAGING_DIR/Applications"
+
+          hdiutil create \
+            -volname "NOVA STREAM" \
+            -srcfolder "$STAGING_DIR" \
+            -ov \
+            -format UDZO \
+            "$ARTIFACT_DIR/$ARTIFACT_NAME"
+
+          rm -rf "$STAGING_DIR"
+
+          echo "ARTIFACT_PATH=$ARTIFACT_DIR/$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: ${{ steps.package_artifact.outputs.ARTIFACT_PATH }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    needs:
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release-assets
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: release-assets
+
+      - name: Show release assets
+        shell: bash
+        run: ls -lah release-assets
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "NOVA STREAM v${{ steps.version.outputs.VERSION }}"
+          name: NOVA STREAM v${{ steps.version.outputs.VERSION }}
           body: |
             ## NOVA STREAM v${{ steps.version.outputs.VERSION }}
 
-            Download the portable exe below - no installation needed.
+            Download the Windows portable exe or macOS DMG below.
           files: |
-            ${{ steps.artifacts.outputs.PORTABLE_NAME }}
+            release-assets/NOVA-STREAM-${{ steps.version.outputs.VERSION }}-portable.exe
+            release-assets/NOVA-STREAM-${{ steps.version.outputs.VERSION }}-macos.dmg
           draft: false
           prerelease: false
+          overwrite_files: true
 
-      - name: Commit updated latest.json
+      - name: Refresh latest.json once after both artifacts exist
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout -B main origin/main
-          
+
           VERSION="${{ steps.version.outputs.VERSION }}"
-          PORTABLE_NAME="${{ steps.artifacts.outputs.PORTABLE_NAME }}"
+          PORTABLE_NAME="NOVA-STREAM-$VERSION-portable.exe"
           MACOS_NAME="NOVA-STREAM-$VERSION-macos.dmg"
 
           cat > updates/latest.json << EOF
@@ -114,149 +294,5 @@ jobs:
           EOF
 
           git add updates/latest.json
-          git commit -m "chore: update latest.json for v${{ steps.version.outputs.VERSION }}" || true
-          git push origin main
-
-  build-macos:
-    needs: build
-    runs-on: macos-latest
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install vendored Nuvio sidecar dependencies
-        working-directory: vendor/nuvio-streams-addon
-        run: npm ci --omit=dev --no-audit --no-fund
-
-      - name: Add macOS targets
-        run: |
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-
-      - name: Download embedded macOS Node runtimes
-        shell: bash
-        run: |
-          NODE_RUNTIME_VERSION="20.20.2"
-          NODE_RUNTIME_DIR="$RUNNER_TEMP/nova-stream-node-runtimes"
-
-          mkdir -p "$NODE_RUNTIME_DIR"
-
-          curl -fsSL "https://nodejs.org/download/release/v${NODE_RUNTIME_VERSION}/node-v${NODE_RUNTIME_VERSION}-darwin-x64.tar.gz" \
-            -o "$NODE_RUNTIME_DIR/node-darwin-x64.tar.gz"
-          curl -fsSL "https://nodejs.org/download/release/v${NODE_RUNTIME_VERSION}/node-v${NODE_RUNTIME_VERSION}-darwin-arm64.tar.gz" \
-            -o "$NODE_RUNTIME_DIR/node-darwin-arm64.tar.gz"
-
-          tar -xzf "$NODE_RUNTIME_DIR/node-darwin-x64.tar.gz" -C "$NODE_RUNTIME_DIR"
-          tar -xzf "$NODE_RUNTIME_DIR/node-darwin-arm64.tar.gz" -C "$NODE_RUNTIME_DIR"
-
-          echo "NOVA_STREAM_NODE_BINARY_MACOS_X64=$NODE_RUNTIME_DIR/node-v${NODE_RUNTIME_VERSION}-darwin-x64/bin/node" >> "$GITHUB_ENV"
-          echo "NOVA_STREAM_NODE_BINARY_MACOS_ARM64=$NODE_RUNTIME_DIR/node-v${NODE_RUNTIME_VERSION}-darwin-arm64/bin/node" >> "$GITHUB_ENV"
-
-      - name: Build Tauri app (macOS universal bundle)
-        run: npx tauri build --target universal-apple-darwin --bundles app
-
-      - name: Get version from tag
-        id: version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Find Mac app bundle
-        id: artifacts
-        shell: bash
-        run: |
-          echo "=== Looking for macOS app bundle ==="
-
-          APP_PATH=$(find src-tauri/target/universal-apple-darwin/release/bundle -name "*.app" -type d | head -n 1)
-
-          if [ -n "$APP_PATH" ]; then
-            echo "Found app bundle: $APP_PATH"
-            echo "APP_PATH=$APP_PATH" >> $GITHUB_OUTPUT
-            echo "ARTIFACT_NAME=NOVA-STREAM-${{ steps.version.outputs.VERSION }}-macos.dmg" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "ERROR: No macOS app bundle found"
-          find src-tauri/target/release/bundle -type f
-          exit 1
-
-      - name: Package Mac DMG Artifact
-        id: package_artifact
-        shell: bash
-        run: |
-          ARTIFACT_NAME="${{ steps.artifacts.outputs.ARTIFACT_NAME }}"
-          APP_PATH="${{ steps.artifacts.outputs.APP_PATH }}"
-          APP_NAME="$(basename "$APP_PATH")"
-          INSTALLER_APP_NAME="NOVA STREAM Installer.app"
-          STAGING_DIR="$(mktemp -d)"
-
-          ditto "$APP_PATH" "$STAGING_DIR/$APP_NAME"
-          ditto "release/macos/$INSTALLER_APP_NAME" "$STAGING_DIR/$INSTALLER_APP_NAME"
-          chmod +x "$STAGING_DIR/$INSTALLER_APP_NAME/Contents/MacOS/install-helper"
-          ln -s /Applications "$STAGING_DIR/Applications"
-
-          hdiutil create \
-            -volname "NOVA STREAM" \
-            -srcfolder "$STAGING_DIR" \
-            -ov \
-            -format UDZO \
-            "$ARTIFACT_NAME"
-
-          rm -rf "$STAGING_DIR"
-          echo "UPLOAD_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
-
-      - name: Upload Mac DMG artifact to existing GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh release upload "v${{ steps.version.outputs.VERSION }}" "${{ steps.package_artifact.outputs.UPLOAD_NAME }}" --clobber
-
-      - name: Refresh latest.json with macOS artifact
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout -B main origin/main
-
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          PORTABLE_NAME="NOVA-STREAM-$VERSION-portable.exe"
-          MACOS_NAME="${{ steps.package_artifact.outputs.UPLOAD_NAME }}"
-
-          cat > updates/latest.json << EOF
-          {
-            "version": "$VERSION",
-            "notes": "v$VERSION - Auto-release",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "windows-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$PORTABLE_NAME"
-              },
-              "darwin-universal": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$MACOS_NAME"
-              }
-            }
-          }
-          EOF
-
-          git add updates/latest.json
-          git commit -m "chore: refresh latest.json for v${{ steps.version.outputs.VERSION }}" || true
+          git commit -m "chore: update latest.json for v${VERSION}" || true
           git push origin main

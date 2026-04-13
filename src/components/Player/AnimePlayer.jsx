@@ -760,7 +760,10 @@ export default function AnimePlayer({
   }, [currentEpisode, offlineMode, resetPlaybackState, resolverTick, scheduleFreshStreamRetry])
 
   useEffect(() => {
-    const preferredTrack = subtitleTracks.find(track => String(track.lang || '').toLowerCase().includes('english')) || subtitleTracks[0]
+    const preferredTrack = subtitleTracks.find(track => {
+      const lang = String(track.lang || '').toLowerCase()
+      return lang.includes('english') || lang === 'en' || lang === 'eng'
+    }) || subtitleTracks[0]
     const trackUrl = preferredTrack?.file || preferredTrack?.url || preferredTrack?.rawFile || null
 
     if (!subtitleEnabled || !trackUrl) {

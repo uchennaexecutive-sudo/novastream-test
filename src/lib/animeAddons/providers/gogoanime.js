@@ -385,7 +385,7 @@ function normalizeTrackList(tracks = []) {
     if (!Array.isArray(tracks)) return []
 
     return tracks
-        .filter((track) => track && (track.file || track.src || track.url))
+        .filter((track) => track && (track.file || track.src || track.url) && track.kind !== 'thumbnails')
         .map((track) => ({
             url: String(track.file || track.src || track.url || '').trim(),
             lang: String(track.label || track.kind || 'Unknown').trim(),
@@ -686,6 +686,8 @@ function extractServerUrlSubtitles(rawUrl = '') {
     try {
         const parsed = new URL(String(rawUrl || '').trim())
         const params = parsed.searchParams
+
+        // Format 1: indexed caption_N / sub_N params (otakuhg.site / otakuvid.online JWPlayer)
         let index = 1
         while (true) {
             const captionUrl = params.get(`caption_${index}`)
@@ -698,6 +700,19 @@ function extractServerUrlSubtitles(rawUrl = '') {
                 kind: 'captions',
             })
             index += 1
+        }
+
+        // Format 2: single ?sub=URL param (vibeplayer.site)
+        if (subtitles.length === 0) {
+            const singleSub = params.get('sub')
+            if (singleSub && singleSub.startsWith('http')) {
+                subtitles.push({
+                    file: singleSub,
+                    url: singleSub,
+                    lang: 'English',
+                    kind: 'captions',
+                })
+            }
         }
     } catch {
         // malformed URL — skip
@@ -1176,7 +1191,10 @@ async function resolveServerToPlayableUrl(serverUrl = '', sessionId = null) {
                         candidate,
                     })
                 } else if (candidate) {
-                    const subtitles = normalizeTrackList(sourcesJson?.tracks || [])
+                    const subtitles = [
+                        ...normalizeTrackList(sourcesJson?.tracks || []),
+                        ...serverUrlSubtitles,
+                    ]
                     const validatedLegacyCandidate = await validatePlayableUrl(
                         candidate,
                         buildPlaybackHeaders(activeIframeUrl, streamOrigin),

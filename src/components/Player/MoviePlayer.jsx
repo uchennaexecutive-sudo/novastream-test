@@ -1765,9 +1765,8 @@ export default function MoviePlayer({
                   textAlign: 'center',
                   boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
                 }}
-              >
-                {subtitleText}
-              </div>
+                dangerouslySetInnerHTML={{ __html: subtitleText }}
+              />
             )}
 
             {effectiveLoading && (
