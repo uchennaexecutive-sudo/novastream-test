@@ -1,28 +1,13 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.7.8",
-  "notes": "v1.7.8 - Auto-release",
-  "pub_date": "2026-04-13T22:07:52Z",
+  "version": "1.7.9",
+  "notes": "v1.7.9 - Auto-release",
+  "pub_date": "2026-04-14T15:48:21Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.8/NOVA-STREAM-1.7.8-portable.exe"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.9/NOVA-STREAM-1.7.9-portable.exe"
     },
     "darwin-universal": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.8/NOVA-STREAM-1.7.8-macos.dmg"
+      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.9/NOVA-STREAM-1.7.9-macos.dmg"
     }
   }
 }
-=======
-    "version":  "1.7.9",
-    "notes":  "v1.7.9 - Fix Broken Provider for Movies/series",
-    "pub_date":  "2026-04-14T15:33:53Z",
-    "platforms":  {
-                      "windows-x86_64":  {
-                                             "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.9/NOVA-STREAM-1.7.9-portable.exe"
-                                         },
-                      "darwin-universal":  {
-                                               "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.9/NOVA-STREAM-1.7.9-macos.dmg"
-                                           }
-                  }
-}
->>>>>>> Stashed changes
