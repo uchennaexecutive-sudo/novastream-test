@@ -244,87 +244,106 @@ function getSubtitlesFromManifest(masterPlaylistUrl) {
 }
 
 // Helper function to extract stream URL from Vixsrc page
+// Step 1: call /api/tv/{id}/{s}/{e} or /api/movie/{id} to get embed src
+// Step 2: fetch the embed page which contains window.masterPlaylist
 function extractStreamFromPage(url, contentType, contentId, seasonNum, episodeNum) {
-    let vixsrcUrl;
+    const apiUrl = contentType === 'movie'
+        ? `${BASE_URL}/api/movie/${contentId}`
+        : `${BASE_URL}/api/tv/${contentId}/${seasonNum}/${episodeNum}`;
 
-    if (contentType === 'movie') {
-        vixsrcUrl = `${BASE_URL}/movie/${contentId}`;
-    } else {
-        vixsrcUrl = `${BASE_URL}/tv/${contentId}/${seasonNum}/${episodeNum}`;
-    }
+    console.log(`[Vixsrc] Fetching API: ${apiUrl}`);
 
-    console.log(`[Vixsrc] Fetching: ${vixsrcUrl}`);
-
-    return makeRequest(vixsrcUrl, {
+    return makeRequest(apiUrl, {
         headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            'Accept': 'application/json',
+            'Referer': BASE_URL,
         }
     })
-    .then(response => response.text())
-    .then(html => {
-        console.log(`[Vixsrc] HTML length: ${html.length} characters`);
-
-        let masterPlaylistUrl = null;
-
-        // Method 1: Look for window.masterPlaylist (primary method)
-        if (html.includes('window.masterPlaylist')) {
-            console.log('[Vixsrc] Found window.masterPlaylist');
-
-            const urlMatch = html.match(/url:\s*['"]([^'"]+)['"]/);
-            const tokenMatch = html.match(/['"]?token['"]?\s*:\s*['"]([^'"]+)['"]/);
-            const expiresMatch = html.match(/['"]?expires['"]?\s*:\s*['"]([^'"]+)['"]/);
-
-            if (urlMatch && tokenMatch && expiresMatch) {
-                const baseUrl = urlMatch[1];
-                const token = tokenMatch[1];
-                const expires = expiresMatch[1];
-
-                console.log('[Vixsrc] Extracted tokens:');
-                console.log(`  - Base URL: ${baseUrl}`);
-                console.log(`  - Token: ${token.substring(0, 20)}...`);
-                console.log(`  - Expires: ${expires}`);
-
-                // Construct the master playlist URL
-                if (baseUrl.includes('?b=1')) {
-                    masterPlaylistUrl = `${baseUrl}&token=${token}&expires=${expires}&h=1&lang=en`;
-                } else {
-                    masterPlaylistUrl = `${baseUrl}?token=${token}&expires=${expires}&h=1&lang=en`;
-                }
-
-                console.log(`[Vixsrc] Constructed master playlist URL: ${masterPlaylistUrl}`);
-            }
-        }
-
-        // Method 2: Look for direct .m3u8 URLs
-        if (!masterPlaylistUrl) {
-            const m3u8Match = html.match(/(https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)/);
-            if (m3u8Match) {
-                masterPlaylistUrl = m3u8Match[1];
-                console.log('[Vixsrc] Found direct .m3u8 URL:', masterPlaylistUrl);
-            }
-        }
-
-        // Method 3: Look for stream URLs in script tags
-        if (!masterPlaylistUrl) {
-            const scriptMatches = html.match(/<script[^>]*>(.*?)<\/script>/gs);
-            if (scriptMatches) {
-                for (const script of scriptMatches) {
-                    const streamMatch = script.match(/['"]?(https?:\/\/[^'"\s]+(?:\.m3u8|playlist)[^'"\s]*)/);
-                    if (streamMatch) {
-                        masterPlaylistUrl = streamMatch[1];
-                        console.log('[Vixsrc] Found stream in script:', masterPlaylistUrl);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!masterPlaylistUrl) {
-            console.log('[Vixsrc] No master playlist URL found');
+    .then(response => response.json())
+    .then(data => {
+        if (!data?.src) {
+            console.log('[Vixsrc] API returned no src');
             return null;
         }
 
-        return { masterPlaylistUrl };
+        const embedUrl = `${BASE_URL}${data.src}`;
+        console.log(`[Vixsrc] Fetching embed: ${embedUrl}`);
+
+        return makeRequest(embedUrl, {
+            headers: {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Referer': BASE_URL,
+            }
+        })
+        .then(response => response.text())
+        .then(html => {
+            console.log(`[Vixsrc] Embed HTML length: ${html.length} characters`);
+
+            let masterPlaylistUrl = null;
+
+            // Method 1: Look for window.masterPlaylist (primary method)
+            if (html.includes('window.masterPlaylist')) {
+                console.log('[Vixsrc] Found window.masterPlaylist');
+
+                const urlMatch = html.match(/url:\s*['"]([^'"]+)['"]/);
+                const tokenMatch = html.match(/['"]?token['"]?\s*:\s*['"]([^'"]+)['"]/);
+                const expiresMatch = html.match(/['"]?expires['"]?\s*:\s*['"]([^'"]+)['"]/);
+
+                if (urlMatch && tokenMatch && expiresMatch) {
+                    const baseUrl = urlMatch[1];
+                    const token = tokenMatch[1];
+                    const expires = expiresMatch[1];
+
+                    console.log('[Vixsrc] Extracted tokens:');
+                    console.log(`  - Base URL: ${baseUrl}`);
+                    console.log(`  - Token: ${token.substring(0, 20)}...`);
+                    console.log(`  - Expires: ${expires}`);
+
+                    if (baseUrl.includes('?b=1')) {
+                        masterPlaylistUrl = `${baseUrl}&token=${token}&expires=${expires}&h=1&lang=en`;
+                    } else {
+                        masterPlaylistUrl = `${baseUrl}?token=${token}&expires=${expires}&h=1&lang=en`;
+                    }
+
+                    console.log(`[Vixsrc] Constructed master playlist URL: ${masterPlaylistUrl}`);
+                }
+            }
+
+            // Method 2: Look for direct .m3u8 URLs
+            if (!masterPlaylistUrl) {
+                const m3u8Match = html.match(/(https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)/);
+                if (m3u8Match) {
+                    masterPlaylistUrl = m3u8Match[1];
+                    console.log('[Vixsrc] Found direct .m3u8 URL:', masterPlaylistUrl);
+                }
+            }
+
+            // Method 3: Look for stream URLs in script tags
+            if (!masterPlaylistUrl) {
+                const scriptMatches = html.match(/<script[^>]*>(.*?)<\/script>/gs);
+                if (scriptMatches) {
+                    for (const script of scriptMatches) {
+                        const streamMatch = script.match(/['"]?(https?:\/\/[^'"\s]+(?:\.m3u8|playlist)[^'"\s]*)/);
+                        if (streamMatch) {
+                            masterPlaylistUrl = streamMatch[1];
+                            console.log('[Vixsrc] Found stream in script:', masterPlaylistUrl);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!masterPlaylistUrl) {
+                console.log('[Vixsrc] No master playlist URL found in embed page');
+                return null;
+            }
+
+            return { masterPlaylistUrl };
+        });
+    })
+    .catch(error => {
+        console.error(`[Vixsrc] extractStreamFromPage failed: ${error.message}`);
+        return null;
     });
 }
 
