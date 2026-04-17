@@ -99,9 +99,19 @@ export default function History() {
   }
 
   const handleOpen = (item) => {
-    const detailType = item.content_type === 'movie' ? 'movie' : 'tv'
+    const contentType = String(item.content_type || item.media_type || '').toLowerCase()
+    const isAnime = contentType === 'anime'
+    const detailType = isAnime ? 'anime' : contentType === 'movie' ? 'movie' : 'tv'
+    const detailMediaType = item?.detail_media_type || item?.detailMediaType || 'tv'
+
     navigate(`/detail/${detailType}/${item.content_id}`, {
       state: {
+        isAnime,
+        detailMediaType: isAnime ? detailMediaType : undefined,
+        anilistId: isAnime ? Number(item.anilist_id || item.anilistId) || null : undefined,
+        canonicalAnilistId: isAnime ? Number(item.canonical_anilist_id || item.canonicalAnilistId) || null : undefined,
+        animeTitle: isAnime ? item.anime_title || item.animeTitle || item.title : undefined,
+        animeAltTitle: isAnime ? item.anime_alt_title || item.animeAltTitle || item.title : undefined,
         resumeSeason: item.season,
         resumeEpisode: item.episode,
       },

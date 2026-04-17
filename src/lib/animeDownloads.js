@@ -1,9 +1,12 @@
 import { getEnabledAnimeAddonProviders } from './animeAddons'
-import { resolveAnimeProviderStates, resolveEpisodeStreamCandidates } from './animeAddons/resolveAnimeStreams'
+import {
+  clearAnimeProviderStateCache,
+  resolveAnimeProviderStates,
+  resolveEpisodeStreamCandidates,
+} from './animeAddons/resolveAnimeStreams'
 import { getAnimeEpisodes, getAnimeStream, resolveAnimeSearch } from './consumet'
 import { clearGogoanimeProviderCache } from './animeAddons/providers/gogoanime'
 
-const providerStateCache = new Map()
 const ANIME_DOWNLOAD_RESOLVE_TIMEOUT_MS = 180000
 
 function withTimeout(promise, timeoutMs, message) {
@@ -72,7 +75,7 @@ function inferAnimeStreamType(url = '', explicitType = '') {
 }
 
 async function resolveViaConsumetFallback(titles = [], episodeNumber) {
-  const providers = ['gogoanime', 'animepahe']
+  const providers = ['gogoanime']
 
   for (const provider of providers) {
     try {
@@ -106,36 +109,19 @@ async function resolveViaConsumetFallback(titles = [], episodeNumber) {
   return null
 }
 
-function buildAnimeStateCacheKey(titles = []) {
-  return uniqueTitles(titles).join('::').toLowerCase()
-}
-
 async function getAnimeProviderStates(titles = []) {
   return getAnimeProviderStatesInternal(titles, false)
 }
 
 async function getAnimeProviderStatesInternal(titles = [], forceFresh = false) {
   const normalizedTitles = uniqueTitles(titles)
-  const cacheKey = buildAnimeStateCacheKey(normalizedTitles)
+  if (!normalizedTitles.length) return []
 
-  if (!cacheKey) return []
-  if (forceFresh) {
-    providerStateCache.delete(cacheKey)
-  } else if (providerStateCache.has(cacheKey)) {
-    return providerStateCache.get(cacheKey)
-  }
-
-  const promise = resolveAnimeProviderStates({
+  return resolveAnimeProviderStates({
     titles: normalizedTitles,
     providers: getEnabledAnimeAddonProviders(),
+    forceFresh,
   })
-    .catch((error) => {
-      providerStateCache.delete(cacheKey)
-      throw error
-    })
-
-  providerStateCache.set(cacheKey, promise)
-  return promise
 }
 
 async function getAnimeProviderStatesForDownload(titles = [], { allowRefresh = true } = {}) {
@@ -472,6 +458,6 @@ export async function prepareAnimeDownloadRuntimeData(download = {}, { fallbackA
 }
 
 export function clearAnimeDownloadCache() {
-  providerStateCache.clear()
+  clearAnimeProviderStateCache()
   clearGogoanimeProviderCache()
 }

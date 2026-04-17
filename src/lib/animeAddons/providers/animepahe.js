@@ -13,7 +13,7 @@ import {
 
 const PROVIDER_ID = ANIME_PROVIDER_IDS.ANIMEPAHE
 const PROVIDER_LABEL = ANIME_PROVIDER_LABELS[PROVIDER_ID]
-const BASE_URL = 'https://animepahe.com'
+const BASE_URL = 'https://animepahe.pw'
 const HOME_URL = `${BASE_URL}/`
 const BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0',
@@ -776,10 +776,6 @@ function scoreResolutionOption(option = {}) {
     return score
 }
 
-function shouldStopAfterAnimepaheCandidate(option = {}) {
-    const resolution = Number(option?.resolution || 0)
-    return resolution >= 720 || !Number.isFinite(resolution) || resolution === 0
-}
 
 const animepaheProvider = {
     id: PROVIDER_ID,
@@ -1106,15 +1102,8 @@ const animepaheProvider = {
                     },
                 }))
 
-                if (candidates.length > 0 && shouldStopAfterAnimepaheCandidate(option)) {
-                    console.warn(`[animeAddons/${PROVIDER_ID}] stopping after first playable resolution`, {
-                        animeId,
-                        episodeId: episodeSession,
-                        resolution: Number(option.resolution || 0),
-                        candidateCount: candidates.length,
-                    })
-                    break
-                }
+                // Continue resolving lower qualities so the player can fall back
+                // if the highest quality fails (e.g. Hi10P codec incompatibility).
             }
 
             const deduped = dedupeBy(candidates, (item) => item?.url)

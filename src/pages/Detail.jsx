@@ -28,7 +28,7 @@ import {
   buildAnimeEpisodesFromAniListEntry,
   resolveAnimeCanonicalRoot,
 } from '../lib/animeMapper'
-import { resolveAniListMatchForTmdbItem } from '../lib/animeClassification'
+import { isLikelyAnimeTmdbItem, resolveAniListMatchForTmdbItem } from '../lib/animeClassification'
 import { searchAnime as searchAniListAnime } from '../lib/anilist'
 import { prepareAnimeDownloadRuntimeData, clearAnimeDownloadCache } from '../lib/animeDownloads'
 import useDownloadStore, { getDownloadItemByIdentity } from '../store/useDownloadStore'
@@ -142,6 +142,157 @@ const normalizeAnimeFranchiseKey = (value) =>
     .replace(/\s+/g, ' ')
     .trim()
 
+const normalizeAnimeTitleKey = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\banime\b/g, ' ')
+    .replace(/\bofficial\b/g, ' ')
+    .replace(/\btrailer\b/g, ' ')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const getAniListCandidateTitle = (candidate = {}) =>
+  candidate?.title?.english ||
+  candidate?.title?.romaji ||
+  candidate?.title?.native ||
+  ''
+
+const getDetailYear = (item = {}) => {
+  const rawDate = item?.first_air_date || item?.release_date || ''
+  const year = Number(String(rawDate).slice(0, 4))
+  return Number.isFinite(year) && year > 0 ? year : null
+}
+
+function scoreAniListFallbackCandidate(candidate, titles = [], detailMediaType = 'tv', targetYear = null) {
+  const expectedFormat = detailMediaType === 'movie' ? 'MOVIE' : 'TV'
+  const candidateTitle = normalizeAnimeTitleKey(getAniListCandidateTitle(candidate))
+  const candidateYear = candidate?.seasonYear || candidate?.startDate?.year || null
+  const format = String(candidate?.format || '').toUpperCase()
+  let score = 0
+
+  for (const title of titles) {
+    const normalizedTitle = normalizeAnimeTitleKey(title)
+    const normalizedCompactTitle = normalizedTitle.replace(/\s+/g, '')
+    const candidateCompactTitle = candidateTitle.replace(/\s+/g, '')
+    if (!normalizedTitle || !candidateTitle) continue
+
+    if (candidateTitle === normalizedTitle) score = Math.max(score, 120)
+    else if (candidateCompactTitle && candidateCompactTitle === normalizedCompactTitle) score = Math.max(score, 115)
+    else if (candidateTitle.includes(normalizedTitle)) score = Math.max(score, 85)
+    else if (candidateCompactTitle && candidateCompactTitle.includes(normalizedCompactTitle)) score = Math.max(score, 82)
+    else if (normalizedTitle.includes(candidateTitle)) score = Math.max(score, 70)
+    else if (normalizedCompactTitle && normalizedCompactTitle.includes(candidateCompactTitle)) score = Math.max(score, 70)
+
+    const candidateFranchise = normalizeAnimeFranchiseKey(candidateTitle)
+    const titleFranchise = normalizeAnimeFranchiseKey(normalizedTitle)
+    if (candidateFranchise && titleFranchise && candidateFranchise === titleFranchise) {
+      score = Math.max(score, 80)
+    }
+  }
+
+  if (format === expectedFormat) score += 25
+  else if (expectedFormat === 'TV' && format === 'TV_SHORT') score += 20
+
+  if (targetYear && candidateYear) {
+    const diff = Math.abs(Number(targetYear) - Number(candidateYear))
+    if (diff === 0) score += 30
+    else if (diff === 1) score += 18
+    else if (diff === 2) score += 8
+  }
+
+  if (candidate?.popularity) score += Math.min(Number(candidate.popularity) / 2500, 8)
+
+  return score
+}
+
+async function resolveAniListMatchFromDetailTitles({
+  data,
+  animeTitle,
+  animeAltTitle,
+  detailMediaType,
+} = {}) {
+  const titles = [...new Set([
+    animeTitle,
+    animeAltTitle,
+    data?.name,
+    data?.title,
+    data?.original_name,
+    data?.original_title,
+  ].map((value) => String(value || '').trim()).filter(Boolean))]
+
+  if (!titles.length) return null
+
+  const targetYear = getDetailYear(data)
+  let bestMatch = null
+  let bestScore = -1
+
+  for (const title of titles) {
+    const results = await searchAniListAnime(title).catch(() => [])
+    for (const candidate of Array.isArray(results) ? results : []) {
+      const score = scoreAniListFallbackCandidate(candidate, titles, detailMediaType, targetYear)
+      if (score > bestScore) {
+        bestScore = score
+        bestMatch = candidate
+      }
+    }
+  }
+
+  if (bestScore < 75 || !bestMatch?.id) return null
+
+  return {
+    id: Number(bestMatch.id) || null,
+    title: getAniListCandidateTitle(bestMatch),
+    altTitle: bestMatch?.title?.romaji || bestMatch?.title?.english || bestMatch?.title?.native || '',
+    year: bestMatch?.seasonYear || bestMatch?.startDate?.year || null,
+  }
+}
+
+const getAnimeSeasonMarker = (value) => {
+  const title = String(value || '').toLowerCase()
+  const seasonMatch =
+    title.match(/\bseason\s+([2-9]\d*)\b/) ||
+    title.match(/\b([2-9]\d*)(?:st|nd|rd|th)\s+season\b/)
+
+  if (seasonMatch?.[1]) return `season:${Number(seasonMatch[1])}`
+  if (/\bfinal\s+season\b/.test(title)) return 'season:final'
+
+  const partMatch = title.match(/\bpart\s+([2-9]\d*)\b/)
+  if (partMatch?.[1]) return `part:${Number(partMatch[1])}`
+
+  const courMatch = title.match(/\bcour\s+([2-9]\d*)\b/)
+  if (courMatch?.[1]) return `cour:${Number(courMatch[1])}`
+
+  return ''
+}
+
+function normalizeDetailMediaType(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'series') return 'tv'
+  if (normalized === 'tv' || normalized === 'movie') return normalized
+  return ''
+}
+
+async function getDetailsForDetailRoute(routeType, id, appendToResponse, preferredMediaType = '') {
+  const normalizedRouteType = String(routeType || '').trim().toLowerCase()
+  const preferred = normalizeDetailMediaType(preferredMediaType)
+  const candidates = normalizedRouteType === 'anime'
+    ? [preferred || 'tv', preferred === 'movie' ? 'tv' : 'movie']
+    : [normalizeDetailMediaType(normalizedRouteType) || 'movie']
+
+  let lastError = null
+  for (const candidate of [...new Set(candidates)].filter(Boolean)) {
+    try {
+      const data = await getDetails(candidate, id, appendToResponse)
+      return { data, mediaType: candidate }
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('Could not load this title.')
+}
+
 const hasExplicitSeasonTitleMarker = (item) => {
   const titles = [
     item?.title?.english,
@@ -246,11 +397,19 @@ function mergeSupplementalAnimeSeasons(canonical, candidates = []) {
 
 export default function Detail() {
   const { type, id } = useParams()
-  const isMovieLike = isMovieLikeMediaType(type)
-  const detailContentId = String(id || '')
   const location = useLocation()
   const navigate = useNavigate()
   const reducedEffectsMode = useAppStore(getReducedEffectsMode)
+  const routeType = String(type || 'movie').trim().toLowerCase()
+  const routeStateDetailMediaType = normalizeDetailMediaType(
+    location.state?.detailMediaType || location.state?.detail_media_type
+  )
+  const preferredDetailMediaType = routeStateDetailMediaType
+    || (routeType === 'anime' ? 'tv' : normalizeDetailMediaType(routeType) || 'movie')
+  const [resolvedDetailMediaType, setResolvedDetailMediaType] = useState(preferredDetailMediaType)
+  const detailMediaType = resolvedDetailMediaType || preferredDetailMediaType
+  const isMovieLike = isMovieLikeMediaType(detailMediaType)
+  const detailContentId = String(id || '')
 
   const requestedResumeAt = Math.max(0, Math.floor(Number(location.state?.resumeAt) || 0))
   const requestedResumeSeason = Number(location.state?.resumeSeason) || null
@@ -307,6 +466,8 @@ export default function Detail() {
   const autoOpenHandledRef = useRef(false)
 
   const isAnime = Boolean(location.state?.isAnime)
+    || routeType === 'anime'
+    || isLikelyAnimeTmdbItem(data, detailMediaType)
   const animeTitle =
     location.state?.animeTitle || location.state?.animeAltTitle || data?.title || data?.name || ''
   const animeAltTitle =
@@ -338,17 +499,26 @@ export default function Detail() {
     setPrefetchedAnimeData(null)
     setResolvedAnilistId(null)
     setResolvedCanonicalAnilistId(null)
+    setResolvedDetailMediaType(preferredDetailMediaType)
     autoOpenHandledRef.current = false
 
     // Append release_dates for movie-like types — gives us precise theatrical vs
     // digital release info without an extra API round-trip. TMDB silently omits
     // the field for TV types so there is no downside including it always.
     withTimeout(
-      getDetails(type, id, isMovieLike ? ['credits', 'release_dates'] : 'credits'),
+      getDetailsForDetailRoute(
+        routeType,
+        id,
+        isMovieLike ? ['credits', 'release_dates'] : 'credits',
+        preferredDetailMediaType
+      ),
       DETAIL_REQUEST_TIMEOUT_MS,
       'This title took too long to load. Please try again.'
     )
-      .then(setData)
+      .then((payload) => {
+        setResolvedDetailMediaType(payload.mediaType)
+        setData(payload.data)
+      })
       .catch((error) => {
         console.warn('[detail] failed to load details', error)
         setData(null)
@@ -364,10 +534,11 @@ export default function Detail() {
     location.state?.resumeEpisode,
     location.state?.resumeProgress,
     location.state?.resumeSeason,
+    preferredDetailMediaType,
     requestedResumeAt,
     requestedResumeEpisode,
     requestedResumeSeason,
-    type,
+    routeType,
   ])
 
   useEffect(() => {
@@ -376,18 +547,23 @@ export default function Detail() {
     let cancelled = false
     const cancelScheduledTask = scheduleDetailNonCritical(() => {
       withTimeout(
-        getDetails(type, id, ['videos', 'similar']),
+        getDetailsForDetailRoute(routeType, id, ['videos', 'similar'], detailMediaType),
         DETAIL_REQUEST_TIMEOUT_MS,
         'Supplemental detail content took too long to load.'
       )
         .then((payload) => {
           if (cancelled) return
 
-          const trailer = payload?.videos?.results?.find(
+          if (payload?.mediaType) {
+            setResolvedDetailMediaType(payload.mediaType)
+          }
+
+          const detailPayload = payload?.data || {}
+          const trailer = detailPayload?.videos?.results?.find(
             (video) => video.type === 'Trailer' && video.site === 'YouTube'
           ) || null
-          const similar = Array.isArray(payload?.similar?.results)
-            ? payload.similar.results.slice(0, 12)
+          const similar = Array.isArray(detailPayload?.similar?.results)
+            ? detailPayload.similar.results.slice(0, 12)
             : []
 
           setDeferredDetailData({ trailer, similar })
@@ -406,7 +582,7 @@ export default function Detail() {
       cancelled = true
       cancelScheduledTask()
     }
-  }, [data?.id, id, type])
+  }, [data?.id, detailMediaType, id, routeType])
 
   const applyProgressState = useCallback((progress, nextProgressMap = null) => {
     const nextResumeProgress = isResumableProgress(progress) ? progress : null
@@ -509,7 +685,7 @@ export default function Detail() {
     return () => {
       cancelled = true
     }
-  }, [applyProgressState, id, loadProgressState, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, type])
+  }, [applyProgressState, id, loadProgressState, location.state?.resumeProgress, requestedResumeEpisode, requestedResumeSeason, routeType])
 
   useEffect(() => {
     if (!isAnime || !data?.id) return undefined
@@ -518,7 +694,13 @@ export default function Detail() {
     let cancelled = false
     setCanonicalLoading(true)
 
-    resolveAniListMatchForTmdbItem(data, type)
+    resolveAniListMatchForTmdbItem(data, detailMediaType)
+      .then((match) => match || resolveAniListMatchFromDetailTitles({
+        data,
+        animeTitle,
+        animeAltTitle,
+        detailMediaType,
+      }))
       .then((match) => {
         if (cancelled) return
 
@@ -539,7 +721,7 @@ export default function Detail() {
     return () => {
       cancelled = true
     }
-  }, [anilistId, canonicalAnilistId, data, isAnime, type])
+  }, [animeAltTitle, animeTitle, anilistId, canonicalAnilistId, data, detailMediaType, isAnime])
 
   const normalizePlayerCloseProgress = useCallback((payload) => {
     if (!payload) return null
@@ -555,14 +737,14 @@ export default function Detail() {
 
     return {
       content_id: String(id),
-      content_type: isAnime ? 'anime' : isMovieLike ? type : 'tv',
+      content_type: isAnime ? 'anime' : isMovieLike ? detailMediaType : 'tv',
       season: isMovieLike ? null : (Number(payload.season) || null),
       episode: isMovieLike ? null : (Number(payload.episode) || null),
       progress_seconds: progressSeconds,
       duration_seconds: durationSeconds,
       updated_at: new Date().toISOString(),
     }
-  }, [id, isAnime, isMovieLike, type])
+  }, [detailMediaType, id, isAnime, isMovieLike])
 
   const handleMoviePlayerClose = useCallback((payload = null) => {
     setPlayerOpen(false)
@@ -745,6 +927,64 @@ export default function Detail() {
     isAnime,
     playbackAnimeTitle,
     selectedCanonicalEntry,
+  ])
+
+  const animeDownloadProviderHint = useMemo(() => {
+    if (!isAnime || !prefetchedAnimeData?.animeId) return null
+
+    const selectedTitleForHint = String(
+      selectedCanonicalEntry?.title ||
+      playbackAnimeTitle ||
+      animeTitle ||
+      detailTitle ||
+      ''
+    ).trim()
+    const matchedTitleForHint = String(
+      prefetchedAnimeData?.matchedTitle ||
+      prefetchedAnimeData?.title ||
+      ''
+    ).trim()
+
+    if (!selectedTitleForHint || !matchedTitleForHint) return null
+
+    const selectedKey = normalizeAnimeTitleKey(selectedTitleForHint)
+    const matchedKey = normalizeAnimeTitleKey(matchedTitleForHint)
+    const selectedFranchiseKey = normalizeAnimeFranchiseKey(selectedTitleForHint)
+    const matchedFranchiseKey = normalizeAnimeFranchiseKey(matchedTitleForHint)
+    const selectedMarker = getAnimeSeasonMarker(selectedTitleForHint)
+    const matchedMarker = getAnimeSeasonMarker(matchedTitleForHint)
+    const selectedSeasonNumber = Number(selectedCanonicalEntry?.seasonNumber || playSeason || 0)
+    const expectedSeasonMarker = selectedSeasonNumber > 1 ? `season:${selectedSeasonNumber}` : ''
+    const exactTitleMatch = Boolean(selectedKey && matchedKey && selectedKey === matchedKey)
+    const sameFranchise = Boolean(
+      selectedFranchiseKey &&
+      matchedFranchiseKey &&
+      selectedFranchiseKey === matchedFranchiseKey
+    )
+
+    if (!exactTitleMatch && !sameFranchise) return null
+
+    if (selectedMarker && matchedMarker && selectedMarker !== matchedMarker) return null
+    if (selectedMarker && !matchedMarker && !exactTitleMatch) return null
+
+    if (selectedSeasonNumber > 1 && !exactTitleMatch) {
+      if (!matchedMarker) return null
+      if (expectedSeasonMarker && matchedMarker !== expectedSeasonMarker) return null
+    }
+
+    return {
+      providerAnimeId: prefetchedAnimeData.animeId,
+      providerMatchedTitle: prefetchedAnimeData.matchedTitle || matchedTitleForHint,
+      providerId: prefetchedAnimeData.providerId || null,
+    }
+  }, [
+    animeTitle,
+    isAnime,
+    playSeason,
+    playbackAnimeTitle,
+    prefetchedAnimeData,
+    selectedCanonicalEntry,
+    detailTitle,
   ])
 
   useEffect(() => {
@@ -977,7 +1217,7 @@ export default function Detail() {
     ? `Resume ${formatTime(resumeProgress?.progress_seconds || 0)}`
     : `Resume S${resumeProgress?.season || playSeason || 1} E${resumeProgress?.episode || playEpisode || 1}`
   const primaryLabel = showResumeButton ? resumeLabel : 'Stream Now'
-  const detailDownloadContentType = isAnime ? 'anime' : type
+  const detailDownloadContentType = isAnime ? 'anime' : detailMediaType
   const currentDownloadItem = getDownloadItemByIdentity(downloadItems, {
     contentId: data.id,
     contentType: detailDownloadContentType,
@@ -1009,10 +1249,10 @@ export default function Detail() {
     animeSearchTitles: contentType === 'anime' ? animeDownloadSearchTitles : [],
     anilistId: contentType === 'anime' ? effectiveAnilistId : null,
     canonicalAnilistId: contentType === 'anime' ? effectiveCanonicalAnilistId : null,
-    detailMediaType: contentType === 'anime' ? type : null,
-    providerAnimeId: contentType === 'anime' ? prefetchedAnimeData?.animeId || null : null,
-    providerMatchedTitle: contentType === 'anime' ? prefetchedAnimeData?.matchedTitle || null : null,
-    providerId: contentType === 'anime' ? prefetchedAnimeData?.providerId || null : null,
+    detailMediaType: contentType === 'anime' ? detailMediaType : null,
+    providerAnimeId: contentType === 'anime' ? animeDownloadProviderHint?.providerAnimeId || null : null,
+    providerMatchedTitle: contentType === 'anime' ? animeDownloadProviderHint?.providerMatchedTitle || null : null,
+    providerId: contentType === 'anime' ? animeDownloadProviderHint?.providerId || null : null,
     poster,
     season,
     episode,
@@ -1166,7 +1406,12 @@ export default function Detail() {
   const handleWatchlist = async () => {
     await addToWatchlist({
       tmdb_id: data.id,
-      media_type: type,
+      media_type: isAnime ? 'anime' : detailMediaType,
+      detail_media_type: isAnime ? detailMediaType : null,
+      anilist_id: isAnime ? effectiveAnilistId : null,
+      canonical_anilist_id: isAnime ? effectiveCanonicalAnilistId : null,
+      anime_title: isAnime ? animeTitle : null,
+      anime_alt_title: isAnime ? animeAltTitle : null,
       title,
       poster_path: data.poster_path,
     })
@@ -1412,7 +1657,7 @@ export default function Detail() {
               */}
               <DownloadButton
                 contentId={String(data.id)}
-                contentType={isAnime ? 'anime' : type}
+                contentType={isAnime ? 'anime' : detailMediaType}
                 title={title}
                 poster={poster}
                 season={isMovieLike ? null : playSeason}
@@ -1904,7 +2149,7 @@ export default function Detail() {
           </section>
         )}
 
-        {!isAnime && type === 'tv' && numSeasons > 0 && (
+        {!isAnime && detailMediaType === 'tv' && numSeasons > 0 && (
           <section>
             <h3 className="font-display font-semibold text-xl mb-5" style={{ color: 'var(--text-primary)' }}>
               Episodes
@@ -1987,7 +2232,7 @@ export default function Detail() {
             </h3>
             <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-3">
               {similar.map((item) => (
-                <MediaCard key={item.id} item={item} type={type} />
+                <MediaCard key={item.id} item={item} type={detailMediaType} />
               ))}
             </div>
           </section>
@@ -2002,7 +2247,7 @@ export default function Detail() {
             title={title}
             poster={poster}
             backdrop={backdrop}
-            contentType={type === 'tv' ? 'series' : type}
+            contentType={detailMediaType === 'tv' ? 'series' : detailMediaType}
             season={playSeason}
             episode={playEpisode}
             resumeAt={playerResumeAt}
@@ -2015,9 +2260,13 @@ export default function Detail() {
       {isAnime && animePlayerOpen && (
         <Suspense fallback={playerFallback}>
           <AnimePlayer
+            key={`${data.id || 'anime'}-${playSeason || 1}-${playEpisode || 1}-${animePlayTitle || playbackAnimeTitle || animeTitle || ''}-${animePlayAltTitle || animeAltTitle || ''}-${offlinePlaybackRequest?.filePath || 'stream'}`}
             animeTitle={animePlayTitle || playbackAnimeTitle || animeTitle}
             animeAltTitle={animePlayAltTitle || animeAltTitle}
             animeSearchTitles={animeDownloadSearchTitles}
+            anilistId={effectiveAnilistId}
+            canonicalAnilistId={effectiveCanonicalAnilistId}
+            detailMediaType={detailMediaType}
             contentId={data.id}
             season={playSeason}
             episode={playEpisode}
@@ -2090,12 +2339,15 @@ export default function Detail() {
                 : [],
               anilistId: seasonDownloadContext.contentType === 'anime' ? effectiveAnilistId : null,
               canonicalAnilistId: seasonDownloadContext.contentType === 'anime' ? effectiveCanonicalAnilistId : null,
-              detailMediaType: seasonDownloadContext.contentType === 'anime' ? type : null,
+              detailMediaType: seasonDownloadContext.contentType === 'anime' ? detailMediaType : null,
               providerAnimeId: seasonDownloadContext.contentType === 'anime'
-                ? prefetchedAnimeData?.animeId || null
+                ? animeDownloadProviderHint?.providerAnimeId || null
                 : null,
               providerMatchedTitle: seasonDownloadContext.contentType === 'anime'
-                ? prefetchedAnimeData?.matchedTitle || null
+                ? animeDownloadProviderHint?.providerMatchedTitle || null
+                : null,
+              providerId: seasonDownloadContext.contentType === 'anime'
+                ? animeDownloadProviderHint?.providerId || null
                 : null,
               poster,
               season: seasonDownloadContext.seasonNumber,

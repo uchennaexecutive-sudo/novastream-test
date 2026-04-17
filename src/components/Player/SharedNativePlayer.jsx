@@ -68,6 +68,29 @@ const normalizeBinaryPayload = (data) => {
   return new Uint8Array(0).buffer
 }
 
+const isAnimeKaiLikeStream = ({ streamLabel = '', streamMeta = '', streamUrl = '' } = {}) => {
+  const haystack = `${streamLabel} ${streamMeta} ${streamUrl}`.toLowerCase()
+  return haystack.includes('animekai')
+    || haystack.includes('megaup.')
+    || haystack.includes('megaup.cc')
+    || haystack.includes('shop21pro.site')
+}
+
+const hasBufferedPlaybackData = (video) => {
+  if (!video) return false
+  if (video.currentTime > 0 || video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return true
+  }
+
+  for (let index = 0; index < video.buffered.length; index += 1) {
+    if (video.buffered.end(index) > video.currentTime) {
+      return true
+    }
+  }
+
+  return false
+}
+
 const createLoaderStats = (startTime, loaded) => {
   const endTime = performance.now()
   const size = Number.isFinite(loaded) ? loaded : 0
@@ -127,7 +150,13 @@ function createTauriLoader(base, getHeaders, getSessionId) {
         lowerUrl.includes('.jpg') ||
         lowerUrl.includes('.jpeg') ||
         lowerUrl.includes('.png') ||
+        lowerUrl.includes('.svg') ||
         lowerUrl.includes('.webp')
+      const isAnimeKaiMediaHost =
+        lowerUrl.includes('app28base.site') ||
+        lowerUrl.includes('shop21pro.site')
+      const isAnimeKaiDisguisedSegment =
+        isAnimeKaiMediaHost && !isPlaylist && !isBlobUrl
       const isFragmentContext =
         context?.type === 'fragment' ||
         context?.type === 'main' ||
@@ -137,6 +166,7 @@ function createTauriLoader(base, getHeaders, getSessionId) {
         || lowerUrl.includes('.aac')
         || lowerUrl.includes('.mp4')
         || (isImageTrack && isFragmentContext)
+        || isAnimeKaiDisguisedSegment
       const isKey = lowerUrl.includes('.key') || context.type === 'key'
 
       const headers = getHeaders() || {}
@@ -158,7 +188,11 @@ function createTauriLoader(base, getHeaders, getSessionId) {
         return
       }
 
-      if (isImageTrack && !isFragmentContext) {
+      if (isImageTrack && !isSegment) {
+        console.warn('[SharedNativePlayer] ignored non-segment image request', {
+          url,
+          contextType: context?.type || '',
+        })
         const startTime = performance.now()
         callbacks.onSuccess(
           { data: new Uint8Array(0).buffer, url },
@@ -488,6 +522,11 @@ export default function SharedNativePlayer({
     let manifestBlobUrl = ''
     let mediaBlobUrl = ''
     const isHlsStream = streamType === 'hls' || streamUrl.includes('.m3u8')
+    const isAnimeKaiHlsStream = isHlsStream && isAnimeKaiLikeStream({
+      streamLabel,
+      streamMeta,
+      streamUrl,
+    })
 
     if (hlsRef.current) {
       hlsRef.current.destroy()
@@ -542,10 +581,11 @@ export default function SharedNativePlayer({
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
             lowLatencyMode: false,
-            progressive: true,
+            progressive: !isAnimeKaiHlsStream,
             startLevel: 0,
           })
           hlsRef.current = hls
+          let mediaRecoveryAttempted = false
 
           const attachSource = (sourceValue) => {
             if (disposed) return
@@ -602,6 +642,28 @@ export default function SharedNativePlayer({
               ])
             }
 
+            if (isAnimeKaiHlsStream && hls.levels.length > 0) {
+              const lowestLevelIndex = hls.levels.reduce((lowestIndex, level, index) => {
+                const currentHeight = Number(level?.height || 0)
+                const lowestHeight = Number(hls.levels[lowestIndex]?.height || 0)
+                if (!lowestHeight) return index
+                if (!currentHeight) return lowestIndex
+                return currentHeight < lowestHeight ? index : lowestIndex
+              }, 0)
+              const selectedHeight = hls.levels[lowestLevelIndex]?.height
+
+              hls.currentLevel = lowestLevelIndex
+              if (selectedHeight) {
+                setSelectedResolution(String(selectedHeight))
+              }
+
+              console.warn('[SharedNativePlayer] pinned AnimeKai HLS startup level', {
+                streamUrl,
+                levelIndex: lowestLevelIndex,
+                height: selectedHeight || null,
+              })
+            }
+
             video.play().catch(() => { })
           })
 
@@ -623,7 +685,32 @@ export default function SharedNativePlayer({
           hls.on(Hls.Events.ERROR, (_, data) => {
             const detail = formatHlsErrorDetail(data)
 
+            console.warn('[SharedNativePlayer] HLS error', {
+              fatal: Boolean(data?.fatal),
+              type: data?.type,
+              details: data?.details,
+              reason: data?.reason,
+              responseCode: data?.response?.code,
+              url: data?.url || data?.frag?.url,
+              streamUrl,
+              detail,
+            })
+
             if (data?.fatal) {
+              if (
+                data.type === Hls.ErrorTypes.MEDIA_ERROR &&
+                !mediaRecoveryAttempted
+              ) {
+                mediaRecoveryAttempted = true
+                console.warn('[SharedNativePlayer] recovering fatal HLS media error once', {
+                  streamUrl,
+                  detail,
+                })
+                hls.recoverMediaError()
+                video.play().catch(() => { })
+                return
+              }
+
               console.warn('[SharedNativePlayer] fatal HLS error', {
                 type: data.type,
                 details: data.details,
@@ -769,7 +856,7 @@ export default function SharedNativePlayer({
         URL.revokeObjectURL(mediaBlobUrl)
       }
     }
-  }, [markStartupReady, notifyStreamFailure, resumeKey, streamHeaders, streamSessionId, streamType, streamUrl])
+  }, [markStartupReady, notifyStreamFailure, resumeKey, streamHeaders, streamLabel, streamMeta, streamSessionId, streamType, streamUrl])
 
   useEffect(() => {
     const video = videoRef.current
@@ -876,6 +963,33 @@ export default function SharedNativePlayer({
       const detail = mediaError
         ? `MediaError code ${mediaError.code}${mediaError.message ? ` | ${mediaError.message}` : ''}`
         : 'HTMLVideoElement error'
+
+      const isRecoverableAnimeKaiHlsError = (
+        (streamType === 'hls' || streamUrl.includes('.m3u8')) &&
+        isAnimeKaiLikeStream({ streamLabel, streamMeta, streamUrl }) &&
+        hasBufferedPlaybackData(video)
+      )
+
+      if (isRecoverableAnimeKaiHlsError) {
+        console.warn('[SharedNativePlayer] ignored recoverable AnimeKai video element error', {
+          streamUrl,
+          detail,
+          currentTime: video.currentTime,
+          readyState: video.readyState,
+          bufferedRanges: video.buffered.length,
+        })
+        video.play().catch(() => { })
+        return
+      }
+
+      console.warn('[SharedNativePlayer] video element error', {
+        streamUrl,
+        streamType,
+        detail,
+        currentTime: video.currentTime,
+        readyState: video.readyState,
+      })
+
       notifyStreamFailure(detail)
     }
 
@@ -904,7 +1018,7 @@ export default function SharedNativePlayer({
       video.removeEventListener('seeked', handleSeeked)
       video.removeEventListener('error', handleVideoError)
     }
-  }, [markStartupReady, notifyStreamFailure, onPlaybackSnapshot, resumeAt, resumeKey, streamUrl])
+  }, [markStartupReady, notifyStreamFailure, onPlaybackSnapshot, resumeAt, resumeKey, streamLabel, streamMeta, streamType, streamUrl])
 
   useEffect(() => {
     const video = videoRef.current

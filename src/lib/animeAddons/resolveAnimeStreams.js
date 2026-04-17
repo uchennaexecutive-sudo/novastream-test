@@ -1,5 +1,20 @@
 import { getEnabledAnimeAddonProviders } from './index'
 
+const providerStateCache = new Map()
+
+function nowMs() {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()
+}
+
+function logAnimeTiming(stage, details = {}) {
+    console.info('[animeAddons/timing]', {
+        stage,
+        ...details,
+    })
+}
+
 function normalizeText(value = '') {
     return String(value || '')
         .toLowerCase()
@@ -189,8 +204,16 @@ function dedupeCandidates(candidates = []) {
     return output
 }
 
+function getProviderPriorityScore(providerId = '') {
+    if (providerId === 'gogoanime') return 120
+    if (providerId === 'animekai') return 60
+    return 0
+}
+
 function scoreCandidate(candidate, preferredProviderId = '', failedUrls = new Set()) {
     let score = Number(candidate?.score || 0)
+
+    score += getProviderPriorityScore(candidate?.providerId || '')
 
     if (candidate?.providerId && candidate.providerId === preferredProviderId) {
         score += 40
@@ -221,43 +244,79 @@ function withTimeout(promise, ms, label = 'operation') {
     ])
 }
 
-export async function resolveAnimeProviderStates({
-    titles = [],
-    providers = null,
-} = {}) {
-    const activeProviders = Array.isArray(providers) && providers.length
-        ? providers
-        : getEnabledAnimeAddonProviders()
+function getProviderMaxSearchTitles(providerId = '') {
+    if (providerId === 'gogoanime') return 6
+    if (providerId === 'animepahe') return 5
+    if (providerId === 'animekai') return 5
+    return 3
+}
 
-    const states = []
+function getProviderSearchTimeoutMs(providerId = '') {
+    if (providerId === 'gogoanime') return 45000
+    if (providerId === 'animepahe') return 40000
+    if (providerId === 'animekai') return 20000
+    return 12000
+}
 
-    for (const provider of activeProviders) {
+function getProviderStateTimeoutMs(providerId = '') {
+    if (providerId === 'gogoanime') return 90000
+    if (providerId === 'animepahe') return 90000
+    if (providerId === 'animekai') return 30000
+    return 15000
+}
+
+function getProviderStreamsTimeoutMs(providerId = '') {
+    if (providerId === 'gogoanime') return 45000
+    if (providerId === 'animepahe') return 35000
+    if (providerId === 'animekai') return 25000
+    return 8000
+}
+
+function buildProviderStateCacheKey(providerId = '', searchTitles = []) {
+    return `${providerId}::${searchTitles.join('::').toLowerCase()}`
+}
+
+async function resolveProviderState(provider, titles = [], { forceFresh = false } = {}) {
+    const providerId = provider?.id || ''
+    const maxSearchTitles = getProviderMaxSearchTitles(providerId)
+    const searchTitles = uniqueTitles(titles).slice(0, maxSearchTitles)
+    const cacheKey = buildProviderStateCacheKey(providerId, searchTitles)
+
+    if (!providerId || !searchTitles.length) return null
+
+    if (forceFresh) {
+        providerStateCache.delete(cacheKey)
+    } else if (providerStateCache.has(cacheKey)) {
+        logAnimeTiming('providerState.cacheHit', {
+            providerId,
+            titleCount: searchTitles.length,
+        })
+        return providerStateCache.get(cacheKey)
+    }
+
+    const promise = (async () => {
+        const totalStart = nowMs()
+
         try {
-            const maxSearchTitles =
-                provider?.id === 'gogoanime'
-                    ? 6
-                    : provider?.id === 'animepahe'
-                        ? 5
-                        : 3
-            const searchTitles = uniqueTitles(titles).slice(0, maxSearchTitles)
             console.warn(`[animeAddons] search titles`, {
-                providerId: provider?.id || '',
+                providerId,
                 searchTitles,
             })
 
-            const searchAnimeTimeoutMs =
-                provider?.id === 'gogoanime'
-                    ? 45000
-                    : provider?.id === 'animepahe'
-                        ? 40000
-                    : 12000
-
+            const searchStart = nowMs()
             const matches = await withTimeout(
                 provider.searchAnime({ titles: searchTitles }),
-                searchAnimeTimeoutMs,
-                `${provider?.id || 'anime-provider'} searchAnime`
+                getProviderSearchTimeoutMs(providerId),
+                `${providerId || 'anime-provider'} searchAnime`
             )
-            if (!matches.length) continue
+            logAnimeTiming('searchAnime', {
+                providerId,
+                elapsedMs: Math.round(nowMs() - searchStart),
+                titleCount: searchTitles.length,
+                matchCount: Array.isArray(matches) ? matches.length : 0,
+            })
+
+            if (!matches.length) return null
 
             const scored = matches
                 .map((match) => ({
@@ -267,21 +326,61 @@ export async function resolveAnimeProviderStates({
                 .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
 
             const bestMatch = scored[0]
-            if (!bestMatch?.animeId) continue
+            if (!bestMatch?.animeId) return null
 
-            const buildProviderStateTimeoutMs =
-                provider?.id === 'gogoanime'
-                    ? 90000
-                    : provider?.id === 'animepahe'
-                        ? 90000
-                    : 15000
-
+            const stateStart = nowMs()
             const state = await withTimeout(
                 provider.buildProviderState({ match: bestMatch }),
-                buildProviderStateTimeoutMs,
-                `${provider?.id || 'anime-provider'} buildProviderState`
+                getProviderStateTimeoutMs(providerId),
+                `${providerId || 'anime-provider'} buildProviderState`
             )
+            logAnimeTiming('buildProviderState', {
+                providerId,
+                elapsedMs: Math.round(nowMs() - stateStart),
+                animeId: state?.animeId || bestMatch?.animeId || '',
+                episodeCount: Array.isArray(state?.episodes) ? state.episodes.length : 0,
+            })
 
+            logAnimeTiming('providerState.total', {
+                providerId,
+                elapsedMs: Math.round(nowMs() - totalStart),
+                animeId: state?.animeId || '',
+                found: Boolean(state?.animeId),
+            })
+
+            return state?.animeId ? state : null
+        } catch (error) {
+            logAnimeTiming('providerState.error', {
+                providerId,
+                elapsedMs: Math.round(nowMs() - totalStart),
+                error: error instanceof Error ? error.message : String(error),
+            })
+            throw error
+        }
+    })()
+        .catch((error) => {
+            providerStateCache.delete(cacheKey)
+            throw error
+        })
+
+    providerStateCache.set(cacheKey, promise)
+    return promise
+}
+
+export async function resolveAnimeProviderStates({
+    titles = [],
+    providers = null,
+    forceFresh = false,
+} = {}) {
+    const activeProviders = Array.isArray(providers) && providers.length
+        ? providers
+        : getEnabledAnimeAddonProviders()
+
+    const states = []
+
+    for (const provider of activeProviders) {
+        try {
+            const state = await resolveProviderState(provider, titles, { forceFresh })
             if (state?.animeId) {
                 states.push(state)
             }
@@ -318,25 +417,31 @@ export async function resolveEpisodeStreamCandidates({
                 const provider = providerMap.get(state.providerId)
                 if (!provider) continue
 
-                const getStreamsTimeoutMs =
-                    state.providerId === 'gogoanime'
-                        ? 45000
-                        : state.providerId === 'animepahe'
-                            ? 35000
-                        : state.providerId === 'animesaturn'
-                            ? 12000
-                            : 8000
-
+                const streamStart = nowMs()
                 const streams = await withTimeout(
                     provider.getStreams({
                         animeId: state.animeId,
                         episodeId: providerEpisode.episodeId,
                     }),
-                    getStreamsTimeoutMs,
+                    getProviderStreamsTimeoutMs(state.providerId),
                     `${state.providerId} getStreams`
                 )
+                logAnimeTiming('getStreams', {
+                    providerId: state.providerId,
+                    animeId: state.animeId,
+                    episodeNumber,
+                    elapsedMs: Math.round(nowMs() - streamStart),
+                    streamCount: Array.isArray(streams) ? streams.length : 0,
+                })
 
                 state.streamCandidatesByEpisode[cacheKey] = Array.isArray(streams) ? streams : []
+            } else {
+                logAnimeTiming('getStreams.cacheHit', {
+                    providerId: state.providerId,
+                    animeId: state.animeId,
+                    episodeNumber,
+                    streamCount: state.streamCandidatesByEpisode[cacheKey].length,
+                })
             }
 
             for (const stream of state.streamCandidatesByEpisode[cacheKey]) {
@@ -353,4 +458,8 @@ export async function resolveEpisodeStreamCandidates({
     return dedupeCandidates(candidates).sort(
         (a, b) => Number(b.score || 0) - Number(a.score || 0)
     )
+}
+
+export function clearAnimeProviderStateCache() {
+    providerStateCache.clear()
 }

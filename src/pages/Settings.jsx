@@ -769,6 +769,8 @@ export default function Settings() {
             v{APP_VERSION} — Changelog
           </p>
           <div className="text-xs space-y-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            <p>v1.8.0 - Ship AnimeKai fallback behind Gogoanime, speed up anime startup, fix AnimeKai streaming/download resolution, and persist anime routing from Watchlist and History</p>
+            <p>v1.7.8 - Fix anime wrong-season playback for sequels, re-enable anime resume with safer seek timing, and add progress bars to anime episode cards</p>
             <p>v1.7.5 - Fix standalone ONA season mapping and first-load anime identity recovery, make Continue Watching / Watchlist / History removals persist correctly, and tighten movie No HD warnings so only recent theatrical-only releases are tagged</p>
             <p>v1.7.4 - Restore signed-in sync hydration, fix native resume reopening, recover the Downloads library from existing on-disk files, and add the missing Tauri capability grants for library scanning</p>
             <p>v1.6.8 - Performance pass with smoother scrolling, faster startup feel, boot splash, and Home/Detail responsiveness improvements</p>

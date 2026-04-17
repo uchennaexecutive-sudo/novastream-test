@@ -6,7 +6,7 @@
 
 *Built with Tauri 2, React 18, and Rust*
 
-[![Version](https://img.shields.io/badge/version-1.7.8-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
+[![Version](https://img.shields.io/badge/version-1.8.0-brightgreen?style=flat-square)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![Windows](https://img.shields.io/badge/Windows-portable%20exe-0078D7?style=flat-square&logo=windows)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![macOS](https://img.shields.io/badge/macOS-DMG-lightgrey?style=flat-square&logo=apple)](https://github.com/uchennaexecutive-sudo/novastream-test/releases)
 [![License](https://img.shields.io/badge/license-private-red?style=flat-square)](#)
@@ -43,12 +43,13 @@ No browser tabs. No extensions. No fuss.
 ### Playback
 - **Native custom player** with no browser embeds
 - **Multi-provider fallback** when a source fails
-- **Anime streaming** via Gogoanime primary plus AnimePahe fallback
+- **Anime streaming** via fast Gogoanime primary resolution plus AnimeKai fallback for newer or missing episodes
 - **Movie, Series, and Animation streaming** via embedded Nuvio resolver flows
 - **English subtitles** with Wyzie-backed resolution
 - **Continue Watching** deduplicated per show
 - **Resume playback** for movies and episodes with detail-page reopen support
 - **Episode navigation** inside the player
+- **Anime route persistence** so anime opened from Search, Watchlist, History, Continue Watching, or Downloads stays on the anime detail/playback path
 - **Movie HD availability warning** so recent theatrical-only films can show `No HD` / `HD not out yet` before digital release
 
 ### Downloads and Offline
@@ -185,7 +186,7 @@ Watch Party notes:
 
 ## Current Version
 
-**v1.7.8** - Fix anime wrong-season playback for sequels (JJK S3, Frieren S2), re-enable anime resume with correct seek timing so backward seeks no longer snap back, and add watch progress bars to anime episode cards.
+**v1.8.0** - Ship AnimeKai fallback behind Gogoanime, speed up anime startup, fix AnimeKai streaming/download resolution, and persist anime routing from Watchlist and History.
 
 See [Releases](https://github.com/uchennaexecutive-sudo/novastream-test/releases) for the full changelog.
 

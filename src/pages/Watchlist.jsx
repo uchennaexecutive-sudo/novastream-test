@@ -44,6 +44,25 @@ export default function Watchlist() {
     await removeFromWatchlist(tmdbId)
   }
 
+  const handleOpen = (item) => {
+    const mediaType = String(item?.media_type || 'movie').toLowerCase()
+    const isAnime = mediaType === 'anime'
+    const detailMediaType = item?.detail_media_type || item?.detailMediaType || 'tv'
+
+    navigate(`/detail/${isAnime ? 'anime' : mediaType}/${item.tmdb_id}`, {
+      state: isAnime
+        ? {
+          isAnime: true,
+          detailMediaType,
+          anilistId: Number(item.anilist_id || item.anilistId) || null,
+          canonicalAnilistId: Number(item.canonical_anilist_id || item.canonicalAnilistId) || null,
+          animeTitle: item.anime_title || item.animeTitle || item.title,
+          animeAltTitle: item.anime_alt_title || item.animeAltTitle || item.title,
+        }
+        : undefined,
+    })
+  }
+
   return (
     <div className="p-6">
       <h1 className="font-display font-bold text-3xl mb-1" style={{ color: 'var(--text-primary)' }}>
@@ -109,7 +128,7 @@ export default function Watchlist() {
                 boxShadow: '0 0 30px var(--accent-glow), 0 20px 60px rgba(0,0,0,0.4)',
                 borderColor: 'var(--border-hover)',
               }}
-              onClick={() => navigate(`/detail/${item.media_type}/${item.tmdb_id}`)}
+              onClick={() => handleOpen(item)}
             >
               {item.poster_path ? (
                 <img

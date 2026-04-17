@@ -1011,6 +1011,29 @@ export default function MoviePlayer({
   }, [contentType, currentEpisode, currentSeason, imdbId, offlineMode, retryNonce, tmdbId])
 
   useEffect(() => {
+    if (offlineMode) return undefined
+    const provider = stream?.provider || ''
+    const streamTitle = stream?.title || null
+    if (!provider.startsWith('4KHDHub') || !streamTitle) return undefined
+
+    let cancelled = false
+    async function refineSubtitlesForRelease() {
+      try {
+        const refined = contentType === 'series'
+          ? await getSeriesSubtitles(tmdbId, currentSeason, currentEpisode, imdbId, streamTitle)
+          : contentType === 'animation'
+            ? await getAnimationSubtitles(tmdbId, imdbId, streamTitle)
+            : await getMovieSubtitles(tmdbId, imdbId, streamTitle)
+        if (!cancelled && refined?.length > 0) setFallbackSubtitleTracks(refined)
+      } catch {
+        // silent — keep existing fallback tracks
+      }
+    }
+    refineSubtitlesForRelease()
+    return () => { cancelled = true }
+  }, [stream?.provider, stream?.title, contentType, currentSeason, currentEpisode, imdbId, offlineMode, tmdbId])
+
+  useEffect(() => {
     const providerSubtitleTracks = Array.isArray(stream?.subtitles) ? stream.subtitles : []
     const rankedFallbackTracks = sortSubtitleTracksForStream(fallbackSubtitleTracks, stream)
     const nextTracks = providerSubtitleTracks.length > 0 ? providerSubtitleTracks : rankedFallbackTracks

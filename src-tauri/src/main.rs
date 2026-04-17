@@ -48,6 +48,8 @@ static PLAYER_FULLSCREEN: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 const STREAM_CAPTURE_SCHEME: &str = "novastream-capture";
 const ANIME_DEBUG_LOG_FILE: &str = "nova-stream-anime-debug.log";
 const RESOLVER_DEBUG_LOG_FILE: &str = "nova-stream-resolver-debug.log";
+const DEFAULT_BROWSER_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const ANIWATCH_BASE_URL: &str = "https://aniwatch-api-orcin-six.vercel.app";
 const ANIME_ROUGE_BASE_URL: &str = "https://api-anime-rouge.vercel.app";
 const TMDB_API_KEY: &str = "49bd672b0680fac7de50e5b9f139a98b";
@@ -894,6 +896,7 @@ struct MovieSubtitleRequest {
     content_type: String,
     season: Option<u32>,
     episode: Option<u32>,
+    stream_title: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -950,6 +953,7 @@ static MOVIE_SUBTITLE_CACHE: OnceLock<
 static OPENSUBTITLES_SESSION_CACHE: OnceLock<Mutex<Option<CachedValue<OpenSubtitlesSession>>>> =
     OnceLock::new();
 static VIDEO_DOWNLOAD_MANAGER: OnceLock<Arc<Mutex<VideoDownloadManager>>> = OnceLock::new();
+static RESOLVER_SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 static BROWSER_FETCH_COUNTER: AtomicU64 = AtomicU64::new(1);
 static BROWSER_FETCH_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
 static PENDING_BROWSER_FETCHES: OnceLock<
@@ -3276,7 +3280,8 @@ fn generate_resolver_session_id() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!("resolver-session-{timestamp}")
+    let counter = RESOLVER_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("resolver-session-{timestamp}-{counter}")
 }
 
 fn store_resolver_session(
@@ -3652,6 +3657,10 @@ async fn get_hianime_stream(
     Ok(normalize_anime_rouge_source_payload(&rouge_payload))
 }
 
+fn has_header_case_insensitive(headers: &HashMap<String, String>, name: &str) -> bool {
+    headers.keys().any(|key| key.eq_ignore_ascii_case(name))
+}
+
 #[tauri::command]
 async fn fetch_anime_text(
     app: tauri::AppHandle,
@@ -3674,7 +3683,8 @@ async fn fetch_anime_text(
     let should_use_animekai_session = url.contains("anikai.to/browser")
         || url.contains("anikai.to/watch/")
         || url.contains("anikai.to/ajax/episodes/list")
-        || url.contains("anikai.to/ajax/links/list");
+        || url.contains("anikai.to/ajax/links/list")
+        || url.contains("anikai.to/ajax/links/view");
 
     if should_use_animekai_session {
         let fallback_page_url = headers
@@ -3733,11 +3743,11 @@ async fn fetch_anime_text(
     let mut request = match http_method.as_str() {
         "POST" => client.post(&url),
         _ => client.get(&url),
+    };
+
+    if !has_header_case_insensitive(&headers, "User-Agent") {
+        request = request.header("User-Agent", DEFAULT_BROWSER_USER_AGENT);
     }
-    .header(
-        "User-Agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    );
 
     for (key, value) in &headers {
         request = request.header(key.as_str(), value.as_str());
@@ -3784,6 +3794,7 @@ async fn fetch_anime_text_with_session(
 ) -> Result<AnimeTextWithSessionResponse, String> {
     let http_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
     let should_use_animepahe_browser_session = url.contains("animepahe.com")
+        || url.contains("animepahe.pw")
         || url.contains("animepahe.si")
         || url.contains("animepahe.org")
         || url.contains("pahe.win")
@@ -3980,7 +3991,8 @@ fn resolver_session_window_label() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!("resolver-session-window-{timestamp}")
+    let counter = RESOLVER_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("resolver-session-window-{timestamp}-{counter}")
 }
 
 fn iframe_player_data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -4968,10 +4980,11 @@ fn prepare_request_with_accept(
         .as_ref()
         .map(|value| value.client.clone())
         .unwrap_or_else(reqwest::Client::new);
-    let mut request = client.get(url).header(
-        "User-Agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    );
+    let mut request = client.get(url);
+
+    if !has_header_case_insensitive(headers, "User-Agent") {
+        request = request.header("User-Agent", DEFAULT_BROWSER_USER_AGENT);
+    }
 
     request = request
         .header("Accept", accept)
@@ -4985,7 +4998,7 @@ fn prepare_request_with_accept(
         request = request.header(key.as_str(), value.as_str());
     }
 
-    if !headers.contains_key("Cookie") {
+    if !has_header_case_insensitive(headers, "Cookie") {
         if let Some(cookie_header) = session
             .as_ref()
             .and_then(|value| value.cookie_header.as_ref())
@@ -4994,13 +5007,13 @@ fn prepare_request_with_accept(
         }
     }
 
-    if !headers.contains_key("Referer") {
+    if !has_header_case_insensitive(headers, "Referer") {
         if let Some(page_url) = session.as_ref().and_then(|value| value.page_url.as_ref()) {
             request = request.header("Referer", page_url.as_str());
         }
     }
 
-    if !headers.contains_key("Origin") {
+    if !has_header_case_insensitive(headers, "Origin") {
         if let Some(page_url) = session.as_ref().and_then(|value| value.page_url.as_ref()) {
             if let Ok(parsed) = Url::parse(page_url) {
                 let origin = parsed.origin().ascii_serialization();
@@ -8281,6 +8294,102 @@ fn normalize_provider_subtitles(
     subtitles
 }
 
+fn extract_release_keywords(title: &str) -> Vec<String> {
+    // Use first line only — 4KHDHub titles are "Release.Name\nFile Size"
+    let first_line = title.lines().next().unwrap_or(title).trim();
+    let lower = first_line.to_ascii_lowercase();
+    let mut keywords: Vec<String> = Vec::new();
+
+    for res in &["2160p", "1080p", "720p", "480p", "4k"] {
+        if lower.contains(res) {
+            keywords.push(res.to_string());
+        }
+    }
+
+    for fmt in &[
+        "web-dl", "webdl", "web.dl", "webrip", "web.rip", "bluray", "blu-ray", "blu.ray", "bdrip",
+        "bd.rip", "hdtv", "hdrip", "hd.rip", "remux",
+    ] {
+        if lower.contains(fmt) {
+            keywords.push(fmt.replace('.', "-"));
+        }
+    }
+
+    // Streaming service tags (dot-delimited tokens in release names)
+    for svc in &[
+        "amzn", "nf", "dsnp", "max", "hmax", "hulu", "atvp", "pcok", "crav", "bcore", "pmtp",
+    ] {
+        for part in first_line.split(['.', '-', ' ', '_']) {
+            if part.to_ascii_lowercase() == *svc {
+                keywords.push(svc.to_string());
+                break;
+            }
+        }
+    }
+
+    // Release group: last token after the final '-' in the stem (no extension)
+    let stem = first_line.trim_end_matches(|c: char| c == '.' || c == ' ');
+    let stem_no_ext = stem.rfind('.').map(|p| &stem[..p]).unwrap_or(stem);
+    if let Some(pos) = stem_no_ext.rfind('-') {
+        let group = &stem_no_ext[pos + 1..];
+        if (2..=12).contains(&group.len()) && group.chars().all(|c| c.is_alphanumeric()) {
+            keywords.push(group.to_ascii_lowercase());
+        }
+    }
+
+    keywords
+}
+
+fn score_subtitle_against_stream(subtitle: &ResolvedMovieSubtitle, keywords: &[String]) -> i32 {
+    if keywords.is_empty() {
+        return 0;
+    }
+    let release_hint = subtitle
+        .release
+        .as_deref()
+        .or(subtitle.file_name.as_deref())
+        .unwrap_or(&subtitle.label)
+        .to_ascii_lowercase();
+
+    let mut bonus: i32 = 0;
+    let mut matched = 0usize;
+    for kw in keywords {
+        if release_hint.contains(kw.as_str()) {
+            matched += 1;
+        }
+    }
+    bonus += (matched as i32) * 12;
+
+    // Release group is the last keyword — strongest identifier
+    if let Some(group) = keywords.last() {
+        if group.len() >= 2 && release_hint.contains(group.as_str()) {
+            bonus += 35;
+        }
+    }
+    bonus
+}
+
+fn apply_stream_title_reranking(
+    mut subtitles: Vec<ResolvedMovieSubtitle>,
+    stream_title: &Option<String>,
+) -> Vec<ResolvedMovieSubtitle> {
+    let keywords = match stream_title.as_deref() {
+        Some(t) if !t.trim().is_empty() => extract_release_keywords(t),
+        _ => return subtitles,
+    };
+    if keywords.is_empty() {
+        return subtitles;
+    }
+    subtitles.sort_by(|a, b| {
+        let sa = subtitle_preference_score(a) + score_subtitle_against_stream(a, &keywords);
+        let sb = subtitle_preference_score(b) + score_subtitle_against_stream(b, &keywords);
+        sb.cmp(&sa)
+            .then_with(|| a.hearing_impaired.cmp(&b.hearing_impaired))
+            .then_with(|| a.label.cmp(&b.label))
+    });
+    subtitles
+}
+
 fn subtitle_preference_score(subtitle: &ResolvedMovieSubtitle) -> i32 {
     let label = subtitle.label.to_ascii_lowercase();
     let url = subtitle.url.to_ascii_lowercase();
@@ -8405,7 +8514,7 @@ async fn fetch_movie_subtitles(
             imdb_id,
             cached.len()
         ));
-        return Ok(cached);
+        return Ok(apply_stream_title_reranking(cached, &payload.stream_title));
     }
 
     if is_subdl_fallback_enabled() {
@@ -8467,7 +8576,10 @@ async fn fetch_movie_subtitles(
                                 imdb_id
                             ));
 
-                            return Ok(subtitles);
+                            return Ok(apply_stream_title_reranking(
+                                subtitles,
+                                &payload.stream_title,
+                            ));
                         }
 
                         log_resolver_debug(&format!(
@@ -8562,7 +8674,10 @@ async fn fetch_movie_subtitles(
         imdb_id
     ));
 
-    Ok(subtitles)
+    Ok(apply_stream_title_reranking(
+        subtitles,
+        &payload.stream_title,
+    ))
 }
 
 #[tauri::command]
@@ -9156,6 +9271,9 @@ fn resolver_timeout_for_provider(provider_id: Option<&str>) -> Duration {
         "vidsrc-me" => Duration::from_secs(9),
         "vidsrc-net" | "vidsrc-xyz" => Duration::from_secs(8),
         "autoembed" => Duration::from_secs(9),
+        // AnimePahe uses Kwik embeds which need DDoS-Guard bypass + JS execution
+        // before the HLS URL fires; 25s is the minimum safe window.
+        "animepahe" => Duration::from_secs(25),
         _ => Duration::from_secs(10),
     }
 }
@@ -9649,32 +9767,48 @@ async fn resolve_embed_stream(
     app: tauri::AppHandle,
     payload: ResolveEmbedStreamPayload,
 ) -> Result<ResolvedEmbedStream, String> {
-    let static_resolution =
-        resolve_embed_stream_static(payload.provider_id.as_deref(), &payload.embed_url).await?;
-    let session_id = store_resolver_session(
-        static_resolution.session_client.clone(),
-        static_resolution.final_page_url.clone(),
-        static_resolution.session_cookie_header.clone(),
-        payload.provider_id.clone(),
-    );
+    let client = build_resolver_client()?;
+    let static_result =
+        resolve_embed_stream_static(payload.provider_id.as_deref(), &payload.embed_url).await;
 
-    if let Some(mut resolved_stream) = static_resolution.resolved_stream {
-        resolved_stream.session_id = session_id.clone();
-        return Ok(resolved_stream);
-    }
+    let (session_id, dynamic_target_url) = match static_result {
+        Ok(resolution) => {
+            let sid = store_resolver_session(
+                resolution.session_client.clone(),
+                resolution.final_page_url.clone(),
+                resolution.session_cookie_header.clone(),
+                payload.provider_id.clone(),
+            );
+
+            if let Some(mut resolved_stream) = resolution.resolved_stream {
+                resolved_stream.session_id = sid.clone();
+                return Ok(resolved_stream);
+            }
+
+            (sid, resolution.next_url)
+        }
+        Err(e) => {
+            log_resolver_debug(&format!(
+                "[resolve_embed_stream] static resolution failed, falling through to dynamic capture provider={:?} url={} error={}",
+                payload.provider_id, payload.embed_url, e
+            ));
+            let sid = store_resolver_session(client, None, None, payload.provider_id.clone());
+            (sid, payload.embed_url.clone())
+        }
+    };
 
     let (tx, rx) = oneshot::channel();
     let sender = Arc::new(Mutex::new(Some(tx)));
 
     log_resolver_debug(&format!(
         "[resolve_embed_stream] launching dynamic capture provider={:?} target_url={}",
-        payload.provider_id, static_resolution.next_url
+        payload.provider_id, dynamic_target_url
     ));
 
     create_resolve_capture_window(
         app,
         payload.provider_id,
-        static_resolution.next_url,
+        dynamic_target_url,
         session_id,
         0,
         sender,
@@ -10912,6 +11046,7 @@ fn build_download_subtitle_request(request: &VideoDownloadRequest) -> Option<Mov
         content_type,
         season: request.season,
         episode: request.episode,
+        stream_title: None,
     })
 }
 

@@ -308,7 +308,7 @@ export async function preloadAnimePlayback(...titles) {
   const candidateTitles = titles.flat().filter(Boolean)
   try {
     const enabledProviders = getEnabledAnimeAddonProviders()
-    const providerPriority = ['gogoanime', 'animepahe']
+    const providerPriority = ['gogoanime', 'animekai', 'animepahe']
 
     for (const providerId of providerPriority) {
       const scopedProviders = enabledProviders.filter((provider) => provider?.id === providerId)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { ANIWATCH_BASE_URL, clearAnimePlaybackCache } from '../../lib/consumet'
-import { getEnabledAnimeAddonProviders } from '../../lib/animeAddons'
+import { getAnimeAddonProvider, getEnabledAnimeAddonProviders } from '../../lib/animeAddons'
 import {
   resolveAnimeProviderStates,
   resolveEpisodeStreamCandidates,
@@ -13,6 +13,8 @@ import SharedNativePlayer from './SharedNativePlayer'
 
 const STREAM_RETRY_DELAY_MS = 2000
 const MAX_STREAM_ATTEMPTS = 3
+const PRIMARY_ANIME_PROVIDER_ID = 'gogoanime'
+const FALLBACK_ANIME_PROVIDER_ID = 'animekai'
 
 const parseTimestamp = (value) => {
   const [time, milliseconds = '0'] = String(value || '0:00.0').split('.')
@@ -47,7 +49,6 @@ function pickPreferredProviderState(states = [], {
   currentEpisode,
   lockedProviderId = '',
   lockedEpisode = null,
-  successfulProviderId = '',
 } = {}) {
   const normalizedEpisode = Number(currentEpisode || 0)
 
@@ -62,16 +63,6 @@ function pickPreferredProviderState(states = [], {
         item.episodes.length
     )
     if (locked) return locked
-  }
-
-  if (successfulProviderId) {
-    const successful = states.find(
-      item =>
-        item?.providerId === successfulProviderId &&
-        Array.isArray(item?.episodes) &&
-        item.episodes.length
-    )
-    if (successful) return successful
   }
 
   return states.find(
@@ -93,10 +84,20 @@ function getCandidateMeta(candidate = {}) {
     .join(' | ')
 }
 
+function hasProviderEpisode(state = {}, episodeNumber = 0) {
+  const targetEpisode = Number(episodeNumber || 0)
+  return Array.isArray(state?.episodes) && state.episodes.some(
+    item => Number(item?.number || 0) === targetEpisode
+  )
+}
+
 export default function AnimePlayer({
   animeTitle,
   animeAltTitle = '',
   animeSearchTitles = [],
+  anilistId = null,
+  canonicalAnilistId = null,
+  detailMediaType = 'tv',
   contentId,
   season,
   episode,
@@ -117,6 +118,8 @@ export default function AnimePlayer({
   const lockedProviderIdRef = useRef('')
   const lockedEpisodeRef = useRef(null)
   const successfulProviderIdRef = useRef('')
+  const currentEpisodeRef = useRef(Math.max(1, Number(episode) || 1))
+  const fallbackWarmKeyRef = useRef('')
   const lastHistoryCheckpointRef = useRef(0)
   const lastPlaybackRef = useRef({
     progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
@@ -206,6 +209,71 @@ export default function AnimePlayer({
     setErrorDetail('')
   }, [])
 
+  useEffect(() => {
+    currentEpisodeRef.current = Number(currentEpisode || 0)
+  }, [currentEpisode])
+
+  const mergeProviderStates = useCallback((states = []) => {
+    const nextStateMap = { ...(providerStatesRef.current || {}) }
+
+    for (const state of states) {
+      if (state?.providerId) {
+        nextStateMap[state.providerId] = state
+      }
+    }
+
+    providerStatesRef.current = nextStateMap
+    return Object.values(nextStateMap)
+  }, [])
+
+  const loadProviderStatesById = useCallback(async (providerIds = [], options = {}) => {
+    const providers = providerIds
+      .map((providerId) => getAnimeAddonProvider(providerId))
+      .filter(Boolean)
+
+    if (!providers.length) return []
+
+    return resolveAnimeProviderStates({
+      titles: resolvedAnimeTitles,
+      providers,
+      forceFresh: Boolean(options.forceFresh),
+    })
+  }, [resolvedAnimeTitles])
+
+  const warmAnimeKaiFallback = useCallback((reason = 'background') => {
+    if (offlineMode) return
+    if (providerStatesRef.current?.[FALLBACK_ANIME_PROVIDER_ID]) return
+
+    const warmKey = `${FALLBACK_ANIME_PROVIDER_ID}::${resolvedAnimeTitles.join('::').toLowerCase()}`
+    if (!resolvedAnimeTitles.length || fallbackWarmKeyRef.current === warmKey) return
+
+    fallbackWarmKeyRef.current = warmKey
+
+    loadProviderStatesById([FALLBACK_ANIME_PROVIDER_ID])
+      .then((states) => {
+        const fallbackState = states.find(
+          state => state?.providerId === FALLBACK_ANIME_PROVIDER_ID && state?.animeId
+        )
+        if (!fallbackState) return
+
+        mergeProviderStates([fallbackState])
+        console.info('[AnimePlayer] warmed fallback provider', {
+          providerId: FALLBACK_ANIME_PROVIDER_ID,
+          reason,
+          animeId: fallbackState.animeId,
+          episodeCount: Array.isArray(fallbackState.episodes) ? fallbackState.episodes.length : 0,
+        })
+      })
+      .catch((error) => {
+        fallbackWarmKeyRef.current = ''
+        console.warn('[AnimePlayer] fallback warm failed', {
+          providerId: FALLBACK_ANIME_PROVIDER_ID,
+          reason,
+          error,
+        })
+      })
+  }, [loadProviderStatesById, mergeProviderStates, offlineMode, resolvedAnimeTitles])
+
   const persistProgress = useCallback(async (snapshot = lastPlaybackRef.current) => {
     const effectiveContentId = contentId || animeTitle
     const progressSeconds = Math.max(0, Math.floor(Number(snapshot?.progressSeconds) || 0))
@@ -233,6 +301,11 @@ export default function AnimePlayer({
       syncPlaybackHistory({
         tmdbId: effectiveContentId,
         mediaType: 'anime',
+        detailMediaType,
+        anilistId,
+        canonicalAnilistId,
+        animeTitle,
+        animeAltTitle,
         title: animeTitle,
         posterPath: poster,
         season: season || 1,
@@ -242,7 +315,7 @@ export default function AnimePlayer({
     }
 
     return persistPromise
-  }, [animeTitle, backdrop, contentId, currentEpisode, poster, season])
+  }, [animeAltTitle, animeTitle, anilistId, backdrop, canonicalAnilistId, contentId, currentEpisode, detailMediaType, poster, season])
 
   const buildClosePayload = useCallback((snapshot = lastPlaybackRef.current) => ({
     season: season || 1,
@@ -298,6 +371,7 @@ export default function AnimePlayer({
       }
 
       providerStatesRef.current = {}
+      fallbackWarmKeyRef.current = ''
       failedUrlsByEpisodeRef.current = {}
       candidateListRef.current = []
       candidateIndexRef.current = 0
@@ -361,6 +435,19 @@ export default function AnimePlayer({
       return
     }
 
+    if (activeCandidate?.providerId === PRIMARY_ANIME_PROVIDER_ID) {
+      clearRetryTimer()
+      candidateListRef.current = []
+      candidateIndexRef.current = 0
+      lockedProviderIdRef.current = ''
+      lockedEpisodeRef.current = null
+      setLoading(true)
+      setLoadingStage('Trying AnimeKai fallback...')
+      setError('')
+      setResolverTick(value => value + 1)
+      return
+    }
+
     clearRetryTimer()
     setLoading(false)
     setLoadingStage('')
@@ -409,6 +496,7 @@ export default function AnimePlayer({
       candidateIndexRef.current = 0
       candidateListRef.current = []
       failedUrlsByEpisodeRef.current = {}
+      fallbackWarmKeyRef.current = ''
       successfulProviderIdRef.current = ''
       lockedProviderIdRef.current = ''
       lockedEpisodeRef.current = null
@@ -452,6 +540,7 @@ export default function AnimePlayer({
     candidateIndexRef.current = 0
     candidateListRef.current = []
     failedUrlsByEpisodeRef.current = {}
+    fallbackWarmKeyRef.current = ''
     successfulProviderIdRef.current = ''
     lockedProviderIdRef.current = ''
     lockedEpisodeRef.current = null
@@ -460,9 +549,15 @@ export default function AnimePlayer({
       progressSeconds: Math.max(0, Math.floor(Number(resumeAt) || 0)),
       durationSeconds: 0,
     }
+    resetPlaybackState()
+    setLoading(true)
+    setLoadingStage('Fetching stream...')
+    setError('')
+    setErrorDetail('')
     setCurrentEpisode(Math.max(1, Number(episode) || 1))
     setResumePosition(Math.max(0, Math.floor(Number(resumeAt) || 0)))
-  }, [episode, offlineMode, offlinePlayback, resolvedOfflineSubtitlePath, resumeAt])
+    setResolverTick(value => value + 1)
+  }, [episode, offlineMode, offlinePlayback, resetPlaybackState, resolvedOfflineSubtitlePath, resumeAt])
 
   useEffect(() => {
     if (!offlineMode || !offlinePlayback?.filePath || !isTauri()) {
@@ -513,16 +608,19 @@ export default function AnimePlayer({
       candidateIndexRef.current = 0
       candidateListRef.current = []
       providerStatesRef.current = {}
+      fallbackWarmKeyRef.current = ''
       resetPlaybackState()
       setLoading(true)
       setLoadingStage('Finding anime...')
       setError('')
       setErrorDetail('')
 
-      const states = await resolveAnimeProviderStates({ titles: resolvedAnimeTitles })
+      const resolvingEpisode = Number(currentEpisodeRef.current || currentEpisode || 0)
+      const primaryStates = await loadProviderStatesById([PRIMARY_ANIME_PROVIDER_ID])
 
       if (cancelled) return
 
+      const states = primaryStates
       const nextStateMap = {}
       for (const state of states) {
         if (state?.providerId) {
@@ -571,13 +669,34 @@ export default function AnimePlayer({
       }
 
       providerStatesRef.current = nextStateMap
-      const providerStates = Object.values(nextStateMap)
+      let providerStates = Object.values(nextStateMap)
+      const primaryState = providerStates.find(
+        state => state?.providerId === PRIMARY_ANIME_PROVIDER_ID
+      )
+
+      if (!hasProviderEpisode(primaryState, resolvingEpisode)) {
+        console.info('[AnimePlayer] primary provider missing episode, loading fallback', {
+          providerId: PRIMARY_ANIME_PROVIDER_ID,
+          fallbackProviderId: FALLBACK_ANIME_PROVIDER_ID,
+          currentEpisode: resolvingEpisode,
+        })
+        setLoadingStage('Trying AnimeKai fallback...')
+
+        const fallbackStates = await loadProviderStatesById([FALLBACK_ANIME_PROVIDER_ID])
+        if (cancelled) return
+        for (const state of fallbackStates) {
+          if (state?.providerId) {
+            nextStateMap[state.providerId] = state
+          }
+        }
+        providerStatesRef.current = nextStateMap
+        providerStates = Object.values(nextStateMap)
+      }
 
       const preferredState = pickPreferredProviderState(providerStates, {
-        currentEpisode,
+        currentEpisode: resolvingEpisode,
         lockedProviderId: lockedProviderIdRef.current,
         lockedEpisode: lockedEpisodeRef.current,
-        successfulProviderId: successfulProviderIdRef.current,
       })
 
       if (!preferredState) {
@@ -600,7 +719,7 @@ export default function AnimePlayer({
     })
 
     return () => { cancelled = true }
-  }, [offlineMode, prefetchedAnime, resetPlaybackState, resolvedAnimeTitles, retryNonce])
+  }, [currentEpisode, loadProviderStatesById, offlineMode, prefetchedAnime, resetPlaybackState, retryNonce])
 
   useEffect(() => {
     if (offlineMode) return undefined
@@ -609,14 +728,14 @@ export default function AnimePlayer({
     clearRetryTimer()
 
     async function resolveStreamCandidates() {
-      const providerStates = Object.values(providerStatesRef.current || {})
+      const resolvingEpisode = Number(currentEpisode || 0)
+      let providerStates = Object.values(providerStatesRef.current || {})
       if (!providerStates.length) return
 
       const preferredState = pickPreferredProviderState(providerStates, {
-        currentEpisode,
+        currentEpisode: resolvingEpisode,
         lockedProviderId: lockedProviderIdRef.current,
         lockedEpisode: lockedEpisodeRef.current,
-        successfulProviderId: successfulProviderIdRef.current,
       })
 
       if (preferredState?.episodes?.length) {
@@ -634,15 +753,41 @@ export default function AnimePlayer({
 
       let candidates = await resolveEpisodeStreamCandidates({
         providerStates,
-        episodeNumber: Number(currentEpisode),
+        episodeNumber: resolvingEpisode,
         preferredProviderId:
-          (lockedEpisodeRef.current === Number(currentEpisode) && lockedProviderIdRef.current) ||
-          successfulProviderIdRef.current ||
+          (lockedEpisodeRef.current === resolvingEpisode && lockedProviderIdRef.current) ||
           '',
         failedUrls: Array.from(failedSet),
       })
 
-      if (cancelled) return
+      if (cancelled || currentEpisodeRef.current !== resolvingEpisode) return
+
+      if (!candidates.length) {
+        const hasFallbackState = providerStates.some(
+          state => state?.providerId === FALLBACK_ANIME_PROVIDER_ID
+        )
+
+        if (!hasFallbackState) {
+          setLoadingStage('Trying AnimeKai fallback...')
+          const fallbackStates = await loadProviderStatesById([FALLBACK_ANIME_PROVIDER_ID])
+
+          if (cancelled || currentEpisodeRef.current !== resolvingEpisode) return
+
+          providerStates = mergeProviderStates(fallbackStates)
+          const fallbackOnlyStates = providerStates.filter(
+            state => state?.providerId === FALLBACK_ANIME_PROVIDER_ID
+          )
+
+          candidates = await resolveEpisodeStreamCandidates({
+            providerStates: fallbackOnlyStates,
+            episodeNumber: resolvingEpisode,
+            preferredProviderId: FALLBACK_ANIME_PROVIDER_ID,
+            failedUrls: Array.from(failedSet),
+          })
+
+          if (cancelled || currentEpisodeRef.current !== resolvingEpisode) return
+        }
+      }
 
       if (!candidates.length) {
         try {
@@ -650,16 +795,17 @@ export default function AnimePlayer({
             title: animeTitle,
             altTitle: animeAltTitle,
             extraTitles: resolvedAnimeTitles,
-            episodeNumber: Number(currentEpisode),
+            episodeNumber: resolvingEpisode,
             preferredProviderId:
-              (lockedEpisodeRef.current === Number(currentEpisode) && lockedProviderIdRef.current) ||
-              successfulProviderIdRef.current ||
+              (lockedEpisodeRef.current === resolvingEpisode && lockedProviderIdRef.current) ||
               '',
           })
 
+          if (cancelled || currentEpisodeRef.current !== resolvingEpisode) return
+
           if (fallbackStream?.streamUrl) {
             candidates = [{
-              id: `fallback::${fallbackStream.providerId || 'anime'}::${Number(currentEpisode)}::${fallbackStream.streamUrl}`,
+              id: `fallback::${fallbackStream.providerId || 'anime'}::${resolvingEpisode}::${fallbackStream.streamUrl}`,
               providerId: fallbackStream.providerId || '',
               providerLabel: fallbackStream.providerId || '',
               url: fallbackStream.streamUrl,
@@ -678,10 +824,12 @@ export default function AnimePlayer({
         }
       }
 
+      if (cancelled || currentEpisodeRef.current !== resolvingEpisode) return
+
       candidateListRef.current = candidates
 
       if (!candidates.length) {
-        throw new Error(`Episode ${Number(currentEpisode)} not found on available providers`)
+        throw new Error(`Episode ${resolvingEpisode} not found on available providers`)
       }
       if (candidateIndexRef.current >= candidates.length) {
         candidateIndexRef.current = 0
@@ -692,7 +840,7 @@ export default function AnimePlayer({
       console.info('[AnimePlayer] resolved candidates', {
         animeTitle,
         animeAltTitle,
-        currentEpisode: Number(currentEpisode),
+        currentEpisode: resolvingEpisode,
         candidateCount: candidates.length,
         candidates: candidates.map((item, index) => ({
           index,
@@ -715,11 +863,11 @@ export default function AnimePlayer({
       hlsHeadersRef.current = candidate.headers || {}
       successfulProviderIdRef.current = candidate.providerId || successfulProviderIdRef.current
       lockedProviderIdRef.current = candidate.providerId || ''
-      lockedEpisodeRef.current = Number(currentEpisode)
+      lockedEpisodeRef.current = resolvingEpisode
 
       console.info('[AnimePlayer] selecting candidate', {
         animeTitle,
-        currentEpisode: Number(currentEpisode),
+        currentEpisode: resolvingEpisode,
         providerId: candidate?.providerId,
         providerLabel: candidate?.providerLabel,
         streamType: candidate?.streamType,
@@ -748,13 +896,17 @@ export default function AnimePlayer({
       setLoading(false)
       setLoadingStage('Buffering...')
 
-      const nextEpisodeNumber = Number(currentEpisode) + 1
-      resolveEpisodeStreamCandidates({
-        providerStates,
-        episodeNumber: nextEpisodeNumber,
-        preferredProviderId: candidate.providerId || '',
-        failedUrls: [],
-      }).catch(() => { })
+      if (candidate.providerId === PRIMARY_ANIME_PROVIDER_ID) {
+        warmAnimeKaiFallback('primary-started')
+
+        const nextEpisodeNumber = resolvingEpisode + 1
+        resolveEpisodeStreamCandidates({
+          providerStates,
+          episodeNumber: nextEpisodeNumber,
+          preferredProviderId: candidate.providerId || '',
+          failedUrls: [],
+        }).catch(() => { })
+      }
     }
 
     resolveStreamCandidates().catch((streamError) => {
@@ -767,7 +919,16 @@ export default function AnimePlayer({
     })
 
     return () => { cancelled = true }
-  }, [currentEpisode, offlineMode, resetPlaybackState, resolverTick, scheduleFreshStreamRetry])
+  }, [
+    currentEpisode,
+    loadProviderStatesById,
+    mergeProviderStates,
+    offlineMode,
+    resetPlaybackState,
+    resolverTick,
+    scheduleFreshStreamRetry,
+    warmAnimeKaiFallback,
+  ])
 
   useEffect(() => {
     const preferredTrack = subtitleTracks.find(track => {

@@ -3,7 +3,7 @@ const cheerio = require('cheerio');
 // --- Constants ---
 const VIDSRC_PROXY_URL = process.env.VIDSRC_PROXY_URL;
 let BASEDOM = "https://cloudnestra.com"; // This can be updated by serversLoad
-const SOURCE_URL = "https://vidsrc.xyz/embed";
+const SOURCE_URL = "https://vsembed.ru/embed";
 // --- Helper: Conditional Proxied Fetch ---
 // This function wraps the native fetch. If VIDSRC_PROXY_URL is set in the environment,
 // it routes requests through the proxy. Otherwise, it makes a direct request.

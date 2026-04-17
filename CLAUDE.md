@@ -1,13 +1,13 @@
 # NOVA STREAM
 
 ## Project
-Premium streaming desktop application (Tauri 2) - v1.7.8
+Premium streaming desktop application (Tauri 2) - v1.8.0
 
 ## Stack
 React 18 + Vite 6 + TailwindCSS + Framer Motion + Zustand + Tauri 2 (Rust)
 
 ## Dev Location
-Working copy at `c:\Users\uchen\nova-stream-dev` (outside OneDrive for npm compatibility)
+Working copy at `c:\Users\uchen\nova-stream-dev-test` (outside OneDrive for npm compatibility)
 
 ## Build Output
 Local test builds go to `C:\Users\uchen\OneDrive\Documents\ANTIGRAVITY\APPLICATIONS`
@@ -21,7 +21,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Movies browse - genre filters, paginated grid
 - [x] Series browse - genre filters, paginated grid
 - [x] Anime browse - AniList-powered, tabs (Trending/Popular/Top Rated), genre filters, infinite scroll
-- [x] Anime player - premium popup with native playback via in-project Gogoanime primary resolution plus AnimePahe fallback, Rust-backed manifest/segment/session fetching, subtitles, seekbar, keyboard shortcuts, and episode navigation
+- [x] Anime player - premium popup with native playback via fast in-project Gogoanime primary resolution plus AnimeKai fallback, Rust-backed manifest/segment/session fetching, subtitles, seekbar, keyboard shortcuts, and episode navigation
 - [x] Animation browse - grid layout
 - [x] Search overlay - debounced TMDB multi-search + AniList anime search, keyboard navigation, grouped Movies / Series / Anime results, and anime search routing through TMDB-matched anime detail flow
 - [x] Movie / Series / Animation player - native custom player using Nuvio resolver streams, Rust-backed manifest/segment fetching, custom controls, English subtitle toggle via Wyzie, and series episode navigation
@@ -30,6 +30,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - [x] Watch history - auto-recorded on play, localStorage-backed
 - [x] Continue Watching - deduplicated episodic entries so each show displays only the latest watched episode
 - [x] Resume flow - Continue Watching opens detail first, detail pages refresh resume state after player close, episodic players sync final episode/progress back to detail, Home dismissals no longer delete the underlying resume/history state, and anime resume is re-enabled via canplay-gated seek (prevents black screen and backward-seek snap-back)
+- [x] Anime route persistence - anime opened from Search, Watchlist, History, Continue Watching, or Downloads stays on the anime detail/playback path and can recover missing AniList identity when saved route state is incomplete
 - [x] User data hydration recovery - signed-in watchlist/history/profile stats now rehydrate after auth/session changes, history stays live with the current native players, and movie/episode resume reliably reopens from saved progress
 - [x] User data removal persistence - Continue Watching dismissals stay hidden until playback resumes, and Watchlist / History removals now persist cleanly across page revisits
 - [x] Movie HD availability warnings - Home cards and Detail now show `No HD` / `HD not out yet` only for recent theatrical-only movie releases, avoiding old-title false positives from sparse TMDB release history
@@ -73,32 +74,32 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - `src/lib/animeAddons/resolveAnimeStreams.js`
   - `src/lib/animeAddons/providers/gogoanime.js`
   - `src/lib/animeAddons/providers/gogoanimeScraper.js`
-  - `src/lib/animeAddons/providers/animepahe.js`
+  - `src/lib/animeAddons/providers/animekai.js`
 - Anime detail pages carry AniList title identity into playback for stronger provider matching
-- Current provider order is `gogoanime` primary and `animepahe` fallback
+- Current active provider order is `gogoanime` primary and `animekai` fallback; AnimePahe remains in the codebase but is removed from the active fallback path because it is unreliable
 - Gogoanime search, anime detail, and server discovery are now self-contained in-project; the old localhost Rust bridge has been removed
 - Current Gogo flow:
   1. AniList/TMDB identity reaches `AnimePlayer.jsx`
   2. `gogoanimeScraper.js` resolves search match, anime detail, and episode server URLs
   3. `gogoanime.js` resolves wrapper pages / embed pages / dynamic stream capture
   4. Rust handles session-aware fetch, HLS manifest/segment fetching, and native playback transport
-- Current AnimePahe fallback flow:
+- Current AnimeKai fallback flow:
   1. AniList/TMDB identity reaches `AnimePlayer.jsx`
-  2. `animepahe.js` resolves AnimePahe search, release episode lists, and play-page resolution options through provider-scoped browser sessions
-  3. AnimePahe prefers a direct MP4-style handoff derived from resolved Kwik stream URLs and falls back to direct embed/runtime capture when needed
-  4. Rust still handles session-aware fetch, embed capture, and native playback transport for the selected candidate
+  2. `animekai.js` resolves AnimeKai search, episode lists, and server options while skipping dub servers
+  3. AnimeKai follows the reference flow: `links/list` / `links/view` -> `dec-kai` -> embed URL -> `/media/{videoId}` -> `dec-mega` -> final sources/tracks
+  4. AnimeKai request coalescing and short-TTL caches dedupe expensive token/decode/media/source work without keeping playable URLs forever
+  5. Rust session-aware fetch paths preserve AnimeKai/Megaup headers and User-Agent consistency for `/media` and HLS playback
 - DotStream is deprioritized and rejected where possible; the working path is the non-DotStream dynamic capture/native playback flow
 - Dynamic subtitle tracks captured from the live embed/runtime are forwarded into the native player
 - Server URLs that embed subtitle tracks as `caption_N` / `sub_N` query params (used by `otakuhg.site`, `otakuvid.online`, and similar JWPlayer hosts) are parsed by `extractServerUrlSubtitles` in `gogoanime.js` and merged into every stream candidate's `subtitles` array so they reach the player automatically
 - `streamingLinksCache` in `gogoanime.js` no longer permanently caches empty server lists; an empty result deletes the cache entry so the next request retries cleanly — `clearGogoanimeProviderCache` also clears this cache
 - `resolve_embed_stream_static` in Rust now tries `unpack_packer_script` as a fallback for all providers, enabling JWPlayer eval-packed embed pages (P,A,C,K,E,D packer format, used by `otakuhg.site` / `otakuvid.online`) to resolve an HLS URL without the timeout-prone dynamic browser capture window
 - `packer_script_regex` in Rust matches both single- and double-quote P,A,C,K,E,D packer invocations
-- AnimePahe Hi10P / BD Kametsu encodes are WebView2 codec-incompatible (`bufferAddCodecError`); when this occurs the player auto-falls through to Gogoanime — this is the expected behavior, not a bug to fix
 - Gogo source-quality guardrails reject obvious CAM / bad wrapper cases when they are detected
-- Anime fallback changes must remain provider-scoped; do not use shared timeout/path tweaks that weaken Gogoanime because AnimePahe exists as fallback
-- Anime next-episode behavior now resets provider stickiness on episode change so each episode starts with Gogoanime as fresh primary and only falls through to AnimePahe when that specific episode fails on Gogo
+- Anime fallback changes must remain provider-scoped; do not use shared timeout/path tweaks that weaken Gogoanime because AnimeKai exists as fallback
+- Anime next-episode behavior now resets provider stickiness on episode change so each episode starts with Gogoanime as fresh primary and only falls through to AnimeKai when that specific episode fails on Gogo
 - `prefetchedAnime` from `preloadAnimePlayback` (triggered in Detail.jsx ~500ms after mount) must never blindly override the fresh `resolveAnimeProviderStates` result in AnimePlayer.jsx — if the fresh resolve returns a different `animeId` for the same provider, the fresh result wins; the preload is only applied when the fresh resolve found nothing for that provider or agreed on the same `animeId` (prevents wrong-season playback for sequels like JJK S3, Frieren S2)
-- AnimePahe fallback now works for episodes Gogoanime cannot play, but AnimePahe startup is still best improved through provider-specific optimization rather than shared resolver shortcuts
+- Anime startup uses a Gogoanime fast path first; AnimeKai provider state is only loaded when Gogo is missing/fails, and AnimeKai stream prefetch is not allowed to block current playback startup
 - Anime browse/detail/search architecture remains:
   - AniList-powered browse in `src/pages/Anime.jsx`
   - AniList identity handling in `src/lib/anilist.js`
@@ -108,8 +109,9 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
 - AniList browse/search fetches are now hardened against timeouts, non-JSON responses, and transient rate-limit/server failures, with a lightweight retry path in `src/lib/anilist.js`
 - Search overlay now degrades gracefully: TMDB results still render when AniList search fails because `src/components/Search/SearchOverlay.jsx` uses settled-result handling instead of all-or-nothing failure
 - Anime search results open through TMDB-matched anime detail rather than using AniList/MAL ids as TMDB ids
+- Anime detail now supports `/detail/anime/:id` as an app-level route while internally resolving TMDB through `tv`/`movie`; Watchlist and History preserve anime route state and can recover missing AniList identity from TMDB/AniList title matching
 - Standard seasonal anime and long-running anime still use the existing mapper structure; do not casually rewrite anime browse/detail grouping logic
-- AnimeKai fallback experiments were dropped from the active path; do not reintroduce AnimeKai changes into the working anime stack unless they are rebuilt cleanly and isolated from Gogoanime
+- AnimeKai subtitle thumbnail tracks must stay filtered out; server preference is hard-sub first, soft-sub second, dub skipped
 
 ## Movie / Series / Animation Streaming
 - Native playback now uses `src/components/Player/MoviePlayer.jsx`
@@ -179,9 +181,9 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - movie/series subtitle download prefers aligned English candidates and supports direct text, zip/gzip archives, and merged HLS subtitle playlists
 - Anime downloads are integrated into the same system and must remain provider-ordered:
   - `gogoanime` primary
-  - `animepahe` fallback
-  - do not reintroduce `animekai`
-- AnimePahe now uses `animepahe.com` and browser-session-backed resolution where needed; normal direct network fetches may still fail in environments where AnimePahe is browser-only
+  - `animekai` fallback
+  - do not route through AnimePahe in the active fallback path unless it is rebuilt and proven reliable again
+- AnimeKai downloads use the same provider state/search/stream resolver path as playback so AnimeKai-only episodes download the selected episode instead of stale season/episode matches
 - Delete behavior is expected to remove both UI/catalog entries and related on-disk download artifacts; if you touch delete flows, preserve that invariant
 - Download location is user-configurable from Settings, with reset-to-default support and real disk usage reporting
 
@@ -280,6 +282,7 @@ GitHub: `uchennaexecutive-sudo/novastream-test`
   - Watch Party player/runtime path is already lazy-loaded, but deeper chunk optimization can still be done later
 
 ## Version History
+- v1.8.0 - Ship AnimeKai as the active fallback behind Gogoanime, remove AnimePahe from the fallback path, speed up anime startup with Gogo-first resolution and AnimeKai caching, fix AnimeKai streaming/download resolution, filter bad subtitle thumbnails, and persist anime routing from Watchlist/History
 - v1.7.8 - Fix anime wrong-season playback for sequels (JJK S3, Frieren S2) by preventing stale prefetch from overriding fresh provider scoring, re-enable anime resume via canplay-gated seek so backward seeks no longer snap back, and add progress bars to anime episode cards
 - v1.7.5 - Fix standalone ONA season mapping and first-load anime identity recovery, make Continue Watching / Watchlist / History removals persist correctly, and tighten movie `No HD` warnings so only recent theatrical-only releases are tagged
 - v1.7.4 - Restore signed-in user data hydration, fix resume reopening in native playback, recover the Downloads library from existing on-disk files, and add the missing Tauri capability grants for library scanning

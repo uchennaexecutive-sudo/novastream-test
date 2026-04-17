@@ -14,6 +14,81 @@ import {
 
 const PROVIDER_ID = ANIME_PROVIDER_IDS.ANIMEKAI
 const PROVIDER_LABEL = ANIME_PROVIDER_LABELS[PROVIDER_ID]
+const ANIMEKAI_AGENT =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+const ANIMEKAI_BASE_HEADERS = {
+    'User-Agent': ANIMEKAI_AGENT,
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    Referer: 'https://anikai.to/',
+}
+const ANIMEKAI_JSON_HEADERS = {
+    ...ANIMEKAI_BASE_HEADERS,
+    Accept: 'application/json, text/plain, */*',
+}
+const animekaiValueCache = new Map()
+const animekaiPromiseCache = new Map()
+
+function nowMs() {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()
+}
+
+function logAnimeKaiTiming(stage, details = {}) {
+    console.info('[animekai/timing]', { stage, ...details })
+}
+
+async function cachedAnimekaiRequest(cacheKey, factory, options = {}) {
+    const { label = '', ttlMs = 0 } = options
+
+    if (animekaiValueCache.has(cacheKey)) {
+        const cached = animekaiValueCache.get(cacheKey)
+        if (cached?.__animekaiCacheEntry) {
+            if (!cached.expiresAt || cached.expiresAt > Date.now()) {
+                if (label) {
+                    logAnimeKaiTiming(`${label}.cacheHit`, { cacheKey })
+                }
+                return cached.value
+            }
+
+            animekaiValueCache.delete(cacheKey)
+        } else {
+            if (label) {
+                logAnimeKaiTiming(`${label}.cacheHit`, { cacheKey })
+            }
+            return cached
+        }
+    }
+
+    if (animekaiPromiseCache.has(cacheKey)) {
+        if (label) {
+            logAnimeKaiTiming(`${label}.promiseHit`, { cacheKey })
+        }
+        return animekaiPromiseCache.get(cacheKey)
+    }
+
+    const expiresAt = ttlMs > 0 ? Date.now() + ttlMs : 0
+
+    const promise = Promise.resolve()
+        .then(factory)
+        .then((result) => {
+            animekaiPromiseCache.delete(cacheKey)
+            animekaiValueCache.set(cacheKey, {
+                __animekaiCacheEntry: true,
+                expiresAt,
+                value: result,
+            })
+            return result
+        })
+        .catch((error) => {
+            animekaiPromiseCache.delete(cacheKey)
+            throw error
+        })
+
+    animekaiPromiseCache.set(cacheKey, promise)
+    return promise
+}
 
 function assertNotCloudflareBlock(html, context) {
     if (
@@ -41,7 +116,7 @@ async function fetchProviderHtml(url, headers = {}, options = {}) {
         return invoke('fetch_anime_text', {
             url,
             headers: {
-                'User-Agent': 'Mozilla/5.0',
+                ...ANIMEKAI_BASE_HEADERS,
                 ...headers,
             },
             method,
@@ -52,7 +127,7 @@ async function fetchProviderHtml(url, headers = {}, options = {}) {
     const response = await fetch(url, {
         method,
         headers: {
-            'User-Agent': 'Mozilla/5.0',
+            ...ANIMEKAI_BASE_HEADERS,
             ...headers,
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -67,11 +142,22 @@ async function fetchProviderHtml(url, headers = {}, options = {}) {
 
 async function fetchProviderJson(url, { method = 'GET', headers = {}, body = null } = {}) {
     if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
+        console.warn('[animekai] fetchProviderJson headers', {
+            url,
+            headers: {
+                ...ANIMEKAI_JSON_HEADERS,
+                'Content-Type': 'application/json',
+                ...headers,
+            },
+            method,
+            body: body ? JSON.stringify(body) : null,
+        })
+
         const responseText = await invoke('fetch_anime_text', {
             url,
             headers: {
+                ...ANIMEKAI_JSON_HEADERS,
                 'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0',
                 ...headers,
             },
             method,
@@ -84,8 +170,8 @@ async function fetchProviderJson(url, { method = 'GET', headers = {}, body = nul
     const response = await fetch(url, {
         method,
         headers: {
+            ...ANIMEKAI_JSON_HEADERS,
             'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0',
             ...headers,
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -185,41 +271,85 @@ function parseAjaxResponse(data) {
 }
 
 async function generateKaiToken(text) {
-    const value = await fetchProviderJson('https://enc-dec.app/api/enc-kai?text=' + encodeURIComponent(String(text || '')), {
-        method: 'GET',
-        headers: {
-            Referer: 'https://anikai.to/',
-        },
-    })
+    return cachedAnimekaiRequest(`enc-kai:${text}`, async () => {
+        const value = await fetchProviderJson(
+            'https://enc-dec.app/api/enc-kai?text=' + encodeURIComponent(String(text || '')),
+            {
+                method: 'GET',
+                headers: {
+                    Referer: 'https://anikai.to/',
+                },
+            }
+        )
 
-    if (typeof value === 'string') return value
-    return value?.result || value?.token || value?.data || ''
+        if (typeof value === 'string') return value
+        return value?.result || value?.token || value?.data || ''
+    })
 }
 
 async function decodeIframeData(token) {
-    const value = await fetchProviderJson('https://enc-dec.app/api/dec-kai', {
-        method: 'POST',
-        headers: {
-            Referer: 'https://anikai.to/',
-        },
-        body: { text: token },
-    })
+    return cachedAnimekaiRequest(`dec-kai:${token}`, async () => {
+        const value = await fetchProviderJson('https://enc-dec.app/api/dec-kai', {
+            method: 'POST',
+            headers: {
+                Referer: 'https://anikai.to/',
+            },
+            body: { text: token },
+        })
 
-    if (typeof value === 'string') return value
-    return value?.result || value?.data || ''
+        if (typeof value === 'string') return value
+        return value?.result || value?.data || ''
+    })
+}
+async function decodeMegaData(token) {
+    return cachedAnimekaiRequest(`dec-mega:${token}`, async () => {
+        const value = await fetchProviderJson('https://enc-dec.app/api/dec-mega', {
+            method: 'POST',
+            headers: {
+                Referer: 'https://anikai.to/',
+                'User-Agent': ANIMEKAI_AGENT,
+            },
+            body: {
+                text: token,
+                agent: ANIMEKAI_AGENT,
+            },
+        })
+
+        if (typeof value === 'string') return value
+        return value?.result || value?.data || ''
+    }, { ttlMs: 2 * 60 * 1000 })
 }
 
-async function decodeMegaData(token) {
-    const value = await fetchProviderJson('https://enc-dec.app/api/dec-mega', {
-        method: 'POST',
-        headers: {
-            Referer: 'https://anikai.to/',
-        },
-        body: { text: token },
-    })
+async function fetchMegaMediaJson(embedBase, videoId) {
+    const mediaUrl = `${embedBase}/media/${encodeURIComponent(videoId)}`
 
-    if (typeof value === 'string') return value
-    return value?.result || value?.data || ''
+    return cachedAnimekaiRequest(`media:${mediaUrl}`, async () => {
+        if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
+            const mediaResponseText = await invoke('fetch_anime_text', {
+                url: mediaUrl,
+                headers: {
+                    ...ANIMEKAI_JSON_HEADERS,
+                },
+                method: 'GET',
+                body: null,
+            })
+
+            return JSON.parse(mediaResponseText)
+        }
+
+        const mediaResponse = await fetch(mediaUrl, {
+            method: 'GET',
+            headers: {
+                ...ANIMEKAI_JSON_HEADERS,
+            },
+        })
+
+        if (!mediaResponse.ok) {
+            throw new Error(`AnimeKai media fetch failed with status ${mediaResponse.status}`)
+        }
+
+        return mediaResponse.json()
+    }, { label: 'media', ttlMs: 2 * 60 * 1000 })
 }
 
 function parseEpisodeListHtml(html, animeId) {
@@ -297,24 +427,127 @@ async function fetchProviderAnimeInfo(animeId) {
     }
 }
 
+async function resolveMegaUpToPlayableUrl(pageUrl) {
+    const normalizedUrl = String(pageUrl || '').trim()
+    if (!normalizedUrl) {
+        return {
+            playableUrl: '',
+            headers: {},
+            streamType: '',
+        }
+    }
+
+    const pageHtml = await fetchProviderHtml(normalizedUrl, {
+        Referer: 'https://anikai.to/',
+        'User-Agent': ANIMEKAI_AGENT,
+    })
+    console.warn('[animekai] megaup html preview', pageHtml.slice(0, 3000))
+
+    const iframeMatch = pageHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i)
+    console.warn('[animekai] megaup iframe match', iframeMatch?.[1] || null)
+    let iframeUrl = iframeMatch?.[1] ? String(iframeMatch[1]).trim() : ''
+
+    if (iframeUrl.startsWith('//')) {
+        iframeUrl = `https:${iframeUrl}`
+    }
+
+    if (!iframeUrl) {
+        const directM3u8Match = pageHtml.match(/https?:\/\/[^"'`\s<>]+\.m3u8[^"'`\s<>]*/i)
+        const directMp4Match = pageHtml.match(/https?:\/\/[^"'`\s<>]+\.mp4[^"'`\s<>]*/i)
+        const directUrl = directM3u8Match?.[0] || directMp4Match?.[0] || ''
+
+        if (directUrl) {
+            return {
+                playableUrl: directUrl,
+                headers: {
+                    Referer: normalizedUrl,
+                    Origin: new URL(normalizedUrl).origin,
+                    'User-Agent': ANIMEKAI_AGENT,
+                },
+                streamType: detectAnimeStreamType(directUrl, ''),
+            }
+        }
+
+        return {
+            playableUrl: '',
+            headers: {},
+            streamType: '',
+        }
+    }
+
+    const iframeHtml = await fetchProviderHtml(iframeUrl, {
+        Referer: normalizedUrl,
+        Origin: new URL(normalizedUrl).origin,
+        'User-Agent': ANIMEKAI_AGENT,
+    })
+
+    const iframeM3u8Match = iframeHtml.match(/https?:\/\/[^"'`\s<>]+\.m3u8[^"'`\s<>]*/i)
+    const iframeMp4Match = iframeHtml.match(/https?:\/\/[^"'`\s<>]+\.mp4[^"'`\s<>]*/i)
+    const playableUrl = iframeM3u8Match?.[0] || iframeMp4Match?.[0] || ''
+
+    if (!playableUrl) {
+        return {
+            playableUrl: '',
+            headers: {},
+            streamType: '',
+        }
+    }
+
+    return {
+        playableUrl,
+        headers: {
+            Referer: iframeUrl,
+            Origin: new URL(iframeUrl).origin,
+            'User-Agent': ANIMEKAI_AGENT,
+        },
+        streamType: detectAnimeStreamType(playableUrl, ''),
+    }
+}
+
 async function fetchProviderEpisodeSources(episodeId, animeId = '') {
+    return cachedAnimekaiRequest(
+        `episode-sources:${animeId}:${episodeId}`,
+        () => fetchProviderEpisodeSourcesUncached(episodeId, animeId),
+        { label: 'episodeSources', ttlMs: 2 * 60 * 1000 }
+    )
+}
+
+async function fetchProviderEpisodeSourcesUncached(episodeId, animeId = '') {
+    const totalStart = nowMs()
     const tokenPart = String(episodeId || '').split('$token=')[1] || ''
     if (!tokenPart) {
         throw new Error('AnimeKai episode token missing')
     }
 
+    const tokenStart = nowMs()
     const token = await generateKaiToken(tokenPart)
+    logAnimeKaiTiming('encEpisodeToken', {
+        animeId,
+        episodeId,
+        elapsedMs: Math.round(nowMs() - tokenStart),
+    })
+
     if (!token) {
         throw new Error('AnimeKai links token not found')
     }
 
-    const linkListResponse = await fetchProviderHtml(
-        `https://anikai.to/ajax/links/list?token=${encodeURIComponent(tokenPart)}&_=${encodeURIComponent(token)}`,
-        {
-            Referer: animeId ? buildProviderWatchUrl(animeId) : 'https://anikai.to/',
-            'X-Requested-With': 'XMLHttpRequest',
-        }
+    const linksListStart = nowMs()
+    const linkListResponse = await cachedAnimekaiRequest(
+        `links-list:${tokenPart}`,
+        () => fetchProviderHtml(
+            `https://anikai.to/ajax/links/list?token=${encodeURIComponent(tokenPart)}&_=${encodeURIComponent(token)}`,
+            {
+                Referer: animeId ? buildProviderWatchUrl(animeId) : 'https://anikai.to/',
+                'X-Requested-With': 'XMLHttpRequest',
+            }
+        ),
+        { label: 'linksList', ttlMs: 5 * 60 * 1000 }
     )
+    logAnimeKaiTiming('linksList', {
+        animeId,
+        episodeId,
+        elapsedMs: Math.round(nowMs() - linksListStart),
+    })
 
     const linkListParsed = parseAjaxResponse(linkListResponse)
     const linkListHtml =
@@ -323,73 +556,253 @@ async function fetchProviderEpisodeSources(episodeId, animeId = '') {
             : String(linkListResponse || '')
 
     const $links = load(linkListHtml)
-    const serverLinks = []
+    const serverTypeTabs = []
 
-    $links('.server-items .server').each((_, element) => {
+    $links('.server-type span, .server-type button, .server-type a').each((_, element) => {
         const node = $links(element)
-        const id = node.attr('data-lid') || node.attr('data-id') || ''
-        const serverName = node.text().trim() || 'default'
-        if (!id) return
-        serverLinks.push({ id, serverName })
+        const serverType = normalizeAnimeKaiServerType([
+            node.attr('data-value'),
+            node.attr('data-type'),
+            node.attr('class'),
+            node.text(),
+        ])
+        if (serverType) serverTypeTabs.push(serverType)
+    })
+
+    const serverLinks = []
+    const serverItems = $links('.server-items')
+
+    serverItems.each((groupIndex, groupElement) => {
+        const group = $links(groupElement)
+        const groupType = normalizeAnimeKaiServerType([
+            group.attr('data-value'),
+            group.attr('data-type'),
+            group.attr('class'),
+            serverTypeTabs[groupIndex],
+        ]) || inferAnimeKaiServerTypeFromIndex(groupIndex)
+
+        group.find('.server').each((_, element) => {
+            const node = $links(element)
+            const id = node.attr('data-lid') || node.attr('data-id') || ''
+            const serverName = node.text().trim() || 'default'
+            const serverType = normalizeAnimeKaiServerType([
+                node.attr('data-value'),
+                node.attr('data-type'),
+                node.attr('class'),
+                groupType,
+                serverName,
+            ]) || groupType
+
+            if (!id || serverType === 'dub') return
+
+            serverLinks.push({
+                id,
+                serverName,
+                serverType,
+                priority: getAnimeKaiServerPriority(serverType),
+            })
+        })
+    })
+
+    if (!serverLinks.length) {
+        $links('.server-items .server, .server').each((_, element) => {
+            const node = $links(element)
+            const id = node.attr('data-lid') || node.attr('data-id') || ''
+            const serverName = node.text().trim() || 'default'
+            const serverType = normalizeAnimeKaiServerType([
+                node.attr('data-value'),
+                node.attr('data-type'),
+                node.attr('class'),
+                serverName,
+            ]) || 'unknown'
+
+            if (!id || serverType === 'dub') return
+
+            serverLinks.push({
+                id,
+                serverName,
+                serverType,
+                priority: getAnimeKaiServerPriority(serverType),
+            })
+        })
+    }
+
+    serverLinks.sort((a, b) => (
+        a.priority - b.priority ||
+        a.serverName.localeCompare(b.serverName)
+    ))
+
+    logAnimeKaiTiming('serverPlan', {
+        animeId,
+        episodeId,
+        serverCount: serverLinks.length,
+        serverTypes: serverLinks.map((server) => server.serverType).filter(Boolean),
     })
 
     const allSources = []
     let sharedHeaders = {}
-    const sharedSubtitles = []
+    let sharedSubtitles = []
 
     for (const server of serverLinks) {
+        const serverStart = nowMs()
         try {
+            const idTokenStart = nowMs()
             const idToken = await generateKaiToken(server.id)
+            logAnimeKaiTiming('encServerId', {
+                animeId,
+                episodeId,
+                serverName: server.serverName,
+                serverType: server.serverType,
+                elapsedMs: Math.round(nowMs() - idTokenStart),
+            })
+
             if (!idToken) continue
 
-            const linkJson = await fetchProviderJson(
-                `https://anikai.to/ajax/links/view?id=${encodeURIComponent(server.id)}&_=${encodeURIComponent(idToken)}`,
-                {
-                    method: 'GET',
-                    headers: {
-                        Referer: animeId ? buildProviderWatchUrl(animeId) : 'https://anikai.to/',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                }
+            const linksViewStart = nowMs()
+            const linkJson = await cachedAnimekaiRequest(
+                `links-view:${server.id}`,
+                () => fetchProviderJson(
+                    `https://anikai.to/ajax/links/view?id=${encodeURIComponent(server.id)}&_=${encodeURIComponent(idToken)}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            Referer: animeId ? buildProviderWatchUrl(animeId) : 'https://anikai.to/',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    }
+                ),
+                { label: 'linksView', ttlMs: 5 * 60 * 1000 }
             )
+            logAnimeKaiTiming('linksView', {
+                animeId,
+                episodeId,
+                serverName: server.serverName,
+                serverType: server.serverType,
+                elapsedMs: Math.round(nowMs() - linksViewStart),
+            })
 
             const encodedResult = linkJson?.result || ''
             if (!encodedResult) continue
 
+            const decKaiStart = nowMs()
             const decodedIframe = await decodeIframeData(encodedResult)
+            logAnimeKaiTiming('decKai', {
+                animeId,
+                episodeId,
+                serverName: server.serverName,
+                serverType: server.serverType,
+                elapsedMs: Math.round(nowMs() - decKaiStart),
+            })
+
             if (!decodedIframe) continue
 
-            let finalUrl =
+            const embedUrl = String(
                 typeof decodedIframe === 'string'
                     ? decodedIframe
                     : decodedIframe?.url || ''
+            ).trim()
 
-            if (!/^https?:\/\//i.test(finalUrl)) {
-                finalUrl = await decodeMegaData(finalUrl)
-            }
+            if (!embedUrl) continue
 
-            finalUrl = String(finalUrl || '').trim()
-            if (!finalUrl) continue
+            const videoId = embedUrl.replace(/\/+$/, '').split('/').pop() || ''
+            const embedBase = embedUrl.includes('/e/')
+                ? embedUrl.split('/e/')[0]
+                : embedUrl.replace(/\/[^/]+$/, '')
 
-            const streamType = detectAnimeStreamType(finalUrl, '')
+            if (!videoId || !embedBase) continue
+
+            const mediaStart = nowMs()
+            const mediaJson = await fetchMegaMediaJson(embedBase, videoId)
+            logAnimeKaiTiming('media', {
+                animeId,
+                episodeId,
+                serverName: server.serverName,
+                serverType: server.serverType,
+                elapsedMs: Math.round(nowMs() - mediaStart),
+            })
+
+            const encryptedMedia = mediaJson?.result || ''
+            if (!encryptedMedia) continue
+
+            const decMegaStart = nowMs()
+            const finalData = await decodeMegaData(encryptedMedia)
+            logAnimeKaiTiming('decMega', {
+                animeId,
+                episodeId,
+                serverName: server.serverName,
+                serverType: server.serverType,
+                elapsedMs: Math.round(nowMs() - decMegaStart),
+            })
+
+            if (!finalData) continue
+
+            const rawSources = Array.isArray(finalData?.sources) ? finalData.sources : []
+            const rawTracks = Array.isArray(finalData?.tracks) ? finalData.tracks : []
+
             const headers = {
-                Referer: 'https://anikai.to/',
-                'User-Agent': 'Mozilla/5.0',
+                Referer: embedUrl,
+                Origin: new URL(embedUrl).origin,
+                'User-Agent': ANIMEKAI_AGENT,
             }
 
             sharedHeaders = headers
+            sharedSubtitles = rawTracks
 
-            allSources.push({
-                url: finalUrl,
-                type: streamType === 'hls' ? 'hls' : 'mp4',
-                quality: server.serverName || 'default',
-                headers,
-                subtitles: sharedSubtitles,
-            })
+            for (const source of rawSources) {
+                const sourceUrl = String(source?.file || source?.url || source?.src || '').trim()
+                if (!sourceUrl) continue
+
+                const streamType = detectAnimeStreamType(
+                    sourceUrl,
+                    source?.type || source?.format || ''
+                )
+
+                allSources.push({
+                    url: sourceUrl,
+                    type: streamType === 'hls' ? 'hls' : 'mp4',
+                    quality: source?.label || source?.quality || server.serverName || 'default',
+                    headers,
+                    subtitles: rawTracks,
+                })
+            }
+
+            if (allSources.length) {
+                logAnimeKaiTiming('serverResolved', {
+                    animeId,
+                    episodeId,
+                    serverName: server.serverName,
+                    serverType: server.serverType,
+                    sourceCount: allSources.length,
+                    elapsedMs: Math.round(nowMs() - serverStart),
+                    totalElapsedMs: Math.round(nowMs() - totalStart),
+                })
+
+                return {
+                    animeId,
+                    episodeId,
+                    headers: sharedHeaders,
+                    subtitles: sharedSubtitles,
+                    sources: allSources,
+                }
+            }
         } catch (error) {
             console.warn(`[animeAddons/${PROVIDER_ID}] server source resolve failed`, error)
+            logAnimeKaiTiming('serverFailed', {
+                animeId,
+                episodeId,
+                serverName: server.serverName,
+                serverType: server.serverType,
+                elapsedMs: Math.round(nowMs() - serverStart),
+                message: error instanceof Error ? error.message : String(error),
+            })
         }
     }
+
+    logAnimeKaiTiming('episodeSources.empty', {
+        animeId,
+        episodeId,
+        elapsedMs: Math.round(nowMs() - totalStart),
+    })
 
     return {
         animeId,
@@ -450,6 +863,20 @@ function normalizeSubtitleTrack(track = {}) {
     if (!url) return null
 
     const lang = track?.lang || track?.language || track?.label || 'Unknown'
+    const lowerUrl = String(url || '').toLowerCase()
+    const lowerLang = String(lang || '').toLowerCase()
+    const lowerKind = String(track?.kind || '').toLowerCase()
+    const lowerLabel = String(track?.label || '').toLowerCase()
+
+    if (
+        lowerKind === 'thumbnails' ||
+        lowerLang.includes('thumbnail') ||
+        lowerLabel.includes('thumbnail') ||
+        lowerUrl.includes('thumbnails.') ||
+        lowerUrl.includes('/thumbnails')
+    ) {
+        return null
+    }
 
     return createAnimeSubtitleTrack({
         lang,
@@ -458,6 +885,35 @@ function normalizeSubtitleTrack(track = {}) {
         label: track?.label || lang,
         raw: track,
     })
+}
+
+function normalizeAnimeKaiServerType(values = []) {
+    const text = values
+        .filter(Boolean)
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ')
+        .replace(/[_-]+/g, ' ')
+
+    if (!text.trim()) return ''
+    if (/\bdub\b/.test(text) || text.includes('dubbed')) return 'dub'
+    if (text.includes('soft sub') || text.includes('softsub') || text.includes('soft subtitle')) return 'soft'
+    if (text.includes('hard sub') || text.includes('hardsub') || text.includes('hard subtitle')) return 'hard'
+    if (/\bsub\b/.test(text) || text.includes('subbed')) return 'hard'
+    return ''
+}
+
+function inferAnimeKaiServerTypeFromIndex(index) {
+    if (index === 0) return 'hard'
+    if (index === 1) return 'soft'
+    if (index === 2) return 'dub'
+    return 'unknown'
+}
+
+function getAnimeKaiServerPriority(serverType) {
+    if (serverType === 'hard') return 0
+    if (serverType === 'soft') return 1
+    if (serverType === 'unknown') return 2
+    return 99
 }
 
 function normalizeStreamItem(stream = {}, { animeId = '', episodeId = '' } = {}) {
@@ -620,6 +1076,7 @@ export const animekaiProvider = {
                 : null
 
             const extraCandidates = rawStreams
+                .filter((stream) => String(stream?.url || '').trim() !== String(primaryStream?.url || '').trim())
                 .map((stream) => {
                     const normalized = normalizeStreamItem({
                         ...stream,

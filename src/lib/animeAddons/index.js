@@ -1,9 +1,9 @@
 import gogoanimeProvider from './providers/gogoanime'
-import animepaheProvider from './providers/animepahe'
+import animekaiProvider from './providers/animekai'
 
 export const animeAddonProviders = [
     gogoanimeProvider,
-    animepaheProvider,
+    animekaiProvider,
 ]
 
 export function getAnimeAddonProvider(providerId) {

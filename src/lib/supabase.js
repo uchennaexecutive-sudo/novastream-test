@@ -25,6 +25,13 @@ function normalizeMediaType(value) {
   return normalized || 'movie'
 }
 
+function normalizeDetailMediaType(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'series') return 'tv'
+  if (normalized === 'tv' || normalized === 'movie') return normalized
+  return null
+}
+
 function normalizePosterPath(value) {
   const normalized = String(value || '').trim()
   if (!normalized) return null
@@ -95,6 +102,11 @@ function normalizeWatchlistEntry(item = {}) {
     id: item.tmdb_id,
     tmdb_id: item.tmdb_id,
     media_type: normalizeMediaType(item.media_type),
+    detail_media_type: normalizeDetailMediaType(item.detail_media_type || item.detailMediaType),
+    anilist_id: Number(item.anilist_id || item.anilistId) || null,
+    canonical_anilist_id: Number(item.canonical_anilist_id || item.canonicalAnilistId) || null,
+    anime_title: item.anime_title || item.animeTitle || null,
+    anime_alt_title: item.anime_alt_title || item.animeAltTitle || null,
     title: item.title || '',
     poster_path: item.poster_path || null,
     added_at: item.added_at || new Date().toISOString(),
@@ -106,6 +118,11 @@ function normalizeHistoryEntry(item = {}) {
     id: item.tmdb_id,
     tmdb_id: item.tmdb_id,
     media_type: normalizeMediaType(item.media_type),
+    detail_media_type: normalizeDetailMediaType(item.detail_media_type || item.detailMediaType),
+    anilist_id: Number(item.anilist_id || item.anilistId) || null,
+    canonical_anilist_id: Number(item.canonical_anilist_id || item.canonicalAnilistId) || null,
+    anime_title: item.anime_title || item.animeTitle || null,
+    anime_alt_title: item.anime_alt_title || item.animeAltTitle || null,
     title: item.title || '',
     poster_path: normalizePosterPath(item.poster_path),
     season: Number(item.season) || null,
@@ -244,6 +261,11 @@ export const addToWatchlist = async (item) => {
   const entry = normalizeWatchlistEntry({
     tmdb_id: item.tmdb_id,
     media_type: item.media_type,
+    detail_media_type: item.detail_media_type || item.detailMediaType,
+    anilist_id: item.anilist_id || item.anilistId,
+    canonical_anilist_id: item.canonical_anilist_id || item.canonicalAnilistId,
+    anime_title: item.anime_title || item.animeTitle,
+    anime_alt_title: item.anime_alt_title || item.animeAltTitle,
     title: item.title,
     poster_path: item.poster_path,
     added_at: item.added_at || new Date().toISOString(),
@@ -340,6 +362,11 @@ export const addToHistory = async (item) => {
   const entry = normalizeHistoryEntry({
     tmdb_id: item.tmdb_id,
     media_type: item.media_type,
+    detail_media_type: item.detail_media_type || item.detailMediaType,
+    anilist_id: item.anilist_id || item.anilistId,
+    canonical_anilist_id: item.canonical_anilist_id || item.canonicalAnilistId,
+    anime_title: item.anime_title || item.animeTitle,
+    anime_alt_title: item.anime_alt_title || item.animeAltTitle,
     title: item.title,
     poster_path: normalizePosterPath(item.poster_path),
     season: item.season,
@@ -417,6 +444,11 @@ export const removeFromHistory = async (tmdbId) => {
 export const syncPlaybackHistory = async ({
   tmdbId,
   mediaType,
+  detailMediaType = null,
+  anilistId = null,
+  canonicalAnilistId = null,
+  animeTitle = null,
+  animeAltTitle = null,
   title,
   posterPath,
   season = null,
@@ -431,6 +463,11 @@ export const syncPlaybackHistory = async ({
   return addToHistory({
     tmdb_id: Number(tmdbId),
     media_type: normalizeMediaType(mediaType),
+    detail_media_type: detailMediaType,
+    anilist_id: anilistId,
+    canonical_anilist_id: canonicalAnilistId,
+    anime_title: animeTitle,
+    anime_alt_title: animeAltTitle,
     title,
     poster_path: normalizePosterPath(posterPath),
     season,
