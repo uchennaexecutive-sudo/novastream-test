@@ -1,21 +1,7 @@
 {
-<<<<<<< Updated upstream
-  "version": "1.7.9",
-  "notes": "v1.7.9 - Auto-release",
-  "pub_date": "2026-04-14T15:48:21Z",
-  "platforms": {
-    "windows-x86_64": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.9/NOVA-STREAM-1.7.9-portable.exe"
-    },
-    "darwin-universal": {
-      "url": "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.7.9/NOVA-STREAM-1.7.9-macos.dmg"
-    }
-  }
-}
-=======
     "version":  "1.8.0",
     "notes":  "v1.8.0 - Ship AnimeKai fallback, faster anime startup, and persistent anime routing from Watchlist/History",
-    "pub_date":  "2026-04-17T00:39:58Z",
+    "pub_date":  "2026-04-17T00:42:25Z",
     "platforms":  {
                       "windows-x86_64":  {
                                              "url":  "https://github.com/uchennaexecutive-sudo/novastream-test/releases/download/v1.8.0/NOVA-STREAM-1.8.0-portable.exe"
@@ -25,4 +11,3 @@
                                            }
                   }
 }
->>>>>>> Stashed changes
